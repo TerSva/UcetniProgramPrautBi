@@ -15,3 +15,7 @@ class NotFoundError(DomainError):
 
 class ConflictError(DomainError):
     """Konflikt — např. duplicitní číslo dokladu."""
+
+
+class PodvojnostError(DomainError):
+    """Porušení podvojnosti — součet MD ≠ součet Dal v sadě zápisů."""

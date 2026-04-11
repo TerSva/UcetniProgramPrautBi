@@ -94,16 +94,6 @@ class TestForeignKeys:
         conn = migrated_factory.create()
         try:
             conn.execute("BEGIN")
-            # Vložíme účet do osnovy (potřebné pro FK md_ucet/dal_ucet)
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) VALUES ('211', 'Pokladna', 'A')"
-            )
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) VALUES ('321', 'Dodavatelé', 'P')"
-            )
-            conn.execute("COMMIT")
-
-            conn.execute("BEGIN")
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
                     "INSERT INTO ucetni_zaznamy (doklad_id, datum, md_ucet, dal_ucet, castka) "
@@ -182,13 +172,8 @@ class TestCheckConstraints:
         """CHECK constraint: ucetni_zaznamy.castka musí být > 0."""
         conn = migrated_factory.create()
         try:
+            # Účty 211, 321 už existují ze seedu (migrace 002)
             conn.execute("BEGIN")
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) VALUES ('211', 'Pokladna', 'A')"
-            )
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) VALUES ('321', 'Dodavatelé', 'P')"
-            )
             conn.execute(
                 "INSERT INTO doklady (cislo, typ, datum_vystaveni) "
                 "VALUES ('FV-001', 'FV', '2026-01-01')"
@@ -208,13 +193,8 @@ class TestCheckConstraints:
         """CHECK constraint: ucetni_zaznamy.castka záporná → IntegrityError."""
         conn = migrated_factory.create()
         try:
+            # Účty 211, 321 už existují ze seedu (migrace 002)
             conn.execute("BEGIN")
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) VALUES ('211', 'Pokladna', 'A')"
-            )
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) VALUES ('321', 'Dodavatelé', 'P')"
-            )
             conn.execute(
                 "INSERT INTO doklady (cislo, typ, datum_vystaveni) "
                 "VALUES ('FV-001', 'FV', '2026-01-01')"
@@ -245,15 +225,7 @@ class TestValidniZaznamy:
                 "VALUES ('Firma s.r.o.', '12345678', 'dodavatel')"
             )
 
-            # Účtová osnova
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) "
-                "VALUES ('321', 'Dodavatelé', 'P')"
-            )
-            conn.execute(
-                "INSERT INTO uctova_osnova (cislo, nazev, typ) "
-                "VALUES ('518', 'Služby', 'N')"
-            )
+            # Účty 321, 518 už existují ze seedu (migrace 002)
 
             # Doklad
             conn.execute(
