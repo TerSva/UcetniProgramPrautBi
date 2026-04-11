@@ -1,0 +1,24 @@
+[project]
+name = "ucetni-program-v2"
+version = "0.1.0"
+description = "Desktopový účetní systém pro české podvojné účetnictví"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.6",
+    "weasyprint>=62.0",
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+]
+
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
