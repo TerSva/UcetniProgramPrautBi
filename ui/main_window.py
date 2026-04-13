@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.pages import DashboardPage, DokladyPage, NastaveniPage
+from ui.viewmodels import DashboardViewModel
 from ui.widgets import Sidebar
 
 
@@ -37,11 +38,12 @@ class MainWindow(QMainWindow):
     DEFAULT_WIDTH: int = 1280
     DEFAULT_HEIGHT: int = 800
 
-    def __init__(self) -> None:
+    def __init__(self, dashboard_vm: DashboardViewModel) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
         self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
 
+        self._dashboard_vm = dashboard_vm
         self._sidebar: Sidebar
         self._stack: QStackedWidget
         self._build_ui()
@@ -75,7 +77,9 @@ class MainWindow(QMainWindow):
         self._sidebar = Sidebar(central)
 
         self._stack = QStackedWidget(central)
-        self._stack.addWidget(DashboardPage(self._stack))  # index 0
+        self._stack.addWidget(
+            DashboardPage(self._dashboard_vm, self._stack)
+        )  # index 0
         self._stack.addWidget(DokladyPage(self._stack))  # index 1
         self._stack.addWidget(NastaveniPage(self._stack))  # index 2
 

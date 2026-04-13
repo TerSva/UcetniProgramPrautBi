@@ -126,6 +126,76 @@ QLabel[class="page-subtitle"] {{
     padding: 0;
 }}
 
+QLabel[class="page-date"] {{
+    color: {Colors.GRAY_500};
+    font-family: "{Fonts.BODY}";
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: transparent;
+    padding-top: 8px;
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   KPI CARD — kartička pro KPI hodnotu na Dashboardu
+   ═══════════════════════════════════════════════════════════ */
+
+QFrame[class="kpi-card"] {{
+    background: {Surfaces.CARD};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.LG}px;
+}}
+
+QFrame[class="kpi-card"][positive="true"] {{
+    border: 1px solid {Colors.PRIMARY_200};
+    background: {Colors.PRIMARY_25};
+}}
+
+QLabel[class="kpi-label"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+    padding: 0;
+}}
+
+QLabel[class="kpi-value"] {{
+    color: {Colors.BRAND};
+    font-family: {Fonts.HEADING_STACK};
+    font-size: {Fonts.SIZE_2XL}px;
+    font-weight: {Fonts.WEIGHT_BOLD};
+    background: transparent;
+    padding: 0;
+}}
+
+QLabel[class="kpi-value"][positive="true"] {{
+    color: {Colors.SUCCESS_700};
+}}
+
+QLabel[class="kpi-subtitle"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_REGULAR};
+    background: transparent;
+    padding: 0;
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   ERROR TEXT — chybové hlášení (např. načítání Dashboard)
+   ═══════════════════════════════════════════════════════════ */
+
+QLabel[class="error-text"] {{
+    color: {Colors.ERROR_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: {Colors.ERROR_50};
+    border: 1px solid {Colors.ERROR_500};
+    border-radius: {Radius.MD}px;
+    padding: {Spacing.S3}px {Spacing.S4}px;
+}}
+
 /* ═══════════════════════════════════════════════════════════
    STACKED WIDGET — kontejner stránek
    ═══════════════════════════════════════════════════════════ */
