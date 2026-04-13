@@ -35,8 +35,9 @@ class SqliteDokladyRepository(DokladyRepository):
             cursor = self._conn.execute(
                 """INSERT INTO doklady
                    (cislo, typ, datum_vystaveni, datum_zdanitelneho_plneni,
-                    datum_splatnosti, partner_id, castka_celkem, mena, stav, popis)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    datum_splatnosti, partner_id, castka_celkem, mena, stav, popis,
+                    k_doreseni, poznamka_doreseni)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doklad.cislo,
                     doklad.typ.value,
@@ -52,6 +53,8 @@ class SqliteDokladyRepository(DokladyRepository):
                     "CZK",
                     doklad.stav.value,
                     doklad.popis,
+                    1 if doklad.k_doreseni else 0,
+                    doklad.poznamka_doreseni,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -71,6 +74,8 @@ class SqliteDokladyRepository(DokladyRepository):
             datum_splatnosti=doklad.datum_splatnosti,
             popis=doklad.popis,
             stav=doklad.stav,
+            k_doreseni=doklad.k_doreseni,
+            poznamka_doreseni=doklad.poznamka_doreseni,
             id=cursor.lastrowid,
         )
 
@@ -84,6 +89,7 @@ class SqliteDokladyRepository(DokladyRepository):
                cislo = ?, typ = ?, datum_vystaveni = ?,
                datum_zdanitelneho_plneni = ?, datum_splatnosti = ?,
                partner_id = ?, castka_celkem = ?, stav = ?, popis = ?,
+               k_doreseni = ?, poznamka_doreseni = ?,
                upraveno = strftime('%Y-%m-%d %H:%M:%S', 'now')
                WHERE id = ?""",
             (
@@ -100,6 +106,8 @@ class SqliteDokladyRepository(DokladyRepository):
                 doklad.castka_celkem.to_halire(),
                 doklad.stav.value,
                 doklad.popis,
+                1 if doklad.k_doreseni else 0,
+                doklad.poznamka_doreseni,
                 doklad.id,
             ),
         )
@@ -158,6 +166,47 @@ class SqliteDokladyRepository(DokladyRepository):
         ).fetchall()
         return [self._row_to_doklad(r) for r in rows]
 
+    def list_k_doreseni(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[Doklad]:
+        rows = self._conn.execute(
+            "SELECT * FROM doklady WHERE k_doreseni = 1 "
+            "ORDER BY datum_vystaveni DESC, id DESC LIMIT ? OFFSET ?",
+            (limit, offset),
+        ).fetchall()
+        return [self._row_to_doklad(r) for r in rows]
+
+    def delete(self, doklad_id: int) -> None:
+        # 1. Doklad existuje? + načíst stav
+        row = self._conn.execute(
+            "SELECT stav FROM doklady WHERE id = ?", (doklad_id,)
+        ).fetchone()
+        if row is None:
+            raise NotFoundError(f"Doklad s id={doklad_id} neexistuje.")
+
+        # 2. Stav je NOVY?
+        if row["stav"] != StavDokladu.NOVY.value:
+            raise ValidationError(
+                f"Nelze smazat doklad id={doklad_id} ve stavu "
+                f"{row['stav']!r}. Pro zaúčtované doklady použij "
+                f"storno přes opravný doklad."
+            )
+
+        # 3. Safety net: nemá účetní zápisy v deníku?
+        count = self._conn.execute(
+            "SELECT COUNT(*) AS cnt FROM ucetni_zaznamy WHERE doklad_id = ?",
+            (doklad_id,),
+        ).fetchone()["cnt"]
+        if count > 0:
+            raise ValidationError(
+                f"Doklad id={doklad_id} má {count} účetních zápisů v deníku. "
+                f"Toto je inkonzistence — zaúčtovaný doklad ve stavu NOVY. "
+                f"Nelze smazat, použij storno."
+            )
+
+        # 4. Delete
+        self._conn.execute("DELETE FROM doklady WHERE id = ?", (doklad_id,))
+
     def _row_to_doklad(self, row: sqlite3.Row) -> Doklad:
         """Mapuje sqlite3.Row na Doklad entitu."""
         return Doklad(
@@ -179,4 +228,6 @@ class SqliteDokladyRepository(DokladyRepository):
             castka_celkem=Money(row["castka_celkem"]),
             popis=row["popis"],
             stav=StavDokladu(row["stav"]),
+            k_doreseni=bool(row["k_doreseni"]),
+            poznamka_doreseni=row["poznamka_doreseni"],
         )

@@ -408,3 +408,285 @@ class TestUowPravidlo:
         repo = SqliteDokladyRepository(uow)
         with pytest.raises(Exception):
             repo.get_by_id(1)
+
+
+# ═══════════════════════════════════════════════════════════════
+# Fáze 4.5: k_doreseni flag + delete()
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestKDoreseniRoundTrip:
+
+    def test_default_false(self, db_factory):
+        """Default Doklad (bez flagu) se uloží s k_doreseni=False."""
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(_doklad())
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            nacteny = repo.get_by_id(ulozeny.id)
+
+        assert nacteny.k_doreseni is False
+        assert nacteny.poznamka_doreseni is None
+
+    def test_flag_true_s_poznamkou(self, db_factory):
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(
+                _doklad(k_doreseni=True, poznamka_doreseni="chybí ICO")
+            )
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            nacteny = repo.get_by_id(ulozeny.id)
+
+        assert nacteny.k_doreseni is True
+        assert nacteny.poznamka_doreseni == "chybí ICO"
+
+    def test_update_flag_z_true_na_false(self, db_factory):
+        """Vlož flagnutý → dores() → update → načti → flag=False."""
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(
+                _doklad(k_doreseni=True, poznamka_doreseni="něco")
+            )
+            write_uow.commit()
+
+        update_uow = SqliteUnitOfWork(db_factory)
+        with update_uow:
+            repo = SqliteDokladyRepository(update_uow)
+            doklad = repo.get_by_id(ulozeny.id)
+            doklad.dores()
+            repo.update(doklad)
+            update_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            nacteny = repo.get_by_id(ulozeny.id)
+
+        assert nacteny.k_doreseni is False
+        assert nacteny.poznamka_doreseni is None
+
+
+class TestListKDoreseni:
+
+    def test_prazdny_seznam(self, db_factory):
+        """Žádný flagnutý doklad → prázdný list."""
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            repo.add(_doklad(cislo="FV-001"))
+            repo.add(_doklad(cislo="FV-002"))
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            vysledek = repo.list_k_doreseni()
+
+        assert vysledek == []
+
+    def test_vrati_jen_flagnute(self, db_factory):
+        """3 flagnuté + 2 nefragnuté → vrátí 3."""
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            for i in range(1, 4):
+                repo.add(_doklad(
+                    cislo=f"FV-FLAG-{i:03d}",
+                    k_doreseni=True,
+                    poznamka_doreseni=f"pozn {i}",
+                ))
+            repo.add(_doklad(cislo="FV-OK-1"))
+            repo.add(_doklad(cislo="FV-OK-2"))
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            vysledek = repo.list_k_doreseni()
+
+        assert len(vysledek) == 3
+        assert all(d.k_doreseni for d in vysledek)
+
+    def test_razeni_desc_podle_datumu(self, db_factory):
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            repo.add(_doklad(
+                cislo="FV-OLD",
+                datum_vystaveni=date(2026, 1, 1),
+                k_doreseni=True,
+            ))
+            repo.add(_doklad(
+                cislo="FV-NEW",
+                datum_vystaveni=date(2026, 3, 1),
+                k_doreseni=True,
+            ))
+            repo.add(_doklad(
+                cislo="FV-MID",
+                datum_vystaveni=date(2026, 2, 1),
+                k_doreseni=True,
+            ))
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            vysledek = repo.list_k_doreseni()
+
+        cisla = [d.cislo for d in vysledek]
+        assert cisla == ["FV-NEW", "FV-MID", "FV-OLD"]
+
+    def test_limit_a_offset(self, db_factory):
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            for i in range(5):
+                repo.add(_doklad(
+                    cislo=f"FV-{i:03d}",
+                    datum_vystaveni=date(2026, 1, 1 + i),
+                    k_doreseni=True,
+                ))
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            prvni_dva = repo.list_k_doreseni(limit=2, offset=0)
+            dalsi_dva = repo.list_k_doreseni(limit=2, offset=2)
+
+        assert len(prvni_dva) == 2
+        assert len(dalsi_dva) == 2
+        # Žádný překryv
+        assert {d.id for d in prvni_dva}.isdisjoint(
+            {d.id for d in dalsi_dva}
+        )
+
+
+class TestDelete:
+
+    def test_smaze_novy_doklad(self, db_factory):
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(_doklad())
+            write_uow.commit()
+
+        delete_uow = SqliteUnitOfWork(db_factory)
+        with delete_uow:
+            repo = SqliteDokladyRepository(delete_uow)
+            repo.delete(ulozeny.id)
+            delete_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            with pytest.raises(NotFoundError):
+                repo.get_by_id(ulozeny.id)
+
+    def test_neexistujici_not_found(self, db_factory):
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            with pytest.raises(NotFoundError, match="id=99999"):
+                repo.delete(99999)
+
+    def test_zauctovany_nelze(self, db_factory):
+        """Vlož NOVY, zauctuj přes entity, update, pak delete → chyba."""
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(_doklad())
+            write_uow.commit()
+
+        update_uow = SqliteUnitOfWork(db_factory)
+        with update_uow:
+            repo = SqliteDokladyRepository(update_uow)
+            doklad = repo.get_by_id(ulozeny.id)
+            doklad.zauctuj()
+            repo.update(doklad)
+            update_uow.commit()
+
+        delete_uow = SqliteUnitOfWork(db_factory)
+        with delete_uow:
+            repo = SqliteDokladyRepository(delete_uow)
+            with pytest.raises(ValidationError, match="Nelze smazat"):
+                repo.delete(ulozeny.id)
+
+    def test_flagnuty_novy_lze_smazat(self, db_factory):
+        """Flag nebrání mazání NOVY dokladů."""
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(_doklad(
+                k_doreseni=True,
+                poznamka_doreseni="rozpracovaný",
+            ))
+            write_uow.commit()
+
+        delete_uow = SqliteUnitOfWork(db_factory)
+        with delete_uow:
+            repo = SqliteDokladyRepository(delete_uow)
+            repo.delete(ulozeny.id)
+            delete_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            with pytest.raises(NotFoundError):
+                repo.get_by_id(ulozeny.id)
+
+    def test_safety_net_novy_s_zapisy(self, db_factory):
+        """Safety net: NOVY doklad se zápisy v deníku (teoreticky nemožný
+        stav) nesmí jít smazat — delete() musí vyhodit ValidationError.
+
+        Důvod safety netu: chrání proti budoucím bugům, které by nechaly
+        zápisy v deníku bez nastavení stavu na ZAUCTOVANY, nebo ruční
+        SQL korupce.
+        """
+        # 1. Vytvoř NOVY doklad přes repo (normální API)
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            ulozeny = repo.add(_doklad())
+            write_uow.commit()
+
+        # 2. Obejdi repo a přímo vlož řádek do ucetni_zaznamy
+        #    (simuluje inkonzistenci / bug v jiné vrstvě)
+        hack_uow = SqliteUnitOfWork(db_factory)
+        with hack_uow:
+            # Nejdřív potřebujeme účty v osnově (seed migrace 002)
+            # 311/601 už tam jsou ze seed migrace.
+            hack_uow.connection.execute(
+                """INSERT INTO ucetni_zaznamy
+                   (doklad_id, datum, md_ucet, dal_ucet, castka, popis)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (ulozeny.id, "2026-01-15", "311", "601", 100000, "fake"),
+            )
+            hack_uow.commit()
+
+        # 3. Pokus o delete musí selhat safety netem
+        delete_uow = SqliteUnitOfWork(db_factory)
+        with delete_uow:
+            repo = SqliteDokladyRepository(delete_uow)
+            with pytest.raises(
+                ValidationError, match="účetních zápisů"
+            ):
+                repo.delete(ulozeny.id)
+
+        # 4. Ověř, že doklad v DB stále je (delete neproběhl)
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            stale_tam = repo.get_by_id(ulozeny.id)
+            assert stale_tam.id == ulozeny.id

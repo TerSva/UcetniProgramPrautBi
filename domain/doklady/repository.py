@@ -14,10 +14,19 @@ from domain.doklady.typy import StavDokladu, TypDokladu
 
 
 class DokladyRepository(ABC):
-    """Abstraktní repository pro doklady.
+    """Repository pro entitu Doklad.
 
-    Žádné delete() — účetní data se NIKDY nemažou.
-    Storno přes stavový stroj entity.
+    Pravidla mazání:
+    - Mazat lze POUZE NOVY doklady bez účetních zápisů v deníku
+      (koncept "koš na rozpracované" — doklad existuje v evidenci,
+      ale ještě neprošel zaúčtováním, takže nemá daňový/auditovatelný
+      dopad).
+    - Zaúčtovaná účetní data se NIKDY nemažou. Pro zrušení dříve
+      zaúčtovaného dokladu použij storno přes opravný doklad
+      (UctovyPredpis s prohozenými MD/Dal).
+
+    Toto pravidlo je vynucené na úrovni delete() metody a je železné —
+    nedává se obejít ani při administrativních operacích.
     """
 
     @abstractmethod
@@ -65,3 +74,33 @@ class DokladyRepository(ABC):
         self, od: date, do: date, limit: int = 1000, offset: int = 0
     ) -> list[Doklad]:
         """Doklady s datum_vystaveni v intervalu [od, do], sestupně."""
+
+    @abstractmethod
+    def list_k_doreseni(
+        self, limit: int = 100, offset: int = 0
+    ) -> list[Doklad]:
+        """Seznam dokladů s flagem k_doreseni=True.
+
+        Seřazeno sestupně podle datum_vystaveni, pak DESC podle id.
+        Vrací doklady v jakémkoli stavu (NOVY, ZAUCTOVANY, CASTECNE_UHRAZENY,
+        UHRAZENY) — STORNOVANY se v seznamu nikdy neobjeví, protože storno
+        flag auto-clearuje.
+        """
+
+    @abstractmethod
+    def delete(self, doklad_id: int) -> None:
+        """Fyzicky smaže doklad z DB.
+
+        POVOLENO POUZE pro:
+        - Doklad existuje
+        - Stav == NOVY
+        - Nemá žádné zápisy v ucetni_zaznamy (safety net pro inkonzistenci)
+
+        Raises:
+            NotFoundError: doklad s daným id neexistuje
+            ValidationError: doklad není ve stavu NOVY
+            ValidationError: doklad má účetní zápisy v deníku
+
+        POZOR: jediná delete metoda v aplikaci. Pro zaúčtované doklady
+        používej storno přes opravný doklad.
+        """

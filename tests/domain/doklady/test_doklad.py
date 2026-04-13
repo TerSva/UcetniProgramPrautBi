@@ -372,3 +372,216 @@ class TestRepr:
         assert "FV-2026-001" in r
         assert "FV" in r
         assert "novy" in r
+
+
+# ═══════════════════════════════════════════════════════════════
+# Fáze 4.5: flag k_doreseni + poznamka_doreseni
+# ═══════════════════════════════════════════════════════════════
+
+
+class TestKDoreseniDefault:
+
+    def test_default_false(self):
+        d = _doklad()
+        assert d.k_doreseni is False
+        assert d.poznamka_doreseni is None
+
+
+class TestKDoreseniKonstruktor:
+
+    def test_flag_true(self):
+        d = _doklad(k_doreseni=True)
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni is None
+
+    def test_flag_true_s_poznamkou(self):
+        d = _doklad(k_doreseni=True, poznamka_doreseni="chybí ICO")
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni == "chybí ICO"
+
+    def test_neplatny_typ_string(self):
+        with pytest.raises(TypeError, match="k_doreseni musí být bool"):
+            _doklad(k_doreseni="ano")
+
+    def test_neplatny_typ_int_1(self):
+        with pytest.raises(TypeError, match="k_doreseni musí být bool"):
+            _doklad(k_doreseni=1)
+
+    def test_neplatny_typ_int_0(self):
+        with pytest.raises(TypeError, match="k_doreseni musí být bool"):
+            _doklad(k_doreseni=0)
+
+    def test_neplatny_typ_none(self):
+        with pytest.raises(TypeError, match="k_doreseni musí být bool"):
+            _doklad(k_doreseni=None)
+
+    def test_stornovany_nelze_flagnout(self):
+        with pytest.raises(ValidationError, match="Stornované doklady"):
+            _doklad(stav=StavDokladu.STORNOVANY, k_doreseni=True)
+
+    def test_poznamka_bez_flagu(self):
+        with pytest.raises(
+            ValidationError, match="Poznámka k dořešení může existovat jen"
+        ):
+            _doklad(k_doreseni=False, poznamka_doreseni="něco")
+
+    def test_poznamka_prilis_dlouha(self):
+        with pytest.raises(
+            ValidationError, match="Poznámka k dořešení max"
+        ):
+            _doklad(k_doreseni=True, poznamka_doreseni="x" * 501)
+
+    def test_poznamka_500_znaku_ok(self):
+        d = _doklad(k_doreseni=True, poznamka_doreseni="x" * 500)
+        assert len(d.poznamka_doreseni) == 500
+
+
+class TestOznacKDoreseni:
+
+    def test_novy_doklad(self):
+        d = _doklad()
+        d.oznac_k_doreseni()
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni is None
+
+    def test_s_poznamkou(self):
+        d = _doklad()
+        d.oznac_k_doreseni("chybí ICO")
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni == "chybí ICO"
+
+    def test_zauctovany_lze_flagnout(self):
+        """Scénář: pokladní lístek zaúčtován, chybí faktura."""
+        d = _doklad(stav=StavDokladu.ZAUCTOVANY)
+        d.oznac_k_doreseni("vymlátit fakturu od jednatele")
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni == "vymlátit fakturu od jednatele"
+
+    def test_uhrazeny_lze_flagnout(self):
+        d = _doklad(stav=StavDokladu.UHRAZENY)
+        d.oznac_k_doreseni("chybí dokumentace úhrady")
+        assert d.k_doreseni is True
+
+    def test_stornovany_nelze(self):
+        d = _doklad()
+        d.stornuj()
+        with pytest.raises(ValidationError, match="Stornované doklady"):
+            d.oznac_k_doreseni()
+
+    def test_idempotence_update_poznamky(self):
+        """Opakované volání updatuje poznámku — není chyba."""
+        d = _doklad()
+        d.oznac_k_doreseni("verze 1")
+        d.oznac_k_doreseni("verze 2")
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni == "verze 2"
+
+    def test_poznamka_prilis_dlouha(self):
+        d = _doklad()
+        with pytest.raises(ValidationError, match="Poznámka k dořešení max"):
+            d.oznac_k_doreseni("x" * 501)
+
+
+class TestDores:
+
+    def test_zrusi_flag_i_poznamku(self):
+        d = _doklad(k_doreseni=True, poznamka_doreseni="něco")
+        d.dores()
+        assert d.k_doreseni is False
+        assert d.poznamka_doreseni is None
+
+    def test_idempotence_na_nefragnutem(self):
+        """dores() na doklad bez flagu je no-op, ne chyba."""
+        d = _doklad()
+        d.dores()  # nesmí vyhodit
+        assert d.k_doreseni is False
+        assert d.poznamka_doreseni is None
+
+    def test_funguje_ve_vsech_stavech(self):
+        for stav in [
+            StavDokladu.NOVY,
+            StavDokladu.ZAUCTOVANY,
+            StavDokladu.CASTECNE_UHRAZENY,
+            StavDokladu.UHRAZENY,
+        ]:
+            d = _doklad(stav=stav, k_doreseni=True, poznamka_doreseni="x")
+            d.dores()
+            assert d.k_doreseni is False
+
+
+class TestUpravPoznamkuDoreseni:
+
+    def test_na_flagnutem_zmeni_poznamku(self):
+        d = _doklad(k_doreseni=True, poznamka_doreseni="stará")
+        d.uprav_poznamku_doreseni("nová")
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni == "nová"
+
+    def test_na_none_flag_zustava(self):
+        d = _doklad(k_doreseni=True, poznamka_doreseni="původní")
+        d.uprav_poznamku_doreseni(None)
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni is None
+
+    def test_na_nefragnutem_raises(self):
+        d = _doklad()
+        with pytest.raises(
+            ValidationError, match="Nelze upravovat poznámku"
+        ):
+            d.uprav_poznamku_doreseni("cokoli")
+
+    def test_na_nefragnutem_none_taky_raises(self):
+        """Konzistence: nelze sahat na poznámku nefragnutého dokladu."""
+        d = _doklad()
+        with pytest.raises(
+            ValidationError, match="Nelze upravovat poznámku"
+        ):
+            d.uprav_poznamku_doreseni(None)
+
+    def test_prilis_dlouha(self):
+        d = _doklad(k_doreseni=True)
+        with pytest.raises(ValidationError, match="Poznámka k dořešení max"):
+            d.uprav_poznamku_doreseni("x" * 501)
+
+
+class TestStornoClearujeFlag:
+
+    def test_storno_auto_dores(self):
+        d = _doklad(k_doreseni=True, poznamka_doreseni="zapomenout")
+        d.stornuj()
+        assert d.stav == StavDokladu.STORNOVANY
+        assert d.k_doreseni is False
+        assert d.poznamka_doreseni is None
+
+    def test_storno_uhrazeneho_flag_zustava(self):
+        """Atomicita: když stornuj() selže, flag se nesmí změnit."""
+        d = _doklad(stav=StavDokladu.UHRAZENY)
+        d.oznac_k_doreseni("chybí dokumentace")
+        assert d.k_doreseni is True
+
+        with pytest.raises(ValidationError):
+            d.stornuj()
+
+        # Flag i poznámka zůstaly beze změny
+        assert d.stav == StavDokladu.UHRAZENY
+        assert d.k_doreseni is True
+        assert d.poznamka_doreseni == "chybí dokumentace"
+
+
+class TestStavFlagKombinace:
+
+    def test_povolene_kombinace(self):
+        """NOVY, ZAUCTOVANY, CASTECNE_UHRAZENY, UHRAZENY + flag jsou OK."""
+        for stav in [
+            StavDokladu.NOVY,
+            StavDokladu.ZAUCTOVANY,
+            StavDokladu.CASTECNE_UHRAZENY,
+            StavDokladu.UHRAZENY,
+        ]:
+            d = _doklad(stav=stav, k_doreseni=True, poznamka_doreseni="x")
+            assert d.k_doreseni is True
+            assert d.stav == stav
+
+    def test_stornovany_flag_zakazano(self):
+        with pytest.raises(ValidationError):
+            _doklad(stav=StavDokladu.STORNOVANY, k_doreseni=True)

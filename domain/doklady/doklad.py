@@ -18,6 +18,7 @@ _CISLO_PATTERN = re.compile(r"^[A-Za-z0-9\-/_]+$")
 # Maximální délky
 _CISLO_MAX = 50
 _POPIS_MAX = 500
+_POZNAMKA_DORESENI_MAX = 500
 
 # Sanity check: DUZP nesmí být víc než rok po vystavení
 _MAX_ZP_OFFSET = timedelta(days=366)
@@ -41,6 +42,8 @@ class Doklad:
         datum_splatnosti: date | None = None,
         popis: str | None = None,
         stav: StavDokladu = StavDokladu.NOVY,
+        k_doreseni: bool = False,
+        poznamka_doreseni: str | None = None,
         id: int | None = None,
     ) -> None:
         # Validace cislo
@@ -94,6 +97,33 @@ class Doklad:
                 f"Popis max {_POPIS_MAX} znaků, dostal {len(popis)}."
             )
 
+        # Validace k_doreseni — strict bool (isinstance propustí int, musíme type())
+        if type(k_doreseni) is not bool:
+            raise TypeError(
+                f"k_doreseni musí být bool, "
+                f"dostal {type(k_doreseni).__name__}."
+            )
+
+        # Validace poznamka_doreseni
+        if poznamka_doreseni is not None:
+            if len(poznamka_doreseni) > _POZNAMKA_DORESENI_MAX:
+                raise ValidationError(
+                    f"Poznámka k dořešení max {_POZNAMKA_DORESENI_MAX} znaků, "
+                    f"dostal {len(poznamka_doreseni)}."
+                )
+
+        # Invariant: poznámka může existovat jen s flagem
+        if not k_doreseni and poznamka_doreseni is not None:
+            raise ValidationError(
+                "Poznámka k dořešení může existovat jen když k_doreseni=True."
+            )
+
+        # Invariant: stornovaný doklad nesmí být flagnutý
+        if stav == StavDokladu.STORNOVANY and k_doreseni:
+            raise ValidationError(
+                "Stornované doklady nelze flagovat k dořešení."
+            )
+
         self._id = id
         self._cislo = cislo
         self._typ = typ
@@ -104,6 +134,8 @@ class Doklad:
         self._castka_celkem = castka_celkem
         self._popis = popis
         self._stav = stav
+        self._k_doreseni = k_doreseni
+        self._poznamka_doreseni = poznamka_doreseni
 
     # --- Properties ---
 
@@ -147,6 +179,14 @@ class Doklad:
     def stav(self) -> StavDokladu:
         return self._stav
 
+    @property
+    def k_doreseni(self) -> bool:
+        return self._k_doreseni
+
+    @property
+    def poznamka_doreseni(self) -> str | None:
+        return self._poznamka_doreseni
+
     # --- Stavový stroj ---
 
     def zauctuj(self) -> None:
@@ -174,7 +214,13 @@ class Doklad:
         )
 
     def stornuj(self) -> None:
-        """Cokoliv kromě STORNOVANY a UHRAZENY → STORNOVANY."""
+        """Cokoliv kromě STORNOVANY a UHRAZENY → STORNOVANY.
+
+        Navíc: pokud má doklad k_doreseni=True, flag a poznámka se
+        automaticky vymažou (storno uzavírá workflow — není co "dořešit").
+        Clear flagu proběhne AŽ po úspěšné validaci stavu, takže při
+        selhání (např. UHRAZENY) zůstávají flag i poznámka beze změny.
+        """
         if self._stav == StavDokladu.UHRAZENY:
             raise ValidationError(
                 "Doklad ve stavu UHRAZENY nelze stornovat."
@@ -188,6 +234,9 @@ class Doklad:
             cilovy=StavDokladu.STORNOVANY,
             akce="stornovat",
         )
+        # Auto-clear flagu — až po úspěšném přechodu stavu
+        self._k_doreseni = False
+        self._poznamka_doreseni = None
 
     def _prechod(
         self,
@@ -216,6 +265,68 @@ class Doklad:
                 f"Popis max {_POPIS_MAX} znaků, dostal {len(novy_popis)}."
             )
         self._popis = novy_popis
+
+    # --- Flag "k dořešení" (ortogonální k stavu) ---
+
+    def oznac_k_doreseni(self, poznamka: str | None = None) -> None:
+        """Označí doklad, že vyžaduje pozornost uživatelky.
+
+        Povoleno v jakémkoli stavu KROMĚ STORNOVANY.
+        Idempotentní: pokud už k_doreseni=True, funguje jako update poznámky
+        (vědomá výjimka z pravidla "žádná idempotence" — flag je checkbox,
+        ne stavový přechod workflow).
+
+        Args:
+            poznamka: volitelný text max 500 znaků. None = flag bez poznámky.
+
+        Raises:
+            ValidationError: stav == STORNOVANY
+            ValidationError: poznamka delší než 500 znaků
+        """
+        if self._stav == StavDokladu.STORNOVANY:
+            raise ValidationError(
+                "Stornované doklady nelze flagovat k dořešení."
+            )
+        if poznamka is not None and len(poznamka) > _POZNAMKA_DORESENI_MAX:
+            raise ValidationError(
+                f"Poznámka k dořešení max {_POZNAMKA_DORESENI_MAX} znaků, "
+                f"dostal {len(poznamka)}."
+            )
+        self._k_doreseni = True
+        self._poznamka_doreseni = poznamka
+
+    def dores(self) -> None:
+        """Odznačí flag + vymaže poznámku. Povoleno v jakémkoli stavu.
+
+        Idempotentní — volání na doklad s k_doreseni=False je no-op,
+        ne chyba (často se volá jako součást jiných operací, např. storno).
+        """
+        self._k_doreseni = False
+        self._poznamka_doreseni = None
+
+    def uprav_poznamku_doreseni(self, nova: str | None) -> None:
+        """Změní jen poznámku, flag zůstává True.
+
+        Args:
+            nova: nový text (max 500 znaků) nebo None pro vymazání.
+                 Flag zůstává True i po nastavení None.
+
+        Raises:
+            ValidationError: k_doreseni == False (nedává smysl měnit poznámku
+                na nefragnutém dokladu — použij oznac_k_doreseni)
+            ValidationError: nova delší než 500 znaků
+        """
+        if not self._k_doreseni:
+            raise ValidationError(
+                "Nelze upravovat poznámku k dořešení na nefragnutém dokladu. "
+                "Použij oznac_k_doreseni() pro nastavení flagu i poznámky."
+            )
+        if nova is not None and len(nova) > _POZNAMKA_DORESENI_MAX:
+            raise ValidationError(
+                f"Poznámka k dořešení max {_POZNAMKA_DORESENI_MAX} znaků, "
+                f"dostal {len(nova)}."
+            )
+        self._poznamka_doreseni = nova
 
     def uprav_splatnost(self, nova_splatnost: date | None) -> None:
         """Splatnost lze měnit jen ve stavu NOVY."""
