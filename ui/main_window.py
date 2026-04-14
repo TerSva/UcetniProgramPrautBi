@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ui.pages import DashboardPage, DokladyPage, NastaveniPage
-from ui.viewmodels import DashboardViewModel
+from ui.viewmodels import DashboardViewModel, DokladyListViewModel
 from ui.widgets import Sidebar
 
 
@@ -38,14 +38,21 @@ class MainWindow(QMainWindow):
     DEFAULT_WIDTH: int = 1280
     DEFAULT_HEIGHT: int = 800
 
-    def __init__(self, dashboard_vm: DashboardViewModel) -> None:
+    def __init__(
+        self,
+        dashboard_vm: DashboardViewModel,
+        doklady_list_vm: DokladyListViewModel,
+    ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
         self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
 
         self._dashboard_vm = dashboard_vm
+        self._doklady_list_vm = doklady_list_vm
         self._sidebar: Sidebar
         self._stack: QStackedWidget
+        self._dashboard_page: DashboardPage
+        self._doklady_page: DokladyPage
         self._build_ui()
 
         # Výchozí stránka = dashboard
@@ -77,16 +84,21 @@ class MainWindow(QMainWindow):
         self._sidebar = Sidebar(central)
 
         self._stack = QStackedWidget(central)
-        self._stack.addWidget(
-            DashboardPage(self._dashboard_vm, self._stack)
-        )  # index 0
-        self._stack.addWidget(DokladyPage(self._stack))  # index 1
+
+        self._dashboard_page = DashboardPage(self._dashboard_vm, self._stack)
+        self._doklady_page = DokladyPage(self._doklady_list_vm, self._stack)
+
+        self._stack.addWidget(self._dashboard_page)        # index 0
+        self._stack.addWidget(self._doklady_page)          # index 1
         self._stack.addWidget(NastaveniPage(self._stack))  # index 2
 
         layout.addWidget(self._sidebar)
         layout.addWidget(self._stack, stretch=1)
 
         self._sidebar.page_selected.connect(self._on_page_selected)
+        self._dashboard_page.navigate_to_doklady_k_doreseni.connect(
+            self._on_navigate_k_doreseni
+        )
 
         self.setCentralWidget(central)
 
@@ -95,3 +107,9 @@ class MainWindow(QMainWindow):
         if index is None:
             return
         self._stack.setCurrentIndex(index)
+
+    def _on_navigate_k_doreseni(self) -> None:
+        """Dashboard drill → přepni na Doklady + aplikuj filter POUZE."""
+        self._sidebar.set_active("doklady")
+        self._stack.setCurrentIndex(_PAGE_INDEX["doklady"])
+        self._doklady_page.apply_k_doreseni_filter()

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -47,6 +47,11 @@ def _format_date_cz(d: date) -> str:
 class DashboardPage(QWidget):
     """Dashboard s 4 KPI kartami v 2×2 mřížce."""
 
+    #: Vyvoláno kliknutím na subtitle karty „Doklady letos" když existují
+    #: doklady k dořešení. MainWindow naviguje na stránku Doklady a aplikuje
+    #: filter POUZE_K_DORESENI.
+    navigate_to_doklady_k_doreseni = pyqtSignal()
+
     def __init__(
         self,
         view_model: DashboardViewModel,
@@ -59,6 +64,10 @@ class DashboardPage(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._build_ui()
+        # Propagace signálu subtitle → page → main window
+        self._card_doklady.subtitle_clicked.connect(
+            self.navigate_to_doklady_k_doreseni
+        )
         self.refresh()
 
     # ────────────────────────────────────────────────
@@ -163,6 +172,7 @@ class DashboardPage(QWidget):
                 f"{data.doklady_k_doreseni} k dořešení"
             )
         self._card_doklady.set_subtitle(" · ".join(sub_doklady_parts))
+        self._card_doklady.set_subtitle_clickable(data.ma_doklady_k_doreseni)
 
         # Pohledávky / Závazky
         self._card_pohledavky.set_value(data.pohledavky.format_cz())

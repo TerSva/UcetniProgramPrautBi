@@ -255,3 +255,49 @@ class TestRefresh:
         page.refresh()
         assert page.error_label.isVisibleTo(page) is False
         assert page.card_doklady.value_widget.text() == "3"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Dashboard drill — klik na „k dořešení" subtitle emituje signal
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestDrillKDoreseni:
+
+    def test_subtitle_clickable_kdyz_jsou_doreseni(self, page_factory):
+        vm = DashboardViewModel(_StubQuery(
+            _data(doklady_celkem=5, doklady_k_zauctovani=1,
+                  doklady_k_doreseni=2)
+        ))
+        page = page_factory(vm)
+        assert page.card_doklady.subtitle_widget.property("clickable") == "true"
+
+    def test_subtitle_neni_clickable_bez_doreseni(self, page_factory):
+        vm = DashboardViewModel(_StubQuery(
+            _data(doklady_celkem=5, doklady_k_zauctovani=1,
+                  doklady_k_doreseni=0)
+        ))
+        page = page_factory(vm)
+        assert page.card_doklady.subtitle_widget.property("clickable") == "false"
+
+    def test_klik_emituje_navigate_signal(self, page_factory):
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+        vm = DashboardViewModel(_StubQuery(
+            _data(doklady_celkem=5, doklady_k_zauctovani=1,
+                  doklady_k_doreseni=2)
+        ))
+        page = page_factory(vm)
+        received = []
+        page.navigate_to_doklady_k_doreseni.connect(
+            lambda: received.append(True)
+        )
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(5, 5),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        page.card_doklady.subtitle_widget.mousePressEvent(ev)
+        assert received == [True]

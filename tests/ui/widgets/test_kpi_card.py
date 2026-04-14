@@ -109,3 +109,70 @@ class TestVarianty:
         w = KpiCard(label="X", value="1")
         qtbot.addWidget(w)
         assert w.property("positive") == "false"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Subtitle clickable (nové v Kroku 3)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestSubtitleClickable:
+
+    def test_default_neni_clickable(self, qtbot):
+        w = KpiCard(label="X", value="1", subtitle="s")
+        qtbot.addWidget(w)
+        assert w.subtitle_widget.property("clickable") == "false"
+
+    def test_konstruktor_clickable_nastavi_property(self, qtbot):
+        w = KpiCard(
+            label="X", value="1", subtitle="s", subtitle_clickable=True,
+        )
+        qtbot.addWidget(w)
+        assert w.subtitle_widget.property("clickable") == "true"
+
+    def test_set_subtitle_clickable_prepne_property(self, qtbot):
+        w = KpiCard(label="X", value="1", subtitle="s")
+        qtbot.addWidget(w)
+        w.set_subtitle_clickable(True)
+        assert w.subtitle_widget.property("clickable") == "true"
+        w.set_subtitle_clickable(False)
+        assert w.subtitle_widget.property("clickable") == "false"
+
+    def test_klik_na_clickable_subtitle_emituje_signal(self, qtbot):
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+        w = KpiCard(
+            label="X", value="1", subtitle="s", subtitle_clickable=True,
+        )
+        qtbot.addWidget(w)
+        received = []
+        w.subtitle_clicked.connect(lambda: received.append(True))
+
+        # Simulace mousePressEvent přímo na subtitle labelu
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(5, 5),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        w.subtitle_widget.mousePressEvent(ev)
+        assert received == [True]
+
+    def test_klik_na_nclickable_subtitle_neemituje(self, qtbot):
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+        w = KpiCard(label="X", value="1", subtitle="s")
+        qtbot.addWidget(w)
+        received = []
+        w.subtitle_clicked.connect(lambda: received.append(True))
+
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(5, 5),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        w.subtitle_widget.mousePressEvent(ev)
+        assert received == []

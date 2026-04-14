@@ -29,9 +29,10 @@ from infrastructure.database.repositories.uctova_osnova_repository import (
 )
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.queries.dashboard import DashboardDataQuery
+from services.queries.doklady_list import DokladyListQuery
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
-from ui.viewmodels import DashboardViewModel
+from ui.viewmodels import DashboardViewModel, DokladyListViewModel
 
 
 _FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
@@ -85,6 +86,17 @@ def _build_dashboard_vm(factory: ConnectionFactory) -> DashboardViewModel:
     return DashboardViewModel(query)
 
 
+def _build_doklady_list_vm(
+    factory: ConnectionFactory,
+) -> DokladyListViewModel:
+    """Sestaví DokladyListViewModel s injectovaným DokladyListQuery."""
+    query = DokladyListQuery(
+        uow_factory=lambda: SqliteUnitOfWork(factory),
+        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+    )
+    return DokladyListViewModel(query)
+
+
 def run(db_path: Path | None = None) -> int:
     """Spusť aplikaci. Vrací exit code z QApplication.exec().
 
@@ -98,8 +110,12 @@ def run(db_path: Path | None = None) -> int:
 
     factory = _setup_database(db_path or DEFAULT_DB_PATH)
     dashboard_vm = _build_dashboard_vm(factory)
+    doklady_list_vm = _build_doklady_list_vm(factory)
 
-    window = MainWindow(dashboard_vm=dashboard_vm)
+    window = MainWindow(
+        dashboard_vm=dashboard_vm,
+        doklady_list_vm=doklady_list_vm,
+    )
     window.show()
 
     return app.exec()

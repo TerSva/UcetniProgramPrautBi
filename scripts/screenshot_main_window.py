@@ -19,7 +19,12 @@ from pathlib import Path
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
-from ui.app import _build_dashboard_vm, _setup_database, register_fonts
+from ui.app import (
+    _build_dashboard_vm,
+    _build_doklady_list_vm,
+    _setup_database,
+    register_fonts,
+)
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
 
@@ -37,8 +42,11 @@ def main() -> int:
     parser.add_argument(
         "--page",
         default="dashboard",
-        choices=["dashboard", "doklady", "nastaveni"],
-        help="Která stránka má být aktivní (default: dashboard)",
+        choices=["dashboard", "doklady", "doklady-filtered", "nastaveni"],
+        help=(
+            "Která stránka má být aktivní (default: dashboard). "
+            "'doklady-filtered' = Doklady stránka s filtrem POUZE k dořešení."
+        ),
     )
     parser.add_argument(
         "--db",
@@ -68,11 +76,21 @@ def main() -> int:
 
     factory = _setup_database(db_path)
     dashboard_vm = _build_dashboard_vm(factory)
+    doklady_list_vm = _build_doklady_list_vm(factory)
 
-    window = MainWindow(dashboard_vm=dashboard_vm)
+    window = MainWindow(
+        dashboard_vm=dashboard_vm,
+        doklady_list_vm=doklady_list_vm,
+    )
 
     # Přepni na požadovanou stránku (bez kliknutí — přímo API)
-    if args.page != "dashboard":
+    if args.page == "doklady-filtered":
+        window.sidebar.set_active("doklady")
+        window.sidebar.page_selected.emit("doklady")
+        # Spustíme drill přes Dashboard signál, aby se správně nasynclila
+        # FilterBar UI i VM stav
+        window._doklady_page.apply_k_doreseni_filter()  # type: ignore[attr-defined]
+    elif args.page != "dashboard":
         window.sidebar.set_active(args.page)
         window.sidebar.page_selected.emit(args.page)
 

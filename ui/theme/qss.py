@@ -8,6 +8,9 @@ Stylesheet se aplikuje globálně v ui.app.run() přes QApplication.setStyleShee
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 from ui.design_tokens import (
     Borders,
     Colors,
@@ -17,12 +20,31 @@ from ui.design_tokens import (
     Surfaces,
 )
 
+_ICONS_DIR = Path(__file__).resolve().parent.parent / "assets" / "icons"
+
+
+def _materialize_colored_icon(name: str, color: str) -> str:
+    """Přebarvi Lucide SVG ikonu (currentColor → hex) a vrať posix path.
+
+    Qt stylesheet `image: url(...)` neumí `currentColor`, takže si
+    colored variantu vyrenderujeme do tempfile při buildu stylesheetu.
+    """
+    svg_text = (_ICONS_DIR / f"{name}.svg").read_text(encoding="utf-8")
+    svg_text = svg_text.replace("currentColor", color)
+
+    cache_dir = Path(tempfile.gettempdir()) / "ucetni-program-qss-icons"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    out = cache_dir / f"{name}_{color.lstrip('#')}.svg"
+    out.write_text(svg_text, encoding="utf-8")
+    return out.as_posix()
+
 
 def build_stylesheet() -> str:
     """Sestav kompletní QSS řetězec z design tokenů.
 
     Návratová hodnota je připravena k předání do QApplication.setStyleSheet().
     """
+    chevron_path = _materialize_colored_icon("chevron-down", Colors.GRAY_500)
     return f"""
 /* ═══════════════════════════════════════════════════════════
    GLOBAL — base typografie a barvy
@@ -181,6 +203,12 @@ QLabel[class="kpi-subtitle"] {{
     padding: 0;
 }}
 
+QLabel[class="kpi-subtitle"][clickable="true"] {{
+    color: {Colors.BRAND};
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    text-decoration: underline;
+}}
+
 /* ═══════════════════════════════════════════════════════════
    ERROR TEXT — chybové hlášení (např. načítání Dashboard)
    ═══════════════════════════════════════════════════════════ */
@@ -194,6 +222,273 @@ QLabel[class="error-text"] {{
     border: 1px solid {Colors.ERROR_500};
     border-radius: {Radius.MD}px;
     padding: {Spacing.S3}px {Spacing.S4}px;
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   BADGES — barevný pill (Typ, Stav, atd.)
+   ═══════════════════════════════════════════════════════════ */
+
+QLabel[class="badge"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    border-radius: {Radius.SM}px;
+    padding: 2px 8px;
+    min-height: 18px;
+}}
+
+QLabel[class="badge"][variant="neutral"] {{
+    background: {Colors.GRAY_100};
+    color: {Colors.GRAY_700};
+}}
+
+QLabel[class="badge"][variant="primary"] {{
+    background: {Colors.PRIMARY_50};
+    color: {Colors.PRIMARY_700};
+}}
+
+QLabel[class="badge"][variant="success"] {{
+    background: {Colors.SUCCESS_50};
+    color: {Colors.SUCCESS_700};
+}}
+
+QLabel[class="badge"][variant="warning"] {{
+    background: {Colors.WARNING_50};
+    color: {Colors.WARNING_700};
+}}
+
+QLabel[class="badge"][variant="error"] {{
+    background: {Colors.ERROR_50};
+    color: {Colors.ERROR_700};
+}}
+
+QLabel[class="badge"][variant="info"] {{
+    background: {Colors.INFO_50};
+    color: {Colors.INFO_700};
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   FILTER BAR — řádek s dropdowny nad tabulkou dokladů
+   ═══════════════════════════════════════════════════════════ */
+
+QWidget#FilterBar {{
+    background: {Surfaces.CARD};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.MD}px;
+}}
+
+QLabel[class="filter-label"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+    padding: 0;
+}}
+
+QWidget#FilterBar QComboBox {{
+    background: {Surfaces.CARD};
+    color: {Colors.GRAY_900};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.SM}px;
+    padding: 4px 28px 4px 8px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    min-height: 28px;
+    min-width: 140px;
+}}
+
+QWidget#FilterBar QComboBox:hover {{
+    border: 1px solid {Borders.STRONG};
+}}
+
+QWidget#FilterBar QComboBox:focus {{
+    border: 1px solid {Borders.FOCUS};
+}}
+
+QWidget#FilterBar QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    border: none;
+    background: transparent;
+    width: 24px;
+}}
+
+QWidget#FilterBar QComboBox::down-arrow {{
+    image: url({chevron_path});
+    width: 14px;
+    height: 14px;
+}}
+
+QComboBox QAbstractItemView {{
+    background: {Surfaces.CARD};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.MD}px;
+    selection-background-color: {Surfaces.SELECTED};
+    selection-color: {Colors.BRAND};
+    padding: 4px;
+    outline: 0;
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   PRIMARY / SECONDARY BUTTON
+   ═══════════════════════════════════════════════════════════ */
+
+QPushButton[class="primary"] {{
+    background: {Colors.BRAND};
+    color: {Colors.WHITE};
+    border: none;
+    border-radius: {Radius.SM}px;
+    padding: 8px 16px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    min-height: 32px;
+}}
+
+QPushButton[class="primary"]:hover {{
+    background: {Colors.BRAND_HOVER};
+}}
+
+QPushButton[class="primary"]:disabled {{
+    background: {Colors.GRAY_200};
+    color: {Colors.GRAY_500};
+}}
+
+QPushButton[class="secondary"] {{
+    background: {Surfaces.CARD};
+    color: {Colors.BRAND};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.SM}px;
+    padding: 6px 12px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    min-height: 28px;
+}}
+
+QPushButton[class="secondary"]:hover {{
+    background: {Surfaces.HOVER};
+    border: 1px solid {Borders.STRONG};
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   DOKLADY TABLE — read-only seznam dokladů
+   ═══════════════════════════════════════════════════════════ */
+
+QTableView[class="doklady-table"] {{
+    background: {Surfaces.CARD};
+    alternate-background-color: {Colors.GRAY_50};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.MD}px;
+    gridline-color: transparent;
+    selection-background-color: {Surfaces.SELECTED};
+    selection-color: {Colors.BRAND};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    color: {Colors.GRAY_900};
+}}
+
+QTableView[class="doklady-table"]::item {{
+    padding: 6px 8px;
+    border: none;
+}}
+
+QTableView[class="doklady-table"] QHeaderView::section {{
+    background: {Colors.GRAY_50};
+    color: {Colors.GRAY_500};
+    border: none;
+    border-bottom: 1px solid {Borders.DEFAULT};
+    padding: 8px 8px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    text-transform: uppercase;
+}}
+
+QTableView[class="doklady-table"] QHeaderView {{
+    background: {Colors.GRAY_50};
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   EMPTY STATE — Doklady stránka bez dat
+   ═══════════════════════════════════════════════════════════ */
+
+QWidget[class="empty-state"] {{
+    background: {Surfaces.CARD};
+    border: 1px dashed {Borders.STRONG};
+    border-radius: {Radius.MD}px;
+}}
+
+QLabel[class="empty-state-text"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_REGULAR};
+    background: transparent;
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   DETAIL DIALOG — Doklad detail (read-only)
+   ═══════════════════════════════════════════════════════════ */
+
+QDialog[class="doklad-detail"] {{
+    background: {Surfaces.CARD};
+}}
+
+QLabel[class="dialog-title"] {{
+    color: {Colors.BRAND};
+    font-family: {Fonts.HEADING_STACK};
+    font-size: {Fonts.SIZE_XL}px;
+    font-weight: {Fonts.WEIGHT_BOLD};
+    background: transparent;
+}}
+
+QLabel[class="dialog-label"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: transparent;
+}}
+
+QLabel[class="dialog-value"] {{
+    color: {Colors.GRAY_900};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_REGULAR};
+    background: transparent;
+}}
+
+QLabel[class="dialog-value-strong"] {{
+    color: {Colors.BRAND};
+    font-family: {Fonts.HEADING_STACK};
+    font-size: {Fonts.SIZE_LG}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
+
+QWidget[class="doreseni-box"] {{
+    background: {Colors.WARNING_50};
+    border: 1px solid {Colors.WARNING_500};
+    border-left: 3px solid {Colors.WARNING_600};
+    border-radius: {Radius.SM}px;
+}}
+
+QLabel[class="doreseni-header"] {{
+    color: {Colors.WARNING_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
+
+QLabel[class="doreseni-note"] {{
+    color: {Colors.GRAY_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_REGULAR};
+    background: transparent;
 }}
 
 /* ═══════════════════════════════════════════════════════════

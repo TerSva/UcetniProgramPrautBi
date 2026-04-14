@@ -5,5 +5,6 @@ načtení na injectovanou query. Page widget čte properties a renderuje.
 """
 
 from ui.viewmodels.dashboard_vm import DashboardViewModel
+from ui.viewmodels.doklady_list_vm import DokladyListViewModel
 
-__all__ = ["DashboardViewModel"]
+__all__ = ["DashboardViewModel", "DokladyListViewModel"]

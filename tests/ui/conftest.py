@@ -24,10 +24,11 @@ from infrastructure.database.repositories.uctova_osnova_repository import (
 )
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.queries.dashboard import DashboardDataQuery
+from services.queries.doklady_list import DokladyListQuery
 from ui.app import register_fonts
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
-from ui.viewmodels import DashboardViewModel
+from ui.viewmodels import DashboardViewModel, DokladyListViewModel
 
 
 MIGRATIONS_SQL_DIR = (
@@ -62,7 +63,17 @@ def dashboard_vm(db_factory) -> DashboardViewModel:
 
 
 @pytest.fixture
-def main_window(qtbot, dashboard_vm):
+def doklady_list_vm(db_factory) -> DokladyListViewModel:
+    """Plně zapojený DokladyListViewModel s reálnou (prázdnou) DB."""
+    query = DokladyListQuery(
+        uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+    )
+    return DokladyListViewModel(query)
+
+
+@pytest.fixture
+def main_window(qtbot, dashboard_vm, doklady_list_vm):
     """Vytvoř MainWindow s kompletním theme setup.
 
     Vrací hotové okno po `show()`, po testu ho qtbot automaticky uklidí.
@@ -73,7 +84,10 @@ def main_window(qtbot, dashboard_vm):
     register_fonts()
     app.setStyleSheet(build_stylesheet())
 
-    window = MainWindow(dashboard_vm=dashboard_vm)
+    window = MainWindow(
+        dashboard_vm=dashboard_vm,
+        doklady_list_vm=doklady_list_vm,
+    )
     qtbot.addWidget(window)
     window.show()
     qtbot.waitExposed(window)

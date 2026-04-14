@@ -13,20 +13,57 @@ Layout:
 Subtitle widget je vytvořen vždy a viditelnost se řídí přes `setVisible()`,
 aby se vyhnulo destrukci/rekonstrukci widgetu mezi stavy s a bez subtitle.
 
+Subtitle lze volitelně udělat „clickable" — emituje signal `subtitle_clicked`
+a získá QSS property `clickable="true"` (underline + brand barva + cursor).
+
 Žádné `setStyleSheet()` — všechny barvy a typografie přicházejí z globálního
 QSS přes property-based selektory (class + variant).
 """
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QMouseEvent
 from PyQt6.QtWidgets import QFrame, QLabel, QVBoxLayout, QWidget
 
 from ui.design_tokens import Spacing
 
 
+class _SubtitleLabel(QLabel):
+    """QLabel, který emituje `clicked` pouze když je `clickable=True`.
+
+    Interní třída KpiCard — nesmí se používat zvenku.
+    """
+
+    clicked = pyqtSignal()
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(text, parent)
+        self._clickable = False
+
+    def set_clickable(self, clickable: bool) -> None:
+        self._clickable = clickable
+        self.setProperty("clickable", "true" if clickable else "false")
+        if clickable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def mousePressEvent(self, ev: QMouseEvent) -> None:  # noqa: N802 (Qt API)
+        if self._clickable and ev.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
+
+
 class KpiCard(QFrame):
     """KPI kartička s labelem, hlavní hodnotou a volitelným podtitulkem."""
+
+    #: Emituje se při kliku na subtitle, pokud je `subtitle_clickable=True`.
+    subtitle_clicked = pyqtSignal()
 
     def __init__(
         self,
@@ -34,6 +71,7 @@ class KpiCard(QFrame):
         value: str,
         subtitle: str | None = None,
         positive: bool = False,
+        subtitle_clickable: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -57,9 +95,13 @@ class KpiCard(QFrame):
             Qt.TextInteractionFlag.TextSelectableByMouse
         )
 
-        self._subtitle = QLabel(subtitle or "", self)
+        self._subtitle = _SubtitleLabel(subtitle or "", self)
         self._subtitle.setProperty("class", "kpi-subtitle")
+        self._subtitle.setProperty("clickable", "false")
         self._subtitle.setVisible(subtitle is not None)
+        self._subtitle.clicked.connect(self.subtitle_clicked)
+        if subtitle_clickable:
+            self._subtitle.set_clickable(True)
 
         layout.addWidget(self._label)
         layout.addWidget(self._value)
@@ -85,6 +127,10 @@ class KpiCard(QFrame):
         for w in (self, self._value):
             w.style().unpolish(w)
             w.style().polish(w)
+
+    def set_subtitle_clickable(self, clickable: bool) -> None:
+        """Zapne/vypne klikatelnost subtitle. Žádný signál se neemituje."""
+        self._subtitle.set_clickable(clickable)
 
     # ────────────────────────────────────────────────
     # Test-friendly accessors
