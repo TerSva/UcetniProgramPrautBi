@@ -11,6 +11,8 @@ Přepínání stránek: Sidebar emituje `page_selected` → MainWindow přepne s
 
 from __future__ import annotations
 
+from typing import Callable
+
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
@@ -18,8 +20,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from services.queries.doklady_list import DokladyListItem
 from ui.pages import DashboardPage, DokladyPage, NastaveniPage
 from ui.viewmodels import DashboardViewModel, DokladyListViewModel
+from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
+from ui.viewmodels.doklad_form_vm import DokladFormViewModel
+from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 from ui.widgets import Sidebar
 
 
@@ -42,6 +48,13 @@ class MainWindow(QMainWindow):
         self,
         dashboard_vm: DashboardViewModel,
         doklady_list_vm: DokladyListViewModel,
+        form_vm_factory: Callable[[], DokladFormViewModel] | None = None,
+        detail_vm_factory: Callable[
+            [DokladyListItem], DokladDetailViewModel
+        ] | None = None,
+        zauctovani_vm_factory: Callable[
+            [DokladyListItem], ZauctovaniViewModel
+        ] | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -49,6 +62,9 @@ class MainWindow(QMainWindow):
 
         self._dashboard_vm = dashboard_vm
         self._doklady_list_vm = doklady_list_vm
+        self._form_vm_factory = form_vm_factory
+        self._detail_vm_factory = detail_vm_factory
+        self._zauctovani_vm_factory = zauctovani_vm_factory
         self._sidebar: Sidebar
         self._stack: QStackedWidget
         self._dashboard_page: DashboardPage
@@ -86,7 +102,13 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget(central)
 
         self._dashboard_page = DashboardPage(self._dashboard_vm, self._stack)
-        self._doklady_page = DokladyPage(self._doklady_list_vm, self._stack)
+        self._doklady_page = DokladyPage(
+            self._doklady_list_vm,
+            form_vm_factory=self._form_vm_factory,
+            detail_vm_factory=self._detail_vm_factory,
+            zauctovani_vm_factory=self._zauctovani_vm_factory,
+            parent=self._stack,
+        )
 
         self._stack.addWidget(self._dashboard_page)        # index 0
         self._stack.addWidget(self._doklady_page)          # index 1

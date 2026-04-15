@@ -1,0 +1,220 @@
+"""ZauctovaniViewModel — prezentační stav pro dialog „Zaúčtovat".
+
+Pure Python, žádný Qt import. Spravuje seznam řádků předpisu
+(MD, Dal, castka, popis) a počítá:
+
+* ``soucet_radku`` — Money sum(radky.castka)
+* ``rozdil`` — doklad.castka_celkem − soucet_radku
+* ``je_podvojne`` — rozdil == 0 (nutná podmínka pro enablované „Zaúčtovat")
+
+Dialog při otevření volá ``load()`` — VM si stáhne účtovou osnovu
+(``ucty``) a pre-fillne jeden výchozí řádek s celkovou částkou.
+
+``submit()`` zavolá ``ZauctovatDokladCommand`` a při úspěchu uloží
+aktualizovaný DTO do ``posted_item``.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, replace
+from datetime import date
+from typing import Protocol
+
+from domain.shared.money import Money
+from services.commands.zauctovat_doklad import (
+    ZauctovatDokladInput,
+    ZauctovatRadek,
+)
+from services.queries.doklady_list import DokladyListItem
+from services.queries.uctova_osnova import UcetItem
+
+
+@dataclass(frozen=True)
+class PredpisRadek:
+    """Jeden řádek v UI. Mutace přes ``update_row`` (vytvoří novou instanci).
+
+    ``md_ucet`` / ``dal_ucet`` — prázdný string = ještě nevybráno.
+    """
+
+    md_ucet: str = ""
+    dal_ucet: str = ""
+    castka: Money = Money.zero()
+    popis: str = ""
+
+
+class _UctovaOsnovaQuery(Protocol):
+    def execute(self, jen_aktivni: bool = True) -> list[UcetItem]: ...
+
+
+class _ZauctovatCommand(Protocol):
+    def execute(self, data: ZauctovatDokladInput) -> DokladyListItem: ...
+
+
+class ZauctovaniViewModel:
+    """ViewModel pro zaúčtování dialog."""
+
+    def __init__(
+        self,
+        doklad: DokladyListItem,
+        uctova_osnova_query: _UctovaOsnovaQuery,
+        zauctovat_command: _ZauctovatCommand,
+    ) -> None:
+        self._doklad = doklad
+        self._osnova_query = uctova_osnova_query
+        self._zauctovat_cmd = zauctovat_command
+
+        self._ucty: list[UcetItem] = []
+        self._radky: list[PredpisRadek] = []
+        self._datum: date = doklad.datum_vystaveni
+        self._posted_item: DokladyListItem | None = None
+        self._error: str | None = None
+        self._loaded: bool = False
+
+    # ─── Read-only state ──────────────────────────────────────────────
+
+    @property
+    def doklad(self) -> DokladyListItem:
+        return self._doklad
+
+    @property
+    def ucty(self) -> list[UcetItem]:
+        """Aktivní účty osnovy (seřazené ASC)."""
+        return self._ucty
+
+    @property
+    def radky(self) -> list[PredpisRadek]:
+        """Aktuální seznam řádků předpisu."""
+        return list(self._radky)
+
+    @property
+    def datum(self) -> date:
+        """Datum účetního případu. Default = datum_vystaveni dokladu."""
+        return self._datum
+
+    @property
+    def posted_item(self) -> DokladyListItem | None:
+        return self._posted_item
+
+    @property
+    def error(self) -> str | None:
+        return self._error
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    # ─── Computed ─────────────────────────────────────────────────────
+
+    @property
+    def soucet_radku(self) -> Money:
+        total = Money.zero()
+        for r in self._radky:
+            total = total + r.castka
+        return total
+
+    @property
+    def rozdil(self) -> Money:
+        """Kolik chybí (kladné) nebo přebývá (záporné) oproti dokladu."""
+        return self._doklad.castka_celkem - self.soucet_radku
+
+    @property
+    def je_podvojne(self) -> bool:
+        return self.soucet_radku == self._doklad.castka_celkem
+
+    @property
+    def je_validni(self) -> bool:
+        """Všechny podmínky pro umožnění tlačítka „Zaúčtovat"."""
+        if not self._radky:
+            return False
+        if not self.je_podvojne:
+            return False
+        for r in self._radky:
+            if not r.md_ucet or not r.dal_ucet:
+                return False
+            if r.castka <= Money.zero():
+                return False
+        return True
+
+    # ─── Commands ─────────────────────────────────────────────────────
+
+    def load(self) -> None:
+        """Načti účtovou osnovu a pre-fill jeden řádek s celkovou částkou."""
+        try:
+            self._ucty = self._osnova_query.execute(jen_aktivni=True)
+            self._error = None
+        except Exception as exc:  # noqa: BLE001
+            self._ucty = []
+            self._error = str(exc) or exc.__class__.__name__
+        # Pre-fill: jeden prázdný řádek s celkovou částkou (Q4 rozhodnutí).
+        if not self._radky:
+            self._radky.append(PredpisRadek(
+                castka=self._doklad.castka_celkem,
+            ))
+        self._loaded = True
+
+    def set_datum(self, datum: date) -> None:
+        self._datum = datum
+
+    def add_row(self) -> None:
+        """Přidá nový prázdný řádek s částkou rovnou aktuálnímu rozdílu.
+
+        Když je doklad podvojný, dostane řádek Money.zero() — uživatelka
+        ručně upraví.
+        """
+        castka = self.rozdil if self.rozdil > Money.zero() else Money.zero()
+        self._radky.append(PredpisRadek(castka=castka))
+
+    def remove_row(self, index: int) -> None:
+        if 0 <= index < len(self._radky):
+            self._radky.pop(index)
+
+    def update_row(
+        self,
+        index: int,
+        *,
+        md_ucet: str | None = None,
+        dal_ucet: str | None = None,
+        castka: Money | None = None,
+        popis: str | None = None,
+    ) -> None:
+        """Nahraď řádek novou immutable instancí (jen změněná pole)."""
+        if not (0 <= index < len(self._radky)):
+            return
+        current = self._radky[index]
+        kwargs: dict[str, object] = {}
+        if md_ucet is not None:
+            kwargs["md_ucet"] = md_ucet
+        if dal_ucet is not None:
+            kwargs["dal_ucet"] = dal_ucet
+        if castka is not None:
+            kwargs["castka"] = castka
+        if popis is not None:
+            kwargs["popis"] = popis
+        self._radky[index] = replace(current, **kwargs)
+
+    def submit(self) -> DokladyListItem | None:
+        """Zaúčtuje doklad. Vrátí DTO nebo None při chybě."""
+        if not self.je_validni:
+            self._error = "Předpis není validní."
+            return None
+        try:
+            radky = tuple(
+                ZauctovatRadek(
+                    md_ucet=r.md_ucet,
+                    dal_ucet=r.dal_ucet,
+                    castka=r.castka,
+                    popis=r.popis or None,
+                )
+                for r in self._radky
+            )
+            item = self._zauctovat_cmd.execute(ZauctovatDokladInput(
+                doklad_id=self._doklad.id,
+                datum=self._datum,
+                radky=radky,
+            ))
+            self._posted_item = item
+            self._error = None
+            return item
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None

@@ -1,0 +1,213 @@
+"""DokladDetailViewModel — prezentační stav pro detail dialog.
+
+Pure Python, žádný Qt import. Drží aktuální DTO dokladu a modální „režim"
+(read-only vs. editace). Vystavuje computed properties typu ``can_edit``,
+``can_storno`` atd., aby dialog zapínal/vypínal tlačítka jednotně.
+
+Akce:
+    * ``enter_edit()`` / ``cancel_edit()`` — přepíná edit mode, drží draft
+      hodnoty popisu + splatnosti, které uživatelka může kdykoli zrušit.
+    * ``save_edit()`` — posle draft do ``DokladActionsCommand``.
+    * ``stornovat() / smazat() / oznac_k_doreseni() / dores()`` — deleguje
+      na actions command; při úspěchu refreshne ``doklad`` z návratového DTO.
+"""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import Protocol
+
+from domain.doklady.typy import StavDokladu
+from services.queries.doklady_list import DokladyListItem
+
+
+class _DokladActionsCommand(Protocol):
+    def stornovat(self, doklad_id: int) -> DokladyListItem: ...
+    def smazat(self, doklad_id: int) -> None: ...
+    def oznac_k_doreseni(
+        self, doklad_id: int, poznamka: str | None = None,
+    ) -> DokladyListItem: ...
+    def dores(self, doklad_id: int) -> DokladyListItem: ...
+    def upravit_popis_a_splatnost(
+        self,
+        doklad_id: int,
+        popis: str | None,
+        splatnost: date | None,
+    ) -> DokladyListItem: ...
+
+
+class DokladDetailViewModel:
+    """ViewModel pro detail dokladu."""
+
+    def __init__(
+        self,
+        doklad: DokladyListItem,
+        actions_command: _DokladActionsCommand,
+    ) -> None:
+        self._doklad = doklad
+        self._actions = actions_command
+        self._edit_mode: bool = False
+        self._draft_popis: str | None = doklad.popis
+        self._draft_splatnost: date | None = doklad.datum_splatnosti
+        self._error: str | None = None
+        self._deleted: bool = False
+
+    # ─── Read-only state ──────────────────────────────────────────────
+
+    @property
+    def doklad(self) -> DokladyListItem:
+        return self._doklad
+
+    @property
+    def edit_mode(self) -> bool:
+        return self._edit_mode
+
+    @property
+    def draft_popis(self) -> str | None:
+        return self._draft_popis
+
+    @property
+    def draft_splatnost(self) -> date | None:
+        return self._draft_splatnost
+
+    @property
+    def error(self) -> str | None:
+        return self._error
+
+    @property
+    def is_deleted(self) -> bool:
+        """True po úspěšném smazání — dialog se má zavřít."""
+        return self._deleted
+
+    # ─── Computed: co lze s dokladem dělat ───────────────────────────
+
+    @property
+    def can_edit(self) -> bool:
+        """Edit mode — popis + splatnost — povolen kromě STORNOVANY."""
+        return self._doklad.stav != StavDokladu.STORNOVANY
+
+    @property
+    def can_edit_splatnost(self) -> bool:
+        """Splatnost editovatelná jen ve stavu NOVY."""
+        return self._doklad.stav == StavDokladu.NOVY
+
+    @property
+    def can_storno(self) -> bool:
+        """Stornovat NOVY/ZAUCTOVANY/CASTECNE_UHRAZENY. Ne UHRAZENY/STORNOVANY."""
+        return self._doklad.stav in (
+            StavDokladu.NOVY,
+            StavDokladu.ZAUCTOVANY,
+            StavDokladu.CASTECNE_UHRAZENY,
+        )
+
+    @property
+    def can_smazat(self) -> bool:
+        """Smazat jen NOVY (bez zápisů)."""
+        return self._doklad.stav == StavDokladu.NOVY
+
+    @property
+    def can_toggle_flag(self) -> bool:
+        """Flag k_doreseni — povoleno kromě STORNOVANY."""
+        return self._doklad.stav != StavDokladu.STORNOVANY
+
+    @property
+    def can_zauctovat(self) -> bool:
+        """Zaúčtovat jen NOVY doklady."""
+        return self._doklad.stav == StavDokladu.NOVY
+
+    # ─── Edit mode ────────────────────────────────────────────────────
+
+    def enter_edit(self) -> None:
+        """Přepne do edit módu. Draft se nastaví ze stávajícího DTO."""
+        if not self.can_edit:
+            self._error = "Tento doklad nelze upravovat."
+            return
+        self._edit_mode = True
+        self._draft_popis = self._doklad.popis
+        self._draft_splatnost = self._doklad.datum_splatnosti
+        self._error = None
+
+    def cancel_edit(self) -> None:
+        """Zahodí draft a vrátí se do read-only."""
+        self._edit_mode = False
+        self._draft_popis = self._doklad.popis
+        self._draft_splatnost = self._doklad.datum_splatnosti
+        self._error = None
+
+    def set_draft_popis(self, popis: str | None) -> None:
+        self._draft_popis = popis
+
+    def set_draft_splatnost(self, splatnost: date | None) -> None:
+        self._draft_splatnost = splatnost
+
+    def save_edit(self) -> DokladyListItem | None:
+        """Uloží draft přes DokladActionsCommand."""
+        try:
+            item = self._actions.upravit_popis_a_splatnost(
+                self._doklad.id,
+                popis=self._draft_popis,
+                splatnost=self._draft_splatnost,
+            )
+            self._doklad = item
+            self._edit_mode = False
+            self._error = None
+            return item
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None
+
+    # ─── Akce (state transitions + flag) ──────────────────────────────
+
+    def stornovat(self) -> DokladyListItem | None:
+        try:
+            item = self._actions.stornovat(self._doklad.id)
+            self._doklad = item
+            self._edit_mode = False
+            self._error = None
+            return item
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None
+
+    def smazat(self) -> bool:
+        """Smaže doklad. Vrátí True při úspěchu, nastaví ``is_deleted``."""
+        try:
+            self._actions.smazat(self._doklad.id)
+            self._deleted = True
+            self._error = None
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return False
+
+    def oznac_k_doreseni(
+        self, poznamka: str | None = None,
+    ) -> DokladyListItem | None:
+        try:
+            item = self._actions.oznac_k_doreseni(
+                self._doklad.id, poznamka=poznamka,
+            )
+            self._doklad = item
+            self._error = None
+            return item
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None
+
+    def dores(self) -> DokladyListItem | None:
+        try:
+            item = self._actions.dores(self._doklad.id)
+            self._doklad = item
+            self._error = None
+            return item
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None
+
+    def refresh_from(self, doklad: DokladyListItem) -> None:
+        """External refresh (např. po zaúčtování v jiném dialogu)."""
+        self._doklad = doklad
+        self._draft_popis = doklad.popis
+        self._draft_splatnost = doklad.datum_splatnosti
+        self._edit_mode = False
+        self._error = None

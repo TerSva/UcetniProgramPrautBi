@@ -525,4 +525,214 @@ QScrollBar::sub-line:vertical {{
     height: 0;
     background: transparent;
 }}
+
+/* ═══════════════════════════════════════════════════════════
+   FORM INPUTS — QLineEdit / QPlainTextEdit / QDateEdit / QComboBox
+   (globální styl; filter bar má vlastní override výše)
+   ═══════════════════════════════════════════════════════════ */
+
+QLineEdit, QPlainTextEdit, QDateEdit, QComboBox {{
+    background: {Surfaces.CARD};
+    color: {Colors.GRAY_900};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.SM}px;
+    padding: 6px 10px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    min-height: 30px;
+    selection-background-color: {Surfaces.SELECTED};
+    selection-color: {Colors.BRAND};
+}}
+
+QLineEdit:hover, QPlainTextEdit:hover, QDateEdit:hover, QComboBox:hover {{
+    border: 1px solid {Borders.STRONG};
+}}
+
+QLineEdit:focus, QPlainTextEdit:focus, QDateEdit:focus, QComboBox:focus {{
+    border: 1px solid {Borders.FOCUS};
+}}
+
+QLineEdit:disabled, QPlainTextEdit:disabled,
+QDateEdit:disabled, QComboBox:disabled {{
+    background: {Colors.GRAY_50};
+    color: {Colors.GRAY_400};
+    border: 1px solid {Borders.SUBTLE};
+}}
+
+QPlainTextEdit {{
+    padding: 8px 10px;
+}}
+
+QDateEdit::drop-down, QComboBox::drop-down {{
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    border: none;
+    background: transparent;
+    width: 24px;
+}}
+
+QDateEdit::down-arrow, QComboBox::down-arrow {{
+    image: url({chevron_path});
+    width: 14px;
+    height: 14px;
+}}
+
+QCalendarWidget QToolButton {{
+    color: {Colors.BRAND};
+    background: transparent;
+    font-family: {Fonts.BODY_STACK};
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+}}
+
+QCalendarWidget QAbstractItemView {{
+    selection-background-color: {Surfaces.SELECTED};
+    selection-color: {Colors.BRAND};
+}}
+
+/* Chybový stav — input po client-side validaci */
+QLineEdit[class="input-error"],
+QPlainTextEdit[class="input-error"],
+QDateEdit[class="input-error"],
+QComboBox[class="input-error"] {{
+    border: 1px solid {Borders.ERROR};
+    background: {Colors.ERROR_50};
+}}
+
+QLabel[class="input-label"] {{
+    color: {Colors.GRAY_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+    padding: 0;
+}}
+
+QLabel[class="input-error-text"] {{
+    color: {Colors.ERROR_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: transparent;
+    padding: 0;
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   DESTRUCTIVE BUTTON — červené akce (storno, smazat, potvrzení)
+   ═══════════════════════════════════════════════════════════ */
+
+QPushButton[class="destructive"] {{
+    background: {Colors.ERROR_600};
+    color: {Colors.WHITE};
+    border: none;
+    border-radius: {Radius.SM}px;
+    padding: 8px 16px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    min-height: 32px;
+}}
+
+QPushButton[class="destructive"]:hover {{
+    background: {Colors.ERROR_700};
+}}
+
+QPushButton[class="destructive"]:disabled {{
+    background: {Colors.GRAY_200};
+    color: {Colors.GRAY_500};
+}}
+
+/* Malé × tlačítko pro odstranění řádku v tabulce záznamů */
+QPushButton[class="row-remove"] {{
+    background: transparent;
+    color: {Colors.GRAY_500};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.SM}px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_LG}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    padding: 0;
+}}
+
+QPushButton[class="row-remove"]:hover {{
+    background: {Colors.ERROR_50};
+    color: {Colors.ERROR_700};
+    border: 1px solid {Colors.ERROR_500};
+}}
+
+/* ═══════════════════════════════════════════════════════════
+   DIALOGY — confirm / form / zauctovani (sdílený background)
+   ═══════════════════════════════════════════════════════════ */
+
+QDialog[class="confirm-dialog"],
+QDialog[class="doklad-form"],
+QDialog[class="zauctovani-dialog"] {{
+    background: {Surfaces.CARD};
+}}
+
+QLabel[class="dialog-subtitle"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: transparent;
+}}
+
+QLabel[class="dialog-message"] {{
+    color: {Colors.GRAY_900};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_REGULAR};
+    background: transparent;
+}}
+
+QLabel[class="dialog-error"] {{
+    color: {Colors.ERROR_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: {Colors.ERROR_50};
+    border: 1px solid {Colors.ERROR_500};
+    border-radius: {Radius.SM}px;
+    padding: {Spacing.S2}px {Spacing.S3}px;
+}}
+
+QLabel[class="section-title"] {{
+    color: {Colors.BRAND};
+    font-family: {Fonts.HEADING_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
+
+QLabel[class="sum-label"] {{
+    color: {Colors.GRAY_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
+
+QLabel[class="rozdil-label"] {{
+    color: {Colors.GRAY_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
+
+QLabel[class="status-ok"] {{
+    color: {Colors.SUCCESS_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
+
+QLabel[class="status-error"] {{
+    color: {Colors.ERROR_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: transparent;
+}}
 """

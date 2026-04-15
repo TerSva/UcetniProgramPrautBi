@@ -1,0 +1,197 @@
+"""Integration testy pro DokladActionsCommand."""
+
+from datetime import date
+
+import pytest
+
+from domain.doklady.doklad import Doklad
+from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.shared.errors import ValidationError
+from domain.shared.money import Money
+from infrastructure.database.repositories.doklady_repository import (
+    SqliteDokladyRepository,
+)
+from infrastructure.database.repositories.ucetni_denik_repository import (
+    SqliteUcetniDenikRepository,
+)
+from infrastructure.database.unit_of_work import SqliteUnitOfWork
+from services.commands.doklad_actions import DokladActionsCommand
+from services.commands.zauctovat_doklad import (
+    ZauctovatDokladCommand,
+    ZauctovatDokladInput,
+    ZauctovatRadek,
+)
+
+
+def _seed(
+    db_factory,
+    cislo: str = "FV-2026-001",
+    castka: str = "1000",
+    k_doreseni: bool = False,
+    poznamka: str | None = None,
+    splatnost: date | None = None,
+    popis: str | None = None,
+) -> int:
+    uow = SqliteUnitOfWork(db_factory)
+    with uow:
+        repo = SqliteDokladyRepository(uow)
+        d = repo.add(Doklad(
+            cislo=cislo,
+            typ=TypDokladu.FAKTURA_VYDANA,
+            datum_vystaveni=date(2026, 3, 1),
+            castka_celkem=Money.from_koruny(castka),
+            datum_splatnosti=splatnost,
+            popis=popis,
+            k_doreseni=k_doreseni,
+            poznamka_doreseni=poznamka,
+        ))
+        uow.commit()
+    return d.id  # type: ignore[return-value]
+
+
+def _zauctuj(db_factory, doklad_id: int, castka: str) -> None:
+    cmd = ZauctovatDokladCommand(
+        uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+        denik_repo_factory=lambda uow: SqliteUcetniDenikRepository(uow),
+    )
+    cmd.execute(ZauctovatDokladInput(
+        doklad_id=doklad_id,
+        datum=date(2026, 3, 1),
+        radky=[ZauctovatRadek(
+            md_ucet="311", dal_ucet="601",
+            castka=Money.from_koruny(castka),
+        )],
+    ))
+
+
+def _build(db_factory) -> DokladActionsCommand:
+    return DokladActionsCommand(
+        uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+    )
+
+
+class TestStornovat:
+
+    def test_stornuje_novy_doklad(self, db_factory):
+        doklad_id = _seed(db_factory)
+        cmd = _build(db_factory)
+        item = cmd.stornovat(doklad_id)
+        assert item.stav == StavDokladu.STORNOVANY
+
+    def test_stornuje_zauctovany_doklad(self, db_factory):
+        doklad_id = _seed(db_factory, castka="500")
+        _zauctuj(db_factory, doklad_id, "500")
+        cmd = _build(db_factory)
+        item = cmd.stornovat(doklad_id)
+        assert item.stav == StavDokladu.STORNOVANY
+
+    def test_storno_vycisti_k_doreseni(self, db_factory):
+        doklad_id = _seed(db_factory, k_doreseni=True, poznamka="chybí IČO")
+        cmd = _build(db_factory)
+        item = cmd.stornovat(doklad_id)
+        assert item.k_doreseni is False
+        assert item.poznamka_doreseni is None
+
+
+class TestSmazat:
+
+    def test_smaze_novy_doklad(self, db_factory):
+        doklad_id = _seed(db_factory)
+        cmd = _build(db_factory)
+        cmd.smazat(doklad_id)
+        # Ověř, že je pryč
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            assert repo.existuje_cislo("FV-2026-001") is False
+
+    def test_nelze_smazat_zauctovany(self, db_factory):
+        doklad_id = _seed(db_factory, castka="500")
+        _zauctuj(db_factory, doklad_id, "500")
+        cmd = _build(db_factory)
+        with pytest.raises(ValidationError):
+            cmd.smazat(doklad_id)
+
+
+class TestKDoreseni:
+
+    def test_oznaci_k_doreseni(self, db_factory):
+        doklad_id = _seed(db_factory)
+        cmd = _build(db_factory)
+        item = cmd.oznac_k_doreseni(doklad_id, poznamka="chybí partner")
+        assert item.k_doreseni is True
+        assert item.poznamka_doreseni == "chybí partner"
+
+    def test_dores_vycisti_flag(self, db_factory):
+        doklad_id = _seed(db_factory, k_doreseni=True, poznamka="něco")
+        cmd = _build(db_factory)
+        item = cmd.dores(doklad_id)
+        assert item.k_doreseni is False
+        assert item.poznamka_doreseni is None
+
+    def test_dores_idempotentni(self, db_factory):
+        doklad_id = _seed(db_factory)
+        cmd = _build(db_factory)
+        item = cmd.dores(doklad_id)  # flag byl False
+        assert item.k_doreseni is False
+
+
+class TestUpravitPopisASplatnost:
+
+    def test_upravi_oboje_na_novem(self, db_factory):
+        doklad_id = _seed(db_factory, splatnost=date(2026, 3, 10),
+                          popis="původní")
+        cmd = _build(db_factory)
+        item = cmd.upravit_popis_a_splatnost(
+            doklad_id,
+            popis="nový popis",
+            splatnost=date(2026, 3, 20),
+        )
+        assert item.popis == "nový popis"
+        assert item.datum_splatnosti == date(2026, 3, 20)
+
+    def test_upravi_jen_popis_na_zauctovanem(self, db_factory):
+        doklad_id = _seed(db_factory, castka="500",
+                          splatnost=date(2026, 3, 15), popis="a")
+        _zauctuj(db_factory, doklad_id, "500")
+        cmd = _build(db_factory)
+        # Splatnost se nezmění — předáváme stejnou hodnotu.
+        item = cmd.upravit_popis_a_splatnost(
+            doklad_id,
+            popis="b",
+            splatnost=date(2026, 3, 15),
+        )
+        assert item.popis == "b"
+        assert item.stav == StavDokladu.ZAUCTOVANY
+
+    def test_zmena_splatnosti_na_zauctovanem_vyhodi(self, db_factory):
+        doklad_id = _seed(db_factory, castka="500",
+                          splatnost=date(2026, 3, 15))
+        _zauctuj(db_factory, doklad_id, "500")
+        cmd = _build(db_factory)
+        with pytest.raises(ValidationError):
+            cmd.upravit_popis_a_splatnost(
+                doklad_id,
+                popis="x",
+                splatnost=date(2026, 3, 25),  # jiná splatnost → ne-NOVY fail
+            )
+
+    def test_popis_na_stornovanem_vyhodi(self, db_factory):
+        doklad_id = _seed(db_factory)
+        # Stornuj
+        _build(db_factory).stornovat(doklad_id)
+        cmd = _build(db_factory)
+        with pytest.raises(ValidationError):
+            cmd.upravit_popis_a_splatnost(
+                doklad_id, popis="x", splatnost=None,
+            )
+
+    def test_popis_nastavi_none(self, db_factory):
+        doklad_id = _seed(db_factory, popis="původní")
+        cmd = _build(db_factory)
+        item = cmd.upravit_popis_a_splatnost(
+            doklad_id, popis=None, splatnost=None,
+        )
+        assert item.popis is None

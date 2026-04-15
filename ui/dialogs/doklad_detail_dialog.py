@@ -1,17 +1,28 @@
-"""DokladDetailDialog — read-only modální okno s detailem jednoho dokladu.
+"""DokladDetailDialog — detail dokladu s edit módem + akcemi.
 
-V Kroku 3 čistě read-only: titulek, typ/stav badge, datumy, částka,
-případný panel „K dořešení" (warning amber) a popis. Tlačítko „Zavřít".
+Layout:
+    Header  : Číslo dokladu  [Typ badge] [Stav badge]
+    (editable) Popis + Datum splatnosti inputs
+    (read-only) Ostatní metadata
+    K dořešení box (pokud flag nebo v edit módu tlačítko „Označit / Dořešit")
+    Akční řádek:
+        [Upravit] [Zaúčtovat] [Označit k dořešení / Dořešit]
+        [Stornovat] [Smazat]                           [Zavřít]
+    V edit módu:
+        [Zrušit úpravy]                             [Uložit změny]
 
-Editace a Zaúčtování přijdou v dalších krocích — v tomto dialogu je
-nevystavujeme, aby nebyl scope creep.
+Všechny akce procházejí přes ``DokladDetailViewModel``. Dialog po
+úspěšné mutaci neukončuje se — refreshne obsah z VM. ``accept()`` se
+zavolá jen pokud byl doklad smazaný.
+
+``result_item`` — aktuální DTO v okamžiku zavření (pro refresh listu).
 """
 
 from __future__ import annotations
 
 from datetime import date
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
@@ -22,8 +33,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from domain.doklady.typy import StavDokladu
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors, Spacing
+from ui.dialogs.confirm_dialog import ConfirmDialog
+from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.widgets.badge import (
     Badge,
     badge_variant_for_stav,
@@ -32,6 +46,7 @@ from ui.widgets.badge import (
     typ_display_text,
 )
 from ui.widgets.icon import load_icon
+from ui.widgets.labeled_inputs import LabeledDateEdit, LabeledTextEdit
 
 
 def _format_date_long(d: date) -> str:
@@ -39,30 +54,58 @@ def _format_date_long(d: date) -> str:
 
 
 class DokladDetailDialog(QDialog):
-    """Modální dialog s detailem jednoho DokladyListItem."""
+    """Modální dialog s detailem + edit módem + akcemi."""
+
+    #: Emitováno, když uživatelka kliknutím na „Zaúčtovat" chce otevřít
+    #: zaúčtovací dialog. Page to zpracuje (má k dispozici VM factories).
+    zauctovat_requested = pyqtSignal(object)   # DokladyListItem
 
     def __init__(
         self,
-        item: DokladyListItem,
+        view_model: DokladDetailViewModel,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Doklad {item.cislo}")
+        self._vm = view_model
+        self.setWindowTitle(f"Doklad {view_model.doklad.cislo}")
         self.setProperty("class", "doklad-detail")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setModal(True)
-        self.resize(520, 480)
+        self.resize(580, 620)
 
-        self._item = item
+        # Widgety
         self._typ_badge: Badge
         self._stav_badge: Badge
         self._doreseni_box: QWidget
-        self._close_button: QPushButton
-        self._build_ui()
+        self._popis_display: QLabel
+        self._splatnost_display: QLabel
+        self._popis_edit: LabeledTextEdit
+        self._splatnost_edit: LabeledDateEdit
+        self._error_label: QLabel
 
-    # ────────────────────────────────────────────────
-    # Test-only accessors (underscore = interní)
-    # ────────────────────────────────────────────────
+        self._edit_button: QPushButton
+        self._zauctovat_button: QPushButton
+        self._flag_button: QPushButton
+        self._storno_button: QPushButton
+        self._smazat_button: QPushButton
+        self._close_button: QPushButton
+        self._cancel_edit_button: QPushButton
+        self._save_edit_button: QPushButton
+
+        self._build_ui()
+        self._wire_signals()
+        self._sync_ui()
+
+    # ─── Public API ──────────────────────────────────────────────
+
+    @property
+    def result_item(self) -> DokladyListItem | None:
+        """Aktuální DTO v okamžiku uzavření. None pokud smazán."""
+        if self._vm.is_deleted:
+            return None
+        return self._vm.doklad
+
+    # ─── Test-only accessors ─────────────────────────────────────
 
     @property
     def _typ_badge_widget(self) -> Badge:
@@ -77,15 +120,41 @@ class DokladDetailDialog(QDialog):
         return self._doreseni_box
 
     @property
+    def _edit_button_widget(self) -> QPushButton:
+        return self._edit_button
+
+    @property
+    def _zauctovat_button_widget(self) -> QPushButton:
+        return self._zauctovat_button
+
+    @property
+    def _flag_button_widget(self) -> QPushButton:
+        return self._flag_button
+
+    @property
+    def _storno_button_widget(self) -> QPushButton:
+        return self._storno_button
+
+    @property
+    def _smazat_button_widget(self) -> QPushButton:
+        return self._smazat_button
+
+    @property
     def _close_button_widget(self) -> QPushButton:
         return self._close_button
 
-    # ────────────────────────────────────────────────
-    # Build
-    # ────────────────────────────────────────────────
+    @property
+    def _save_edit_widget(self) -> QPushButton:
+        return self._save_edit_button
+
+    @property
+    def _cancel_edit_widget(self) -> QPushButton:
+        return self._cancel_edit_button
+
+    # ─── Build ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        item = self._item
+        item = self._vm.doklad
 
         root = QVBoxLayout(self)
         root.setContentsMargins(
@@ -93,10 +162,9 @@ class DokladDetailDialog(QDialog):
         )
         root.setSpacing(Spacing.S4)
 
-        # Hlavička — číslo + badges
+        # Header
         header = QHBoxLayout()
         header.setSpacing(Spacing.S3)
-
         title = QLabel(item.cislo, self)
         title.setProperty("class", "dialog-title")
         header.addWidget(title)
@@ -115,17 +183,14 @@ class DokladDetailDialog(QDialog):
             parent=self,
         )
         header.addWidget(self._stav_badge)
-
         root.addLayout(header)
 
         # K dořešení box (jen když flagnuto)
         self._doreseni_box = self._build_doreseni_box()
-        self._doreseni_box.setVisible(item.k_doreseni)
         root.addWidget(self._doreseni_box)
 
-        # Základní údaje — form
+        # Form: read-only + editable
         form = QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
         form.setHorizontalSpacing(Spacing.S5)
         form.setVerticalSpacing(Spacing.S2)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
@@ -134,15 +199,14 @@ class DokladDetailDialog(QDialog):
             self._form_label("Datum vystavení:"),
             self._form_value(_format_date_long(item.datum_vystaveni)),
         )
-        splatnost = (
-            _format_date_long(item.datum_splatnosti)
-            if item.datum_splatnosti is not None
-            else "—"
-        )
+
+        # Splatnost — read-only label + editable widget (prepínaný)
+        self._splatnost_display = self._form_value("—")
         form.addRow(
             self._form_label("Datum splatnosti:"),
-            self._form_value(splatnost),
+            self._splatnost_display,
         )
+
         form.addRow(
             self._form_label("Partner:"),
             self._form_value(item.partner_nazev or "—"),
@@ -151,27 +215,44 @@ class DokladDetailDialog(QDialog):
         castka.setProperty("class", "dialog-value-strong")
         form.addRow(self._form_label("Částka celkem:"), castka)
 
-        if item.popis:
-            popis_label = QLabel(item.popis, self)
-            popis_label.setProperty("class", "dialog-value")
-            popis_label.setWordWrap(True)
-            form.addRow(self._form_label("Popis:"), popis_label)
+        self._popis_display = QLabel("", self)
+        self._popis_display.setProperty("class", "dialog-value")
+        self._popis_display.setWordWrap(True)
+        form.addRow(self._form_label("Popis:"), self._popis_display)
 
         root.addLayout(form)
+
+        # Edit widgets (shown only in edit mode)
+        self._popis_edit = LabeledTextEdit(
+            "Popis", rows=3, parent=self,
+        )
+        self._popis_edit.setVisible(False)
+        root.addWidget(self._popis_edit)
+
+        self._splatnost_edit = LabeledDateEdit(
+            "Datum splatnosti", clearable=True, parent=self,
+        )
+        self._splatnost_edit.setVisible(False)
+        root.addWidget(self._splatnost_edit)
+
+        self._error_label = QLabel("", self)
+        self._error_label.setProperty("class", "dialog-error")
+        self._error_label.setWordWrap(True)
+        self._error_label.setVisible(False)
+        root.addWidget(self._error_label)
+
         root.addStretch(1)
 
-        # Tlačítko „Zavřít"
-        footer = QHBoxLayout()
-        footer.addStretch(1)
-        self._close_button = QPushButton("Zavřít", self)
-        self._close_button.setProperty("class", "primary")
-        self._close_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._close_button.clicked.connect(self.accept)
-        footer.addWidget(self._close_button)
-        root.addLayout(footer)
+        # Actions row (read-only mode)
+        self._actions_row = self._build_actions_row()
+        root.addWidget(self._actions_row)
+
+        # Edit actions row
+        self._edit_actions_row = self._build_edit_actions_row()
+        self._edit_actions_row.setVisible(False)
+        root.addWidget(self._edit_actions_row)
 
     def _build_doreseni_box(self) -> QWidget:
-        item = self._item
         box = QWidget(self)
         box.setProperty("class", "doreseni-box")
         box.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -182,7 +263,6 @@ class DokladDetailDialog(QDialog):
         )
         layout.setSpacing(Spacing.S1)
 
-        # Header: Lucide bell ikona + text „K dořešení"
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(Spacing.S2)
@@ -197,16 +277,241 @@ class DokladDetailDialog(QDialog):
         header.setProperty("class", "doreseni-header")
         header_row.addWidget(header)
         header_row.addStretch(1)
-
         layout.addLayout(header_row)
 
-        if item.poznamka_doreseni:
-            note = QLabel(item.poznamka_doreseni, box)
-            note.setProperty("class", "doreseni-note")
-            note.setWordWrap(True)
-            layout.addWidget(note)
+        self._doreseni_note = QLabel("", box)
+        self._doreseni_note.setProperty("class", "doreseni-note")
+        self._doreseni_note.setWordWrap(True)
+        layout.addWidget(self._doreseni_note)
 
         return box
+
+    def _build_actions_row(self) -> QWidget:
+        container = QWidget(self)
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(Spacing.S2)
+
+        self._edit_button = QPushButton("Upravit", container)
+        self._edit_button.setProperty("class", "secondary")
+        self._edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._edit_button)
+
+        self._zauctovat_button = QPushButton("Zaúčtovat", container)
+        self._zauctovat_button.setProperty("class", "primary")
+        self._zauctovat_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._zauctovat_button)
+
+        self._flag_button = QPushButton("Označit k dořešení", container)
+        self._flag_button.setProperty("class", "secondary")
+        self._flag_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._flag_button)
+
+        self._storno_button = QPushButton("Stornovat", container)
+        self._storno_button.setProperty("class", "destructive")
+        # Fáze 6.5: Storno přes opravný účetní předpis zatím není
+        # implementováno — doklad.stornuj() jen mění stav, nevytváří
+        # protizápis, takže výkazy by byly nekonzistentní. Tlačítko
+        # zůstává viditelné s tooltipem, aby uživatelka věděla, že funkce
+        # přijde.
+        self._storno_button.setEnabled(False)
+        self._storno_button.setToolTip(
+            "Storno přes opravný účetní předpis bude přidáno ve Fázi 6.5.\n"
+            "Aktuální Doklad.stornuj() jen mění stav, neřeší účetní zápisy."
+        )
+        row.addWidget(self._storno_button)
+
+        self._smazat_button = QPushButton("Smazat", container)
+        self._smazat_button.setProperty("class", "destructive")
+        self._smazat_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._smazat_button)
+
+        row.addStretch(1)
+
+        self._close_button = QPushButton("Zavřít", container)
+        self._close_button.setProperty("class", "secondary")
+        self._close_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._close_button)
+
+        return container
+
+    def _build_edit_actions_row(self) -> QWidget:
+        container = QWidget(self)
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(Spacing.S2)
+
+        self._cancel_edit_button = QPushButton(
+            "Zrušit úpravy", container,
+        )
+        self._cancel_edit_button.setProperty("class", "secondary")
+        self._cancel_edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._cancel_edit_button)
+
+        row.addStretch(1)
+
+        self._save_edit_button = QPushButton("Uložit změny", container)
+        self._save_edit_button.setProperty("class", "primary")
+        self._save_edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.addWidget(self._save_edit_button)
+
+        return container
+
+    def _wire_signals(self) -> None:
+        self._edit_button.clicked.connect(self._on_edit)
+        self._zauctovat_button.clicked.connect(self._on_zauctovat)
+        self._flag_button.clicked.connect(self._on_toggle_flag)
+        self._storno_button.clicked.connect(self._on_storno)
+        self._smazat_button.clicked.connect(self._on_smazat)
+        self._close_button.clicked.connect(self.accept)
+
+        self._cancel_edit_button.clicked.connect(self._on_cancel_edit)
+        self._save_edit_button.clicked.connect(self._on_save_edit)
+
+    # ─── Slots ───────────────────────────────────────────────────
+
+    def _on_edit(self) -> None:
+        self._vm.enter_edit()
+        # Předvyplň edit widgety z aktuálního DTO
+        self._popis_edit.set_value(self._vm.draft_popis or "")
+        self._splatnost_edit.set_value(self._vm.draft_splatnost)
+        self._splatnost_edit.inner_widget.setEnabled(
+            self._vm.can_edit_splatnost
+        )
+        self._sync_ui()
+
+    def _on_cancel_edit(self) -> None:
+        self._vm.cancel_edit()
+        self._sync_ui()
+
+    def _on_save_edit(self) -> None:
+        popis_text = self._popis_edit.value().strip()
+        popis = popis_text or None
+        splatnost = (
+            self._splatnost_edit.value()
+            if self._vm.can_edit_splatnost
+            else self._vm.doklad.datum_splatnosti
+        )
+        self._vm.set_draft_popis(popis)
+        self._vm.set_draft_splatnost(splatnost)
+        result = self._vm.save_edit()
+        if result is None:
+            self._show_error(self._vm.error or "Uložení selhalo.")
+            return
+        self._sync_ui()
+
+    def _on_zauctovat(self) -> None:
+        # Dialog neotevírá zauctovací dialog sám — signál obsluhuje page.
+        self.zauctovat_requested.emit(self._vm.doklad)
+
+    def _on_toggle_flag(self) -> None:
+        if self._vm.doklad.k_doreseni:
+            self._vm.dores()
+        else:
+            self._vm.oznac_k_doreseni()
+        if self._vm.error:
+            self._show_error(self._vm.error)
+        else:
+            self._sync_ui()
+
+    def _on_storno(self) -> None:
+        ok = ConfirmDialog.ask(
+            self,
+            title="Stornovat doklad",
+            message=(
+                f"Opravdu chcete stornovat doklad "
+                f"{self._vm.doklad.cislo}? Tato akce je nevratná."
+            ),
+            confirm_text="Ano, stornovat",
+            destructive=True,
+        )
+        if not ok:
+            return
+        self._vm.stornovat()
+        if self._vm.error:
+            self._show_error(self._vm.error)
+        else:
+            self._sync_ui()
+
+    def _on_smazat(self) -> None:
+        ok = ConfirmDialog.ask(
+            self,
+            title="Smazat doklad",
+            message=(
+                f"Opravdu chcete smazat doklad {self._vm.doklad.cislo}?\n"
+                "Smazat lze jen doklad ve stavu NOVY bez účetních zápisů."
+            ),
+            confirm_text="Ano, smazat",
+            destructive=True,
+        )
+        if not ok:
+            return
+        if self._vm.smazat():
+            self.accept()
+            return
+        self._show_error(self._vm.error or "Smazání selhalo.")
+
+    # ─── External: zauctovani_dialog succeeded ───────────────────
+
+    def refresh_after_zauctovani(self, item: DokladyListItem) -> None:
+        """Volá page po úspěšném zaúčtování — zrefreshuje detail."""
+        self._vm.refresh_from(item)
+        self._sync_ui()
+
+    # ─── UI sync ─────────────────────────────────────────────────
+
+    def _sync_ui(self) -> None:
+        item = self._vm.doklad
+
+        # Badges
+        self._stav_badge.setText(stav_display_text(item.stav))
+        self._stav_badge.set_variant(badge_variant_for_stav(item.stav))
+
+        # Splatnost + popis
+        splatnost_text = (
+            _format_date_long(item.datum_splatnosti)
+            if item.datum_splatnosti is not None
+            else "—"
+        )
+        self._splatnost_display.setText(splatnost_text)
+        self._popis_display.setText(item.popis or "—")
+
+        # K dořešení box
+        self._doreseni_box.setVisible(item.k_doreseni)
+        if item.k_doreseni:
+            self._doreseni_note.setText(item.poznamka_doreseni or "")
+
+        # Edit mode: toggle sets
+        edit = self._vm.edit_mode
+        self._popis_edit.setVisible(edit)
+        self._splatnost_edit.setVisible(edit)
+        self._popis_display.setVisible(not edit)
+        self._splatnost_display.setVisible(not edit)
+        self._actions_row.setVisible(not edit)
+        self._edit_actions_row.setVisible(edit)
+
+        # Button enabled
+        self._edit_button.setEnabled(self._vm.can_edit)
+        self._zauctovat_button.setEnabled(self._vm.can_zauctovat)
+        self._zauctovat_button.setVisible(
+            item.stav == StavDokladu.NOVY
+        )
+        # Fáze 6.5: storno je permanentně disabled — viz _build_actions_row.
+        # Záměrně neposkočíme podle can_storno, dokud nebude hotový opravný
+        # účetní předpis.
+        self._smazat_button.setEnabled(self._vm.can_smazat)
+        self._flag_button.setEnabled(self._vm.can_toggle_flag)
+        self._flag_button.setText(
+            "Dořešit" if item.k_doreseni else "Označit k dořešení"
+        )
+
+        # Reset error pokud nejsme v edit mode
+        if not edit and not self._vm.error:
+            self._error_label.setVisible(False)
+
+    def _show_error(self, message: str) -> None:
+        self._error_label.setText(message)
+        self._error_label.setVisible(True)
 
     @staticmethod
     def _form_label(text: str) -> QLabel:

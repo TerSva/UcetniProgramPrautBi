@@ -16,6 +16,8 @@ Layout:
 
 from __future__ import annotations
 
+from typing import Callable
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -26,10 +28,15 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from services.queries.doklady_list import DokladyFilter
+from services.queries.doklady_list import DokladyFilter, DokladyListItem
 from ui.design_tokens import Spacing
 from ui.dialogs.doklad_detail_dialog import DokladDetailDialog
+from ui.dialogs.doklad_form_dialog import DokladFormDialog
+from ui.dialogs.zauctovani_dialog import ZauctovaniDialog
 from ui.viewmodels import DokladyListViewModel
+from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
+from ui.viewmodels.doklad_form_vm import DokladFormViewModel
+from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 from ui.widgets.doklady_table import DokladyTable
 from ui.widgets.filter_bar import FilterBar
 
@@ -45,10 +52,20 @@ class DokladyPage(QWidget):
     def __init__(
         self,
         view_model: DokladyListViewModel,
+        form_vm_factory: Callable[[], DokladFormViewModel] | None = None,
+        detail_vm_factory: Callable[
+            [DokladyListItem], DokladDetailViewModel
+        ] | None = None,
+        zauctovani_vm_factory: Callable[
+            [DokladyListItem], ZauctovaniViewModel
+        ] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = view_model
+        self._form_vm_factory = form_vm_factory
+        self._detail_vm_factory = detail_vm_factory
+        self._zauctovani_vm_factory = zauctovani_vm_factory
 
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -132,8 +149,10 @@ class DokladyPage(QWidget):
 
         self._button_novy = QPushButton("+ Nový doklad", self)
         self._button_novy.setProperty("class", "primary")
-        self._button_novy.setEnabled(False)
-        self._button_novy.setToolTip("Přijde v dalším kroku")
+        # Tlačítko je enabled pouze pokud máme factory pro form VM
+        # (fallback na starší testy, které factory nedodávají).
+        self._button_novy.setEnabled(self._form_vm_factory is not None)
+        self._button_novy.setCursor(Qt.CursorShape.PointingHandCursor)
 
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
@@ -199,6 +218,7 @@ class DokladyPage(QWidget):
         self._filter_bar.filters_changed.connect(self._on_filters_changed)
         self._filter_bar.clear_requested.connect(self._on_clear_filters)
         self._table.row_activated.connect(self._on_row_activated)
+        self._button_novy.clicked.connect(self._on_novy_clicked)
 
     # ────────────────────────────────────────────────
     # Slots
@@ -228,9 +248,44 @@ class DokladyPage(QWidget):
     def _on_row_activated(self, doklad_id: int) -> None:
         for item in self._vm.items:
             if item.id == doklad_id:
-                dialog = DokladDetailDialog(item, parent=self)
-                dialog.exec()
+                self._open_detail(item)
                 return
+
+    def _open_detail(self, item: DokladyListItem) -> None:
+        """Otevře detail dialog. Pokud nemáme factory (legacy testy),
+        fallbackuje na read-only dialog bez VM."""
+        if self._detail_vm_factory is None:
+            return
+        vm = self._detail_vm_factory(item)
+        dialog = DokladDetailDialog(vm, parent=self)
+        dialog.zauctovat_requested.connect(
+            lambda current_item: self._open_zauctovani(dialog, current_item)
+        )
+        dialog.exec()
+        self.refresh()
+
+    def _open_zauctovani(
+        self,
+        parent_dialog: DokladDetailDialog,
+        item: DokladyListItem,
+    ) -> None:
+        if self._zauctovani_vm_factory is None:
+            return
+        vm = self._zauctovani_vm_factory(item)
+        dialog = ZauctovaniDialog(vm, parent=parent_dialog)
+        if dialog.exec() and dialog.posted_item is not None:
+            parent_dialog.refresh_after_zauctovani(dialog.posted_item)
+
+    def _on_novy_clicked(self) -> None:
+        if self._form_vm_factory is None:
+            return
+        vm = self._form_vm_factory()
+        dialog = DokladFormDialog(vm, parent=self)
+        if dialog.exec() and dialog.created_item is not None:
+            self.refresh()
+            # Otevři detail pro nově vytvořený doklad → umožní okamžitě
+            # zaúčtovat.
+            self._open_detail(dialog.created_item)
 
     # ────────────────────────────────────────────────
     # Internals

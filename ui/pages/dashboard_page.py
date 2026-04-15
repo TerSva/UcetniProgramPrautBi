@@ -17,6 +17,7 @@ from __future__ import annotations
 from datetime import date
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
@@ -68,7 +69,24 @@ class DashboardPage(QWidget):
         self._card_doklady.subtitle_clicked.connect(
             self.navigate_to_doklady_k_doreseni
         )
+        self._show_count: int = 0
         self.refresh()
+
+    # ────────────────────────────────────────────────
+    # Qt events
+    # ────────────────────────────────────────────────
+
+    def showEvent(self, event: QShowEvent) -> None:
+        """Při každém *dalším* zobrazení refresh dat z VM.
+
+        První show (po ctor.refresh()) přeskočíme, aby se stav z ctoru
+        nezahodil. Následující shows (uživatelka přepíná ze sidebaru) už
+        refresh vyvolají.
+        """
+        super().showEvent(event)
+        self._show_count += 1
+        if self._show_count > 1:
+            self.refresh()
 
     # ────────────────────────────────────────────────
     # Build

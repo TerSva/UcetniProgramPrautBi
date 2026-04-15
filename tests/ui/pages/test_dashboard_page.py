@@ -236,6 +236,36 @@ class TestRefresh:
         page.refresh()
         assert page.card_doklady.value_widget.text() == "99"
 
+    def test_show_po_skryti_refreshuje_data(self, page_factory):
+        """Když je stránka skrytá (QStackedWidget přepne na jinou) a pak
+        znovu zobrazená, musí se data načíst znovu — jinak Dashboard
+        pojede se starými hodnotami po transakcích v jiných stránkách."""
+        class _Mut:
+            def __init__(self):
+                self.calls = 0
+                self.results = [
+                    _data(doklady_celkem=1),
+                    _data(doklady_celkem=42),
+                ]
+
+            def execute(self):
+                r = self.results[min(self.calls, len(self.results) - 1)]
+                self.calls += 1
+                return r
+
+        q = _Mut()
+        vm = DashboardViewModel(q)
+        page = page_factory(vm)
+        # Ctor refresh: calls=1, value=1
+        assert page.card_doklady.value_widget.text() == "1"
+        # První show (mount) nesmí refresh znovu — kdyby ano, vidíme 42
+        page.show()
+        assert page.card_doklady.value_widget.text() == "1"
+        # Simuluj skrytí (přepnutí na jinou stránku) a návrat
+        page.hide()
+        page.show()
+        assert page.card_doklady.value_widget.text() == "42"
+
     def test_refresh_z_chyby_do_uspechu_skryje_error(self, page_factory):
         class _Toggle:
             def __init__(self):

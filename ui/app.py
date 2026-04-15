@@ -28,11 +28,19 @@ from infrastructure.database.repositories.uctova_osnova_repository import (
     SqliteUctovaOsnovaRepository,
 )
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
+from services.commands.create_doklad import CreateDokladCommand
+from services.commands.doklad_actions import DokladActionsCommand
+from services.commands.zauctovat_doklad import ZauctovatDokladCommand
 from services.queries.dashboard import DashboardDataQuery
-from services.queries.doklady_list import DokladyListQuery
+from services.queries.doklady_list import DokladyListItem, DokladyListQuery
+from services.queries.next_doklad_number import NextDokladNumberQuery
+from services.queries.uctova_osnova import UctovaOsnovaQuery
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
 from ui.viewmodels import DashboardViewModel, DokladyListViewModel
+from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
+from ui.viewmodels.doklad_form_vm import DokladFormViewModel
+from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 
 
 _FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
@@ -97,6 +105,58 @@ def _build_doklady_list_vm(
     return DokladyListViewModel(query)
 
 
+def _build_factories(factory: ConnectionFactory):
+    """Postaví queries + commands → VM factories pro Doklady page."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    doklady_repo_factory = lambda uow: SqliteDokladyRepository(uow)  # noqa: E731
+    denik_repo_factory = lambda uow: SqliteUcetniDenikRepository(uow)  # noqa: E731
+    osnova_repo_factory = lambda uow: SqliteUctovaOsnovaRepository(uow)  # noqa: E731
+
+    next_number_query = NextDokladNumberQuery(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+    )
+    uctova_osnova_query = UctovaOsnovaQuery(
+        uow_factory=uow_factory,
+        osnova_repo_factory=osnova_repo_factory,
+    )
+
+    create_cmd = CreateDokladCommand(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+    )
+    actions_cmd = DokladActionsCommand(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+    )
+    zauctovat_cmd = ZauctovatDokladCommand(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+        denik_repo_factory=denik_repo_factory,
+    )
+
+    def form_vm_factory() -> DokladFormViewModel:
+        return DokladFormViewModel(
+            next_number_query=next_number_query,
+            create_command=create_cmd,
+        )
+
+    def detail_vm_factory(item: DokladyListItem) -> DokladDetailViewModel:
+        return DokladDetailViewModel(
+            doklad=item,
+            actions_command=actions_cmd,
+        )
+
+    def zauctovani_vm_factory(item: DokladyListItem) -> ZauctovaniViewModel:
+        return ZauctovaniViewModel(
+            doklad=item,
+            uctova_osnova_query=uctova_osnova_query,
+            zauctovat_command=zauctovat_cmd,
+        )
+
+    return form_vm_factory, detail_vm_factory, zauctovani_vm_factory
+
+
 def run(db_path: Path | None = None) -> int:
     """Spusť aplikaci. Vrací exit code z QApplication.exec().
 
@@ -111,10 +171,16 @@ def run(db_path: Path | None = None) -> int:
     factory = _setup_database(db_path or DEFAULT_DB_PATH)
     dashboard_vm = _build_dashboard_vm(factory)
     doklady_list_vm = _build_doklady_list_vm(factory)
+    form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
+        _build_factories(factory)
+    )
 
     window = MainWindow(
         dashboard_vm=dashboard_vm,
         doklady_list_vm=doklady_list_vm,
+        form_vm_factory=form_vm_factory,
+        detail_vm_factory=detail_vm_factory,
+        zauctovani_vm_factory=zauctovani_vm_factory,
     )
     window.show()
 
