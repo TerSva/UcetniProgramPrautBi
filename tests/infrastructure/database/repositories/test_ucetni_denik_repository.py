@@ -376,6 +376,73 @@ class TestListByUcet:
             assert "311" in dal_ucty
 
 
+class TestStornoZapisyRoundTrip:
+    """Fáze 6.5: round-trip je_storno + stornuje_zaznam_id."""
+
+    def test_original_zaznam_ma_je_storno_false(self, db_factory, doklad_v_db):
+        doklad_id = doklad_v_db
+        predpis = UctovyPredpis.jednoduchy(
+            doklad_id=doklad_id, datum=date(2026, 4, 1),
+            md_ucet="311", dal_ucet="601", castka=Money(100000),
+        )
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUcetniDenikRepository(uow)
+            repo.zauctuj(predpis)
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUcetniDenikRepository(uow2)
+            zaznamy = repo2.list_by_doklad(doklad_id)
+            assert zaznamy[0].je_storno is False
+            assert zaznamy[0].stornuje_zaznam_id is None
+
+    def test_storno_zaznam_round_trip(self, db_factory, doklad_v_db):
+        doklad_id = doklad_v_db
+
+        # 1. Původní zápis
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUcetniDenikRepository(uow)
+            original = repo.zauctuj(UctovyPredpis.jednoduchy(
+                doklad_id=doklad_id, datum=date(2026, 4, 1),
+                md_ucet="311", dal_ucet="601", castka=Money(100000),
+            ))
+            original_id = original[0].id
+            uow.commit()
+
+        # 2. Opravný (storno) zápis — prohozené MD/Dal, odkazuje na original
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUcetniDenikRepository(uow2)
+            storno_predpis = UctovyPredpis(
+                doklad_id=doklad_id,
+                zaznamy=(UcetniZaznam(
+                    doklad_id=doklad_id, datum=date(2026, 4, 10),
+                    md_ucet="601", dal_ucet="311", castka=Money(100000),
+                    popis="Storno — opravný zápis",
+                    je_storno=True, stornuje_zaznam_id=original_id,
+                ),),
+            )
+            repo2.zauctuj(storno_predpis)
+            uow2.commit()
+
+        # 3. Round-trip: flag + FK čteme správně
+        uow3 = SqliteUnitOfWork(db_factory)
+        with uow3:
+            repo3 = SqliteUcetniDenikRepository(uow3)
+            zaznamy = repo3.list_by_doklad(doklad_id)
+            assert len(zaznamy) == 2
+            orig, storno = zaznamy[0], zaznamy[1]
+            assert orig.je_storno is False
+            assert orig.stornuje_zaznam_id is None
+            assert storno.je_storno is True
+            assert storno.stornuje_zaznam_id == orig.id
+            assert storno.md_ucet == "601"
+            assert storno.dal_ucet == "311"
+
+
 class TestZadnyUpdateDelete:
 
     def test_nema_update(self):

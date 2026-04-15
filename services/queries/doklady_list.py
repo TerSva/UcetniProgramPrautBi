@@ -22,6 +22,7 @@ from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
 from domain.doklady.typy import StavDokladu, TypDokladu
 from domain.shared.money import Money
+from domain.ucetnictvi.repository import UcetniDenikRepository
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 
 
@@ -84,10 +85,22 @@ class DokladyListItem:
     k_doreseni: bool
     poznamka_doreseni: str | None
     popis: str | None
+    datum_storna: date | None = None
 
     @classmethod
-    def from_domain(cls, doklad: Doklad) -> "DokladyListItem":
-        """Vytvoří DTO z doménové entity. `id` musí být nastaveno."""
+    def from_domain(
+        cls,
+        doklad: Doklad,
+        datum_storna: date | None = None,
+    ) -> "DokladyListItem":
+        """Vytvoří DTO z doménové entity. `id` musí být nastaveno.
+
+        Args:
+            doklad: doménová entita.
+            datum_storna: pro STORNOVANY dokladu datum opravného zápisu.
+                Získává se přes ``UcetniDenikRepository.list_by_doklad`` —
+                viz ``DokladyListQuery`` pro enrichment.
+        """
         if doklad.id is None:
             raise ValueError(
                 "DokladyListItem.from_domain: doklad nemá id (není persistovaný)."
@@ -104,6 +117,7 @@ class DokladyListItem:
             k_doreseni=doklad.k_doreseni,
             poznamka_doreseni=doklad.poznamka_doreseni,
             popis=doklad.popis,
+            datum_storna=datum_storna,
         )
 
 
@@ -126,15 +140,25 @@ class DokladyListQuery:
 
     Konstruktor přijímá abstraktní factory typy — testovatelné proti libovolné
     implementaci repository.
+
+    Fáze 6.5: Pro STORNOVANY doklady obohacuje DTO o ``datum_storna``
+    (datum prvního protizápisu v deníku). Lookup je per-doklad — běžící
+    N+1, ale v praxi se stornovaných dokladů v listu objeví pár kusů za rok.
+    TODO: pokud se časem ukáže jako hot path, přenést do jedné SQL query
+    nebo zkešovat v DokladyRepository.
     """
 
     def __init__(
         self,
         uow_factory: Callable[[], SqliteUnitOfWork],
         doklady_repo_factory: Callable[[SqliteUnitOfWork], DokladyRepository],
+        denik_repo_factory: Callable[
+            [SqliteUnitOfWork], UcetniDenikRepository
+        ] | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._doklady_repo_factory = doklady_repo_factory
+        self._denik_repo_factory = denik_repo_factory
 
     def execute(self, f: DokladyFilter) -> list[DokladyListItem]:
         """Vrátí filtrovaný seznam DTO, řazeno datum_vystaveni DESC, id DESC."""
@@ -150,17 +174,40 @@ class DokladyListQuery:
             repo = self._doklady_repo_factory(uow)
             doklady = repo.list_by_obdobi(start, end, limit=_LIMIT)
 
-        # Python-side filter
-        filtered: list[Doklad] = []
-        for d in doklady:
-            if f.typ is not None and d.typ != f.typ:
-                continue
-            if f.stav is not None and d.stav != f.stav:
-                continue
-            if f.k_doreseni == KDoreseniFilter.SKRYT and d.k_doreseni:
-                continue
-            if f.k_doreseni == KDoreseniFilter.POUZE and not d.k_doreseni:
-                continue
-            filtered.append(d)
+            # Python-side filter
+            filtered: list[Doklad] = []
+            for d in doklady:
+                if f.typ is not None and d.typ != f.typ:
+                    continue
+                if f.stav is not None and d.stav != f.stav:
+                    continue
+                if f.k_doreseni == KDoreseniFilter.SKRYT and d.k_doreseni:
+                    continue
+                if f.k_doreseni == KDoreseniFilter.POUZE and not d.k_doreseni:
+                    continue
+                filtered.append(d)
 
-        return [DokladyListItem.from_domain(d) for d in filtered]
+            # Enrichment: datum_storna pro STORNOVANY
+            # (N+1 — viz class docstring)
+            denik_repo = (
+                self._denik_repo_factory(uow)
+                if self._denik_repo_factory is not None
+                else None
+            )
+            items: list[DokladyListItem] = []
+            for d in filtered:
+                datum_storna: date | None = None
+                if (
+                    denik_repo is not None
+                    and d.stav == StavDokladu.STORNOVANY
+                    and d.id is not None
+                ):
+                    zaznamy = denik_repo.list_by_doklad(d.id)
+                    storno = next(
+                        (z for z in zaznamy if z.je_storno), None,
+                    )
+                    datum_storna = storno.datum if storno is not None else None
+                items.append(
+                    DokladyListItem.from_domain(d, datum_storna=datum_storna)
+                )
+            return items

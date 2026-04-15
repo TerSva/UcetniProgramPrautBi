@@ -2,6 +2,10 @@
 
 Jeden záznam = MD účet / Dal účet / částka. Jednou zapsaný se NIKDY nemění.
 Storno přes nový záznam s prohozenými stranami (opravný doklad).
+
+Fáze 6.5: storno záznamy nesou flag ``je_storno=True`` a ``stornuje_zaznam_id``
+odkazující na originál, který anulují. Originální záznamy mají oba atributy
+ve výchozí hodnotě (``False`` / ``None``).
 """
 
 from __future__ import annotations
@@ -27,6 +31,8 @@ class UcetniZaznam:
     castka: Money
     popis: str | None = None
     id: int | None = None
+    je_storno: bool = False
+    stornuje_zaznam_id: int | None = None
 
     def __post_init__(self) -> None:
         # doklad_id — kladný int, ne bool
@@ -76,6 +82,32 @@ class UcetniZaznam:
             ):
                 raise ValidationError("id musí být kladný int nebo None")
 
+        # je_storno — bool
+        if not isinstance(self.je_storno, bool):
+            raise ValidationError("je_storno musí být bool")
+
+        # stornuje_zaznam_id — pokud zadáno, kladný int
+        if self.stornuje_zaznam_id is not None:
+            if (
+                not isinstance(self.stornuje_zaznam_id, int)
+                or isinstance(self.stornuje_zaznam_id, bool)
+                or self.stornuje_zaznam_id <= 0
+            ):
+                raise ValidationError(
+                    "stornuje_zaznam_id musí být kladný int nebo None"
+                )
+
+        # Konzistence: je_storno ⇔ stornuje_zaznam_id is not None.
+        if self.je_storno and self.stornuje_zaznam_id is None:
+            raise ValidationError(
+                "Storno záznam musí mít stornuje_zaznam_id."
+            )
+        if not self.je_storno and self.stornuje_zaznam_id is not None:
+            raise ValidationError(
+                "stornuje_zaznam_id lze nastavit jen u storno záznamu "
+                "(je_storno=True)."
+            )
+
     def with_id(self, new_id: int) -> UcetniZaznam:
         """Vrátí novou instanci s naplněným id (po uložení do DB)."""
         return UcetniZaznam(
@@ -86,4 +118,6 @@ class UcetniZaznam:
             castka=self.castka,
             popis=self.popis,
             id=new_id,
+            je_storno=self.je_storno,
+            stornuje_zaznam_id=self.stornuje_zaznam_id,
         )

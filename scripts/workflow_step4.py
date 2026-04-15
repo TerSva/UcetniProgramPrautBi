@@ -189,18 +189,23 @@ def main() -> int:
         assert len(novy) == 1, f"Doklad {suggested} není v listu!"
         print(f"  ✓ V listu: {novy[0].cislo}, stav={novy[0].stav.value}")
 
-        # ─── 9) Storno — v UI zakázáno (Fáze 6.5) ───
-        print("\n━━━ 9. Storno — disabled v UI ━━━")
+        # ─── 9) Storno — aktivní (Fáze 6.5) ───
+        print("\n━━━ 9. Storno zaúčtovaného dokladu ━━━")
         storno_btn = detail._storno_button_widget
-        assert storno_btn.isEnabled() is False, (
-            "Storno tlačítko musí být disabled, dokud nebude Fáze 6.5"
+        assert storno_btn.isEnabled() is True, (
+            "Storno tlačítko musí být enabled pro ZAUCTOVANY"
         )
-        tooltip = storno_btn.toolTip()
-        assert "6.5" in tooltip, tooltip
-        print(f"  ✓ Storno tlačítko disabled, tooltip: {tooltip!r}")
-        # Screenshot s viditelným disabled storno tlačítkem v read-only detailu.
-        _grab(detail, OUT / "w5_detail_po_zauctovani.png",
-              "Detail po zaúčtování (storno disabled)")
+        # Klikni storno — VM zavolá DokladActionsCommand → service → protizápisy
+        # Obejdeme confirm dialog přes přímé volání vm.stornovat()
+        vm = detail._vm
+        vm.stornovat()
+        app.processEvents()
+        assert vm.doklad.stav.value == "stornovany", vm.error
+        print(f"  ✓ Storno proběhlo, stav → {vm.doklad.stav.value}")
+        print(f"  ✓ Datum storna: {vm.doklad.datum_storna}")
+        detail._sync_ui()
+        _grab(detail, OUT / "w5_detail_po_stornu.png",
+              "Detail po stornu (STORNOVANY)")
         detail.close()
 
         # ─── 10) Zpět na Dashboard ───

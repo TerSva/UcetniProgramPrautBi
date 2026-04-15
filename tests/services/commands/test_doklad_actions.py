@@ -21,6 +21,7 @@ from services.commands.zauctovat_doklad import (
     ZauctovatDokladInput,
     ZauctovatRadek,
 )
+from services.zauctovani_service import ZauctovaniDokladuService
 
 
 def _seed(
@@ -65,20 +66,44 @@ def _zauctuj(db_factory, doklad_id: int, castka: str) -> None:
     ))
 
 
-def _build(db_factory) -> DokladActionsCommand:
+def _build_actions(db_factory) -> DokladActionsCommand:
+    """Helper pro sestavení DokladActionsCommand s novou signaturou (Fáze 6.5).
+
+    DokladActionsCommand si vezme ZauctovaniDokladuService, který je potřeba
+    pro ``stornovat()`` (protizápisy přes opravný účetní předpis).
+    """
+    uow_factory = lambda: SqliteUnitOfWork(db_factory)  # noqa: E731
+    doklady_repo_factory = lambda uow: SqliteDokladyRepository(uow)  # noqa: E731
+    denik_repo_factory = lambda uow: SqliteUcetniDenikRepository(uow)  # noqa: E731
+    zauctovani_service = ZauctovaniDokladuService(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+        denik_repo_factory=denik_repo_factory,
+    )
     return DokladActionsCommand(
-        uow_factory=lambda: SqliteUnitOfWork(db_factory),
-        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+        zauctovani_service=zauctovani_service,
     )
 
 
-class TestStornovat:
+# Zpětně kompatibilní alias — zachovává existující call-sites
+_build = _build_actions
 
-    def test_stornuje_novy_doklad(self, db_factory):
+
+class TestStornovat:
+    """Fáze 6.5: stornovat() deleguje na ZauctovaniDokladuService.
+
+    Pro NOVY doklad (bez zápisů) je storno zakázáno — uživatelka má použít
+    Smazat. Pro ZAUCTOVANY/CASTECNE_UHRAZENY vznikne protizápis + stav
+    se změní na STORNOVANY.
+    """
+
+    def test_nelze_stornovat_novy_doklad(self, db_factory):
         doklad_id = _seed(db_factory)
         cmd = _build(db_factory)
-        item = cmd.stornovat(doklad_id)
-        assert item.stav == StavDokladu.STORNOVANY
+        with pytest.raises(ValidationError, match="NOVY"):
+            cmd.stornovat(doklad_id)
 
     def test_stornuje_zauctovany_doklad(self, db_factory):
         doklad_id = _seed(db_factory, castka="500")
@@ -88,9 +113,25 @@ class TestStornovat:
         assert item.stav == StavDokladu.STORNOVANY
 
     def test_storno_vycisti_k_doreseni(self, db_factory):
-        doklad_id = _seed(db_factory, k_doreseni=True, poznamka="chybí IČO")
+        """Po stornu zaúčtovaného k_doreseni flagu se flag vyčistí."""
+        doklad_id = _seed(
+            db_factory, castka="500",
+            k_doreseni=True, poznamka="chybí IČO",
+        )
+        _zauctuj(db_factory, doklad_id, "500")
+        # Znovu nastav k_doreseni (zauctuj ho nemaže)
+        from domain.doklady.typy import StavDokladu as _S  # noqa: F401
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            d = repo.get_by_id(doklad_id)
+            d.oznac_k_doreseni("chybí IČO")
+            repo.update(d)
+            uow.commit()
+
         cmd = _build(db_factory)
         item = cmd.stornovat(doklad_id)
+        assert item.stav == StavDokladu.STORNOVANY
         assert item.k_doreseni is False
         assert item.poznamka_doreseni is None
 
@@ -179,8 +220,9 @@ class TestUpravitPopisASplatnost:
             )
 
     def test_popis_na_stornovanem_vyhodi(self, db_factory):
-        doklad_id = _seed(db_factory)
-        # Stornuj
+        # Seed + zauctuj + stornuj (storno vyžaduje ZAUCTOVANY)
+        doklad_id = _seed(db_factory, castka="500")
+        _zauctuj(db_factory, doklad_id, "500")
         _build(db_factory).stornovat(doklad_id)
         cmd = _build(db_factory)
         with pytest.raises(ValidationError):

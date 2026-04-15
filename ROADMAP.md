@@ -5,7 +5,7 @@ základního MVP** (Fáze 6 — UI). Fáze nejsou nutně sekvenční; výběr da
 priority bude záviset na reálném používání aplikace a zpětné vazbě
 z účetní praxe.
 
-Aktualizováno: po dokončení Fáze 6 (UI MVP).
+Aktualizováno: po dokončení Fáze 6.5 (storno přes opravný účetní předpis).
 
 ---
 
@@ -22,64 +22,19 @@ Aktualizováno: po dokončení Fáze 6 (UI MVP).
 - Krok 1: Skeleton aplikace + sidebar + design tokens
 - Krok 2: Dashboard s živými KPI kartami
 - Krok 3: Doklady list s filtry + read-only detail
-- Krok 4: Vytváření dokladu + zaúčtování + akce (dořešit, smazat). Storno
-  zatím přes UI zakázané — viz Fáze 6.5.
+- Krok 4: Vytváření dokladu + zaúčtování + akce (dořešit, smazat).
 - Krok 5: Polish, finální screenshoty
+
+### Fáze 6.5: Storno přes opravný účetní předpis ✅ HOTOVO
+Storno zaúčtovaného dokladu nyní vytváří opravný účetní předpis (protizápis,
+varianta A — prohozené MD ↔ Dal, kladná částka) a anuluje dopad původního
+zaúčtování ve Předvaze, Hlavní knize i Dashboard KPI. Per-záznam architektura
+(`ucetni_zaznamy.je_storno` + `stornuje_zaznam_id`), migrace 004, idempotentní
+`ZauctovaniDokladuService.stornuj_doklad`, UI re-enabled s novým confirm textem.
 
 ---
 
 ## 📋 Plánované fáze
-
-### Fáze 6.5: Storno přes opravný účetní předpis
-**Co:** Kompletně přepracovat akci „Stornovat" na detail dokladu tak, aby
-kromě změny stavu vytvářela i **opravný účetní předpis** (protizápis) —
-stornování zaúčtovaného dokladu musí vynulovat jeho dopad ve výkazech.
-
-**Proč:** Aktuální `Doklad.stornuj()` jen změní stav na `STORNOVANY`, ale
-**nevytváří protizápis**. Důsledek: po stornu zaúčtovaného dokladu jsou
-účetní výkazy (Předvaha, Hlavní kniha, VZZ, Dashboard KPI) **nekonzistentní**
-— zápisy v hlavní knize pořád existují, ale v seznamu dokladů svítí „Stornovaný".
-Účetní zkrátka nesmí stornovat jinak než opravným účetním předpisem.
-
-Proto je v UI tlačítko „Stornovat" v detail dialogu aktuálně **disabled
-s tooltipem** „Storno přes opravný účetní předpis bude přidáno v příští
-fázi (Fáze 6.5)." Ostatní akce (Upravit, Označit k dořešení, Dořešeno,
-Smazat) zůstávají plně funkční.
-
-**Co bude obsahovat:**
-- **Nová logika v doméně:** `Doklad.stornuj()` musí vytvořit opravný `UctovyPredpis`
-  s obrácenými stranami (MD ↔ Dal) původních zápisů. Nový předpis nese
-  flag `je_storno=True` a odkaz na původní předpis (`stornuje_predpis_id`).
-- **Command `StornovatDoklad`** v `services/commands/`: idempotentní, transakční
-  (v jedné UoW vytvoří protizápis + změní stav). Validace: lze stornovat
-  jen ZAUCTOVANY nebo CASTECNE_UHRAZENY (ne UHRAZENY → vrácení peněz, ne NOVY
-  → stačí Smazat).
-- **Migrace SQL:** přidání sloupců `je_storno BOOLEAN` a `stornuje_predpis_id FK`
-  do `ucetni_predpisy`.
-- **UI — enable storno tlačítko:** odstranit permanentní disabled + tooltip;
-  respektovat `DokladDetailViewModel.can_storno`.
-- **UI — vizualizace protizápisu:** v detail dialogu (pokud je doklad
-  stornovaný) ukázat jak původní, tak opravný předpis, s jasným označením
-  „Storno ze dne {datum}".
-- **Queries — Dashboard + Predvaha + HlavniKniha:** ověřit, že opravné
-  zápisy správně ruší dopad původních (součty výnosů/nákladů musí po stornu
-  odpovídat nule pro daný doklad).
-- **Testy:** doména (Doklad.stornuj s novým chováním), command (transakce,
-  idempotence), integration (po stornu jsou KPI konzistentní).
-
-**Otevřená otázka k vyřešení během této fáze:** Jak přesně vypadá opravný
-předpis v české podvojné účetní praxi? Storno se dělá:
-- (a) **protizápisem** — nový předpis s prohozenými stranami (MD ↔ Dal)
-  a stejnou kladnou částkou, nebo
-- (b) **červeným zápisem** — nový předpis se stejnými stranami, ale zápornou
-  částkou (v účetním softwaru se tiskne červeně)?
-
-Obě varianty mají stejný matematický efekt na součty, ale liší se v trailu
-(deník, hlavní kniha) a v tom, jak se to čte. Zeptám se Terezy podle její
-reálné praxe, než začnu implementovat doménu.
-
-**Kdy:** Před Fází 7. Je to zbytkový dluh z Fáze 6 — bez toho nelze aplikaci
-reálně nasadit, protože storno je běžná operace a nesmí rozbít výkazy.
 
 ### Fáze 7: Sidebar sekce per typ dokladu
 **Co:** Rozdělit dnešní jednotnou položku „Doklady" v sidebaru na samostatné

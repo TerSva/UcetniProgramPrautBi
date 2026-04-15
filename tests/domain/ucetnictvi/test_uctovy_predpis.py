@@ -147,3 +147,99 @@ class TestFrozen:
         )
         with pytest.raises(AttributeError):
             p.doklad_id = 2  # type: ignore[misc]
+
+
+class TestStornoZZaznamu:
+    """Fáze 6.5: factory pro opravný (storno) předpis."""
+
+    def test_jeden_zaznam(self):
+        original = _zaznam(id=10, md="311", dal="601", castka_halire=1000000)
+        p = UctovyPredpis.storno_z_zaznamu(
+            (original,), datum=date(2026, 4, 15),
+        )
+        assert len(p.zaznamy) == 1
+        s = p.zaznamy[0]
+        # MD/Dal prohozené
+        assert s.md_ucet == "601"
+        assert s.dal_ucet == "311"
+        # Částka kladná (Varianta A — nepoužíváme červený zápis)
+        assert s.castka == Money(1000000)
+        # Flag + FK
+        assert s.je_storno is True
+        assert s.stornuje_zaznam_id == 10
+        # Datum = dnes, ne datum originálu
+        assert s.datum == date(2026, 4, 15)
+        # Popis má prefix
+        assert s.popis == "Storno"
+        # doklad_id zachován
+        assert s.doklad_id == 1
+
+    def test_popis_s_prefixem(self):
+        original = _zaznam(id=10, popis="Tržba")
+        p = UctovyPredpis.storno_z_zaznamu(
+            (original,), datum=date(2026, 4, 15),
+        )
+        assert p.zaznamy[0].popis == "Storno: Tržba"
+
+    def test_vicero_zaznamu(self):
+        """FV s DPH: 2 zápisy → 2 protizápisy."""
+        originaly = (
+            _zaznam(id=1, md="311", dal="601", castka_halire=1000000,
+                    popis="Základ"),
+            _zaznam(id=2, md="311", dal="343", castka_halire=210000,
+                    popis="DPH"),
+        )
+        p = UctovyPredpis.storno_z_zaznamu(
+            originaly, datum=date(2026, 4, 15),
+        )
+        assert len(p.zaznamy) == 2
+        assert p.zaznamy[0].stornuje_zaznam_id == 1
+        assert p.zaznamy[0].md_ucet == "601"
+        assert p.zaznamy[0].dal_ucet == "311"
+        assert p.zaznamy[1].stornuje_zaznam_id == 2
+        assert p.zaznamy[1].md_ucet == "343"
+        assert p.zaznamy[1].dal_ucet == "311"
+
+    def test_prazdny_seznam_vyhodi(self):
+        with pytest.raises(ValidationError, match="prázdný"):
+            UctovyPredpis.storno_z_zaznamu(
+                (), datum=date(2026, 4, 15),
+            )
+
+    def test_bez_id_vyhodi(self):
+        original = _zaznam()  # bez id
+        with pytest.raises(ValidationError, match="persistovaný"):
+            UctovyPredpis.storno_z_zaznamu(
+                (original,), datum=date(2026, 4, 15),
+            )
+
+    def test_ruzny_doklad_id_vyhodi(self):
+        o1 = _zaznam(id=1, doklad_id=1)
+        o2 = _zaznam(id=2, doklad_id=2)
+        with pytest.raises(ValidationError, match="různý doklad_id"):
+            UctovyPredpis.storno_z_zaznamu(
+                (o1, o2), datum=date(2026, 4, 15),
+            )
+
+    def test_uz_stornovany_vyhodi(self):
+        original = UcetniZaznam(
+            doklad_id=1, datum=date(2026, 4, 1),
+            md_ucet="601", dal_ucet="311", castka=Money(100),
+            id=42, je_storno=True, stornuje_zaznam_id=10,
+        )
+        with pytest.raises(ValidationError, match="stornovaný"):
+            UctovyPredpis.storno_z_zaznamu(
+                (original,), datum=date(2026, 4, 15),
+            )
+
+    def test_soucty_jsou_opacne(self):
+        """Protizápis má MD originálu na Dal a naopak → po sečtení 0 dopad."""
+        original = _zaznam(id=10, md="311", dal="601", castka_halire=1000000)
+        p = UctovyPredpis.storno_z_zaznamu(
+            (original,), datum=date(2026, 4, 15),
+        )
+        # Původní: MD 311, Dal 601 = +10 000 na 601 (výnos)
+        # Protizápis: MD 601, Dal 311 = -10 000 na 601 (anulace)
+        assert "601" in p.soucet_md
+        assert "311" in p.soucet_dal
+        assert p.celkova_castka == Money(1000000)

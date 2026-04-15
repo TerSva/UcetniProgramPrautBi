@@ -69,8 +69,9 @@ class SqliteUcetniDenikRepository(UcetniDenikRepository):
         for z in predpis.zaznamy:
             cursor = conn.execute(
                 """INSERT INTO ucetni_zaznamy
-                   (doklad_id, datum, md_ucet, dal_ucet, castka, popis)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (doklad_id, datum, md_ucet, dal_ucet, castka, popis,
+                    je_storno, stornuje_zaznam_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     z.doklad_id,
                     z.datum.isoformat(),
@@ -78,6 +79,8 @@ class SqliteUcetniDenikRepository(UcetniDenikRepository):
                     z.dal_ucet,
                     z.castka.to_halire(),
                     z.popis,
+                    1 if z.je_storno else 0,
+                    z.stornuje_zaznam_id,
                 ),
             )
             ulozene.append(z.with_id(cursor.lastrowid))
@@ -133,4 +136,6 @@ class SqliteUcetniDenikRepository(UcetniDenikRepository):
             dal_ucet=row["dal_ucet"],
             castka=Money(row["castka"]),
             popis=row["popis"],
+            je_storno=bool(row["je_storno"]),
+            stornuje_zaznam_id=row["stornuje_zaznam_id"],
         )

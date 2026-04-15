@@ -22,6 +22,7 @@ from typing import Callable
 from domain.doklady.repository import DokladyRepository
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.queries.doklady_list import DokladyListItem
+from services.zauctovani_service import ZauctovaniDokladuService
 
 
 class DokladActionsCommand:
@@ -31,22 +32,34 @@ class DokladActionsCommand:
         self,
         uow_factory: Callable[[], SqliteUnitOfWork],
         doklady_repo_factory: Callable[[SqliteUnitOfWork], DokladyRepository],
+        zauctovani_service: ZauctovaniDokladuService,
     ) -> None:
         self._uow_factory = uow_factory
         self._doklady_repo_factory = doklady_repo_factory
+        self._zauctovani_service = zauctovani_service
 
     # ── State transitions ──────────────────────────────────────────────
 
     def stornovat(self, doklad_id: int) -> DokladyListItem:
-        """Stornuje doklad (auto-clear k_doreseni). Raises ValidationError."""
-        uow = self._uow_factory()
-        with uow:
-            repo = self._doklady_repo_factory(uow)
-            doklad = repo.get_by_id(doklad_id)
-            doklad.stornuj()
-            repo.update(doklad)
-            uow.commit()
-        return DokladyListItem.from_domain(doklad)
+        """Stornuje doklad přes opravný účetní předpis.
+
+        Deleguje na ``ZauctovaniDokladuService.stornuj_doklad``, který
+        v jedné UoW vytvoří protizápisy + změní stav. Auto-clear ``k_doreseni``
+        řeší ``Doklad.stornuj()`` uvnitř service transakce.
+
+        Vrácený DTO nese ``datum_storna`` (datum prvního protizápisu) —
+        aby UI po stornu mohlo okamžitě zobrazit „Stornováno: {datum}"
+        bez re-fetche.
+
+        Raises:
+            ValidationError — NOVY (použij Smazat), UHRAZENY (nelze).
+            NotFoundError — doklad neexistuje.
+        """
+        doklad, protizapisy = self._zauctovani_service.stornuj_doklad(
+            doklad_id
+        )
+        datum_storna = protizapisy[0].datum if protizapisy else None
+        return DokladyListItem.from_domain(doklad, datum_storna=datum_storna)
 
     def smazat(self, doklad_id: int) -> None:
         """Smaže doklad (jen NOVY + bez zápisů). Raises ValidationError."""

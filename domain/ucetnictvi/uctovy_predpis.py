@@ -73,6 +73,70 @@ class UctovyPredpis:
         )
         return cls(doklad_id=doklad_id, zaznamy=(zaznam,))
 
+    @classmethod
+    def storno_z_zaznamu(
+        cls,
+        originaly: tuple[UcetniZaznam, ...],
+        datum: date,
+    ) -> UctovyPredpis:
+        """Factory pro opravný (storno) předpis.
+
+        Pro každý ``originaly[i]`` vytvoří protizápis s:
+          * prohozenými MD ↔ Dal,
+          * shodnou kladnou částkou (Varianta A — ne červený zápis),
+          * ``je_storno=True`` + ``stornuje_zaznam_id = originaly[i].id``,
+          * datum = ``datum`` (typicky dnešek, ne datum originálu — storno
+            je vlastní účetní událost).
+
+        Pre-condition: všechny originály musí mít stejný ``doklad_id``
+        a musí být už persistované (``id is not None``). Originály smí být
+        jen „čisté" zápisy — nelze stornovat už jednou stornovaný zápis
+        (``originaly[i].je_storno`` musí být False).
+
+        Raises:
+            ValidationError: originály prázdné / různý doklad_id / bez id /
+                už stornované.
+        """
+        if not originaly:
+            raise ValidationError(
+                "storno_z_zaznamu: seznam originálů je prázdný."
+            )
+
+        doklad_ids = {z.doklad_id for z in originaly}
+        if len(doklad_ids) > 1:
+            raise ValidationError(
+                f"storno_z_zaznamu: originály mají různý doklad_id: "
+                f"{sorted(doklad_ids)}"
+            )
+
+        for z in originaly:
+            if z.id is None:
+                raise ValidationError(
+                    "storno_z_zaznamu: originál musí být persistovaný "
+                    "(id is None)."
+                )
+            if z.je_storno:
+                raise ValidationError(
+                    "storno_z_zaznamu: nelze stornovat už stornovaný "
+                    "záznam."
+                )
+
+        doklad_id = originaly[0].doklad_id
+        storno_zaznamy = tuple(
+            UcetniZaznam(
+                doklad_id=z.doklad_id,
+                datum=datum,
+                md_ucet=z.dal_ucet,   # prohozené strany
+                dal_ucet=z.md_ucet,
+                castka=z.castka,
+                popis=f"Storno: {z.popis}" if z.popis else "Storno",
+                je_storno=True,
+                stornuje_zaznam_id=z.id,
+            )
+            for z in originaly
+        )
+        return cls(doklad_id=doklad_id, zaznamy=storno_zaznamy)
+
     @property
     def soucet_md(self) -> dict[str, Money]:
         """Součty po účtech na straně MD: {ucet_cislo: Money}."""

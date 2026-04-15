@@ -6,10 +6,12 @@ Doménové entity ví JAK věci BÝT (validace, stav, invarianty).
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Callable, Tuple
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
+from domain.doklady.typy import StavDokladu
 from domain.shared.errors import PodvojnostError, ValidationError
 from domain.ucetnictvi.repository import UcetniDenikRepository
 from domain.ucetnictvi.ucetni_zaznam import UcetniZaznam
@@ -69,3 +71,89 @@ class ZauctovaniDokladuService:
             uow.commit()
 
         return doklad, ulozene
+
+    def stornuj_doklad(
+        self,
+        doklad_id: int,
+        datum: date | None = None,
+    ) -> Tuple[Doklad, tuple[UcetniZaznam, ...]]:
+        """Atomicky stornuje doklad: protizápis + změna stavu.
+
+        Pro zaúčtovaný (nebo částečně uhrazený) doklad:
+          1. Načte všechny „čisté" původní zápisy z deníku.
+          2. Vytvoří opravný předpis (MD ↔ Dal prohozené, kladná částka,
+             ``je_storno=True``, ``stornuje_zaznam_id`` na originál).
+          3. Uloží protizápisy do deníku.
+          4. Změní stav dokladu na STORNOVANY (+ vyčistí k_doreseni).
+
+        Vše v jedné UoW transakci — selhání kteréhokoli kroku → rollback.
+
+        Args:
+            doklad_id: ID dokladu ke stornu.
+            datum: Datum storna (default ``date.today()``). Záměrně NE datum
+                originálního zaúčtování — storno je vlastní účetní událost.
+
+        Returns:
+            ``(Doklad, protizápisy)`` — aktualizovaný doklad a uložené
+            protizápisy (s naplněnými id z DB).
+
+        Raises:
+            NotFoundError: doklad neexistuje.
+            ValidationError: NOVY (použít Smazat), UHRAZENY (nelze),
+                STORNOVANY (už stornovaný — idempotence řešena checkem níže).
+        """
+        storno_datum = datum or date.today()
+
+        uow = self._uow_factory()
+        with uow:
+            doklady_repo = self._doklady_repo_factory(uow)
+            denik_repo = self._denik_repo_factory(uow)
+
+            doklad = doklady_repo.get_by_id(doklad_id)
+
+            # Idempotence: už stornovaný → vrať stav beze změny.
+            if doklad.stav == StavDokladu.STORNOVANY:
+                zaznamy = denik_repo.list_by_doklad(doklad_id)
+                protizapisy = tuple(z for z in zaznamy if z.je_storno)
+                return doklad, protizapisy
+
+            # Validace: jen ZAUCTOVANY / CASTECNE_UHRAZENY potřebují protizápis.
+            if doklad.stav == StavDokladu.NOVY:
+                raise ValidationError(
+                    "NOVY doklad nelze stornovat — použij Smazat "
+                    "(nemá účetní zápisy, které by bylo třeba reversovat)."
+                )
+            if doklad.stav == StavDokladu.UHRAZENY:
+                raise ValidationError(
+                    "Doklad ve stavu UHRAZENY nelze stornovat — "
+                    "nejdřív je potřeba vrátit peníze."
+                )
+
+            # Načti „čisté" originály (ne storno, bez existujícího protizápisu).
+            zaznamy = denik_repo.list_by_doklad(doklad_id)
+            already_stornuje: set[int] = {
+                z.stornuje_zaznam_id
+                for z in zaznamy
+                if z.je_storno and z.stornuje_zaznam_id is not None
+            }
+            originaly = tuple(
+                z for z in zaznamy
+                if not z.je_storno and z.id not in already_stornuje
+            )
+            if not originaly:
+                raise ValidationError(
+                    f"Doklad {doklad_id} ve stavu {doklad.stav.value} "
+                    f"nemá žádné zápisy ke stornu."
+                )
+
+            storno_predpis = UctovyPredpis.storno_z_zaznamu(
+                originaly, datum=storno_datum,
+            )
+            protizapisy = denik_repo.zauctuj(storno_predpis)
+
+            doklad.stornuj()
+            doklady_repo.update(doklad)
+
+            uow.commit()
+
+        return doklad, protizapisy

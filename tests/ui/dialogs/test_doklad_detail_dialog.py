@@ -194,34 +194,51 @@ class TestDetailDialog:
         d._zauctovat_button_widget.click()
         assert len(received) == 1
 
-    # ── Storno disabled (Fáze 6.5) ───────────────────────────────
+    # ── Storno (Fáze 6.5 — aktivní) ───────────────────────────────
 
-    def test_storno_button_je_vzdy_disabled_dokud_neni_faze_6_5(self, qtbot):
-        """Storno musí být v UI zakázané, dokud nebude hotový opravný
-        účetní předpis (Fáze 6.5). Důvod: Doklad.stornuj() jen mění stav,
-        ale nevytváří protizápis → výkazy by byly nekonzistentní."""
-        # NOVY — can_storno by logicky bylo True
-        d1 = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY)))
-        qtbot.addWidget(d1)
-        assert d1._storno_button_widget.isEnabled() is False
+    def test_storno_button_enabled_pro_zauctovany(self, qtbot):
+        """ZAUCTOVANY doklad má storno aktivní — vytvoří protizápis."""
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY)))
+        qtbot.addWidget(d)
+        assert d._storno_button_widget.isEnabled() is True
 
-        # ZAUCTOVANY — can_storno by logicky bylo True
-        d2 = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY)))
-        qtbot.addWidget(d2)
-        assert d2._storno_button_widget.isEnabled() is False
+    def test_storno_button_disabled_pro_novy(self, qtbot):
+        """NOVY doklad — storno zakázané, uživatelka má použít Smazat."""
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY)))
+        qtbot.addWidget(d)
+        assert d._storno_button_widget.isEnabled() is False
 
-    def test_storno_button_ma_tooltip_s_vysvetlenim(self, qtbot):
+    def test_storno_button_disabled_pro_stornovany(self, qtbot):
+        """Už stornovaný doklad nelze stornovat znovu."""
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.STORNOVANY)))
+        qtbot.addWidget(d)
+        assert d._storno_button_widget.isEnabled() is False
+
+    def test_storno_tooltip_vysvetluje_protizapis(self, qtbot):
         d = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY)))
         qtbot.addWidget(d)
         tooltip = d._storno_button_widget.toolTip()
-        assert "6.5" in tooltip
-        assert "opravný účetní předpis" in tooltip
-        assert "Doklad.stornuj()" in tooltip
+        assert "opravný účetní předpis" in tooltip or "protizápis" in tooltip
 
-    def test_klik_na_disabled_storno_nevolal_actions(self, qtbot):
-        """Sanity check: i když je tlačítko zakázané, click() nezavolá VM."""
-        actions = _FakeActions(_item(stav=StavDokladu.ZAUCTOVANY))
-        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY), actions))
+    def test_datum_storna_viditelne_pro_stornovany(self, qtbot):
+        item = DokladyListItem(
+            id=7, cislo="FV-S", typ=TypDokladu.FAKTURA_VYDANA,
+            datum_vystaveni=date(2026, 4, 1),
+            datum_splatnosti=None, partner_nazev=None,
+            castka_celkem=Money.from_koruny("1000"),
+            stav=StavDokladu.STORNOVANY,
+            k_doreseni=False, poznamka_doreseni=None, popis=None,
+            datum_storna=date(2026, 4, 20),
+        )
+        d = DokladDetailDialog(_vm(item))
         qtbot.addWidget(d)
-        d._storno_button_widget.click()  # disabled → no-op
-        assert actions.storno_called == 0
+        d.show()
+        assert d._storno_value.isVisibleTo(d) is True
+        assert "20" in d._storno_value.text()
+        assert "2026" in d._storno_value.text()
+
+    def test_datum_storna_skryte_pro_ne_stornovany(self, qtbot):
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY)))
+        qtbot.addWidget(d)
+        d.show()
+        assert d._storno_value.isVisible() is False

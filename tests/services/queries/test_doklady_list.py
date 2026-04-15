@@ -53,10 +53,18 @@ def _add(
     return d.id  # type: ignore[return-value]
 
 
-def _build_query(db_factory) -> DokladyListQuery:
+def _build_query(db_factory, with_denik: bool = False) -> DokladyListQuery:
+    from infrastructure.database.repositories.ucetni_denik_repository import (
+        SqliteUcetniDenikRepository,
+    )
+    denik_factory = (
+        (lambda uow: SqliteUcetniDenikRepository(uow))
+        if with_denik else None
+    )
     return DokladyListQuery(
         uow_factory=lambda: SqliteUnitOfWork(db_factory),
         doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+        denik_repo_factory=denik_factory,
     )
 
 
@@ -247,3 +255,62 @@ class TestQueryFiltrovani:
         ))
         assert len(items) == 1
         assert items[0].cislo == "X-2"
+
+
+class TestDatumStorna:
+    """Fáze 6.5: DokladyListQuery obohacuje STORNOVANY doklady o datum_storna."""
+
+    def test_nestornovany_doklad_ma_datum_storna_none(self, db_factory):
+        _add(db_factory, "FV-N", TypDokladu.FAKTURA_VYDANA,
+             date(2026, 4, 1), "100", stav=StavDokladu.ZAUCTOVANY)
+
+        q = _build_query(db_factory, with_denik=True)
+        items = q.execute(DokladyFilter())
+        assert items[0].datum_storna is None
+
+    def test_stornovany_doklad_ma_datum_protizapisu(
+        self, db_factory,
+    ):
+        from domain.ucetnictvi.ucetni_zaznam import UcetniZaznam
+        from domain.ucetnictvi.uctovy_predpis import UctovyPredpis
+        from infrastructure.database.repositories.ucetni_denik_repository import (
+            SqliteUcetniDenikRepository,
+        )
+        from services.zauctovani_service import ZauctovaniDokladuService
+
+        doklad_id = _add(
+            db_factory, "FV-S", TypDokladu.FAKTURA_VYDANA,
+            date(2026, 4, 1), "1000",
+        )
+        # Zaúčtuj + stornuj přes service
+        service = ZauctovaniDokladuService(
+            uow_factory=lambda: SqliteUnitOfWork(db_factory),
+            doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+            denik_repo_factory=lambda uow: SqliteUcetniDenikRepository(uow),
+        )
+        service.zauctuj_doklad(
+            doklad_id,
+            UctovyPredpis(
+                doklad_id=doklad_id,
+                zaznamy=(UcetniZaznam(
+                    doklad_id=doklad_id, datum=date(2026, 4, 1),
+                    md_ucet="311", dal_ucet="601", castka=Money.from_koruny("1000"),
+                ),),
+            ),
+        )
+        service.stornuj_doklad(doklad_id, datum=date(2026, 4, 20))
+
+        q = _build_query(db_factory, with_denik=True)
+        items = q.execute(DokladyFilter())
+        stornovany = [i for i in items if i.cislo == "FV-S"][0]
+        assert stornovany.stav == StavDokladu.STORNOVANY
+        assert stornovany.datum_storna == date(2026, 4, 20)
+
+    def test_bez_denik_factory_datum_storna_vzdy_none(self, db_factory):
+        """Backwards compat: volání bez denik_factory nevyhodí, jen datum=None."""
+        _add(db_factory, "FV-NS", TypDokladu.FAKTURA_VYDANA,
+             date(2026, 4, 1), "100", stav=StavDokladu.ZAUCTOVANY)
+
+        q = _build_query(db_factory, with_denik=False)
+        items = q.execute(DokladyFilter())
+        assert items[0].datum_storna is None

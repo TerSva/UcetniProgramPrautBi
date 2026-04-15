@@ -372,6 +372,12 @@ QPushButton[class="secondary"]:hover {{
     border: 1px solid {Borders.STRONG};
 }}
 
+QPushButton[class="secondary"]:disabled {{
+    background: {Colors.GRAY_200};
+    color: {Colors.GRAY_500};
+    border: 1px solid {Borders.SUBTLE};
+}}
+
 /* ═══════════════════════════════════════════════════════════
    DOKLADY TABLE — read-only seznam dokladů
    ═══════════════════════════════════════════════════════════ */

@@ -220,6 +220,11 @@ class DokladDetailDialog(QDialog):
         self._popis_display.setWordWrap(True)
         form.addRow(self._form_label("Popis:"), self._popis_display)
 
+        # Fáze 6.5: datum storna — viditelné jen pro STORNOVANY doklad
+        self._storno_label = self._form_label("Stornováno:")
+        self._storno_value = self._form_value("—")
+        form.addRow(self._storno_label, self._storno_value)
+
         root.addLayout(form)
 
         # Edit widgets (shown only in edit mode)
@@ -309,15 +314,12 @@ class DokladDetailDialog(QDialog):
 
         self._storno_button = QPushButton("Stornovat", container)
         self._storno_button.setProperty("class", "destructive")
-        # Fáze 6.5: Storno přes opravný účetní předpis zatím není
-        # implementováno — doklad.stornuj() jen mění stav, nevytváří
-        # protizápis, takže výkazy by byly nekonzistentní. Tlačítko
-        # zůstává viditelné s tooltipem, aby uživatelka věděla, že funkce
-        # přijde.
-        self._storno_button.setEnabled(False)
+        self._storno_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Fáze 6.5: Storno přes opravný účetní předpis je aktivní.
+        # Tlačítko ovládá ``_vm.can_storno`` — viz ``_sync_ui``.
         self._storno_button.setToolTip(
-            "Storno přes opravný účetní předpis bude přidáno ve Fázi 6.5.\n"
-            "Aktuální Doklad.stornuj() jen mění stav, neřeší účetní zápisy."
+            "Stornovat vytvoří opravný účetní předpis (protizápis), "
+            "který anuluje dopad původního zaúčtování ve výkazech."
         )
         row.addWidget(self._storno_button)
 
@@ -420,7 +422,11 @@ class DokladDetailDialog(QDialog):
             title="Stornovat doklad",
             message=(
                 f"Opravdu chcete stornovat doklad "
-                f"{self._vm.doklad.cislo}? Tato akce je nevratná."
+                f"{self._vm.doklad.cislo}?\n"
+                "Vytvoří se opravný účetní předpis (protizápis), "
+                "který anuluje dopad původního zaúčtování "
+                "ve Předvaze, Hlavní knize a v KPI na Dashboardu. "
+                "Akce je nevratná."
             ),
             confirm_text="Ano, stornovat",
             destructive=True,
@@ -476,6 +482,15 @@ class DokladDetailDialog(QDialog):
         self._splatnost_display.setText(splatnost_text)
         self._popis_display.setText(item.popis or "—")
 
+        # Datum storna — jen pro STORNOVANY
+        je_stornovany = item.stav == StavDokladu.STORNOVANY
+        self._storno_label.setVisible(je_stornovany)
+        self._storno_value.setVisible(je_stornovany)
+        if je_stornovany and item.datum_storna is not None:
+            self._storno_value.setText(_format_date_long(item.datum_storna))
+        else:
+            self._storno_value.setText("—")
+
         # K dořešení box
         self._doreseni_box.setVisible(item.k_doreseni)
         if item.k_doreseni:
@@ -496,9 +511,13 @@ class DokladDetailDialog(QDialog):
         self._zauctovat_button.setVisible(
             item.stav == StavDokladu.NOVY
         )
-        # Fáze 6.5: storno je permanentně disabled — viz _build_actions_row.
-        # Záměrně neposkočíme podle can_storno, dokud nebude hotový opravný
-        # účetní předpis.
+        # Fáze 6.5: storno řeší can_storno. Pro NOVY je True v domain VM,
+        # ale service vyhodí ValidationError — aby UI nelákalo uživatelku,
+        # disabled zůstává pro NOVY (ať použije Smazat).
+        self._storno_button.setEnabled(
+            self._vm.can_storno
+            and item.stav != StavDokladu.NOVY
+        )
         self._smazat_button.setEnabled(self._vm.can_smazat)
         self._flag_button.setEnabled(self._vm.can_toggle_flag)
         self._flag_button.setText(

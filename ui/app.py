@@ -35,6 +35,7 @@ from services.queries.dashboard import DashboardDataQuery
 from services.queries.doklady_list import DokladyListItem, DokladyListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
 from services.queries.uctova_osnova import UctovaOsnovaQuery
+from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
 from ui.viewmodels import DashboardViewModel, DokladyListViewModel
@@ -101,6 +102,7 @@ def _build_doklady_list_vm(
     query = DokladyListQuery(
         uow_factory=lambda: SqliteUnitOfWork(factory),
         doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+        denik_repo_factory=lambda uow: SqliteUcetniDenikRepository(uow),
     )
     return DokladyListViewModel(query)
 
@@ -125,9 +127,15 @@ def _build_factories(factory: ConnectionFactory):
         uow_factory=uow_factory,
         doklady_repo_factory=doklady_repo_factory,
     )
+    zauctovani_service = ZauctovaniDokladuService(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+        denik_repo_factory=denik_repo_factory,
+    )
     actions_cmd = DokladActionsCommand(
         uow_factory=uow_factory,
         doklady_repo_factory=doklady_repo_factory,
+        zauctovani_service=zauctovani_service,
     )
     zauctovat_cmd = ZauctovatDokladCommand(
         uow_factory=uow_factory,

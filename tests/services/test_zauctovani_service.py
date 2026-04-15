@@ -198,3 +198,171 @@ class TestAtomicita:
         with uow2:
             zz = SqliteUcetniDenikRepository(uow2).list_by_doklad(doklad_id)
             assert len(zz) == 0
+
+
+class TestStornujDoklad:
+    """Fáze 6.5: storno přes opravný účetní předpis."""
+
+    def test_stornuje_zauctovany_doklad(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Po stornu: stav=STORNOVANY + 2 protizápisy se správně zapsanými flagy."""
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        doklad, protizapisy = service.stornuj_doklad(
+            doklad_id, datum=date(2026, 4, 20),
+        )
+
+        assert doklad.stav == StavDokladu.STORNOVANY
+        assert len(protizapisy) == 2
+        for p in protizapisy:
+            assert p.je_storno is True
+            assert p.stornuje_zaznam_id is not None
+            assert p.datum == date(2026, 4, 20)
+
+    def test_protizapisy_maji_prohozene_strany(
+        self, service, fv_v_db, service_factories,
+    ):
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        _, protizapisy = service.stornuj_doklad(
+            doklad_id, datum=date(2026, 4, 20),
+        )
+
+        # Originály: 311/601 (základ), 311/343 (DPH)
+        # Protizápisy: 601/311, 343/311
+        pary = {(p.md_ucet, p.dal_ucet) for p in protizapisy}
+        assert pary == {("601", "311"), ("343", "311")}
+
+    def test_castky_zachovane_kladne(
+        self, service, fv_v_db, service_factories,
+    ):
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        _, protizapisy = service.stornuj_doklad(doklad_id)
+
+        castky = sorted(p.castka for p in protizapisy)
+        assert castky == sorted([
+            Money.from_koruny("10000"),
+            Money.from_koruny("2100"),
+        ])
+        # Všechny kladné (Varianta A — ne červený zápis)
+        assert all(p.castka.is_positive for p in protizapisy)
+
+    def test_nelze_stornovat_novy(self, service, fv_v_db):
+        """NOVY doklad — nemá co reversovat, použij Smazat."""
+        with pytest.raises(ValidationError, match="NOVY"):
+            service.stornuj_doklad(fv_v_db)
+
+    def test_nelze_stornovat_uhrazeny(
+        self, service, fv_v_db, service_factories,
+    ):
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+        # Ručně nastav UHRAZENY (přes doklad entity)
+        uow = service_factories["uow"]()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            d = repo.get_by_id(doklad_id)
+            d.oznac_uhrazeny()
+            repo.update(d)
+            uow.commit()
+
+        with pytest.raises(ValidationError, match="UHRAZENY"):
+            service.stornuj_doklad(doklad_id)
+
+    def test_nonexistent_doklad(self, service):
+        with pytest.raises(NotFoundError):
+            service.stornuj_doklad(99999)
+
+    def test_idempotentni_pri_stornovanem(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Druhé volání na už stornovaném dokladu = no-op, vrátí stav."""
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+        service.stornuj_doklad(doklad_id, datum=date(2026, 4, 20))
+
+        # Druhé zavolání — žádný nový zápis, žádná výjimka
+        doklad2, protizapisy2 = service.stornuj_doklad(doklad_id)
+        assert doklad2.stav == StavDokladu.STORNOVANY
+        # Vrátí existující protizápisy (idempotence)
+        assert len(protizapisy2) == 2
+
+        # V DB stále jen 2 protizápisy (ne 4)
+        uow = service_factories["uow"]()
+        with uow:
+            zz = SqliteUcetniDenikRepository(uow).list_by_doklad(doklad_id)
+            storno_count = sum(1 for z in zz if z.je_storno)
+            assert storno_count == 2
+
+    def test_atomicita_rollback_pri_chybe(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Když deaktivujeme účet během storna, rollback: stav zůstane ZAUCTOVANY."""
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        # Deaktivuj 601 — storno `601/311` selže na validaci „deaktivované"
+        uow = service_factories["uow"]()
+        with uow:
+            osnova = SqliteUctovaOsnovaRepository(uow)
+            u = osnova.get_by_cislo("601")
+            u.deaktivuj()
+            osnova.update(u)
+            uow.commit()
+
+        with pytest.raises(ValidationError, match="deaktivované"):
+            service.stornuj_doklad(doklad_id)
+
+        # Doklad pořád ZAUCTOVANY
+        uow2 = service_factories["uow"]()
+        with uow2:
+            d = SqliteDokladyRepository(uow2).get_by_id(doklad_id)
+            assert d.stav == StavDokladu.ZAUCTOVANY
+            # Žádné protizápisy
+            zz = SqliteUcetniDenikRepository(uow2).list_by_doklad(doklad_id)
+            assert all(not z.je_storno for z in zz)
+
+    def test_default_datum_dnes(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Když se datum nezadá, použije se date.today()."""
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        _, protizapisy = service.stornuj_doklad(doklad_id)
+
+        # Všechny protizápisy mají dnešní datum
+        for p in protizapisy:
+            assert p.datum == date.today()
+
+    def test_dvoji_storno_idempotence_soucet_nula(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Po stornu: soucet castky originalu + protizapisy = 2*castka.
+
+        Matematický smysl: v hlavní knize se obě strany vzájemně ruší
+        (MD 311 +12100 z originálu, Dal 311 +12100 z protizápisu → 0 na 311).
+        Sumárně se tedy všechny částky VIDÍ, ale netto dopad = 0.
+        """
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+        service.stornuj_doklad(doklad_id)
+
+        uow = service_factories["uow"]()
+        with uow:
+            zz = SqliteUcetniDenikRepository(uow).list_by_doklad(doklad_id)
+            # Netto pro 311 (MD): originály mají 311 na MD, protizápisy na Dal
+            md_311 = sum(
+                (z.castka.to_halire() for z in zz if z.md_ucet == "311"),
+                start=0,
+            )
+            dal_311 = sum(
+                (z.castka.to_halire() for z in zz if z.dal_ucet == "311"),
+                start=0,
+            )
+            assert md_311 == dal_311  # anulace

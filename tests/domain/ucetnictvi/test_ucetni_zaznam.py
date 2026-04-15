@@ -174,3 +174,47 @@ class TestHashable:
         z = _zaznam(id=1)
         d = {z: "value"}
         assert d[z] == "value"
+
+
+class TestStornoFlagy:
+    """Fáze 6.5: je_storno + stornuje_zaznam_id."""
+
+    def test_original_ma_vychozi_hodnoty(self):
+        z = _zaznam()
+        assert z.je_storno is False
+        assert z.stornuje_zaznam_id is None
+
+    def test_storno_zaznam_validni(self):
+        z = _zaznam(je_storno=True, stornuje_zaznam_id=42)
+        assert z.je_storno is True
+        assert z.stornuje_zaznam_id == 42
+
+    def test_je_storno_bez_stornuje_id_vyhodi(self):
+        with pytest.raises(ValidationError, match="stornuje_zaznam_id"):
+            _zaznam(je_storno=True)
+
+    def test_stornuje_id_bez_je_storno_vyhodi(self):
+        with pytest.raises(ValidationError, match="jen u storno"):
+            _zaznam(stornuje_zaznam_id=7)
+
+    def test_je_storno_non_bool(self):
+        with pytest.raises(ValidationError, match="je_storno"):
+            _zaznam(je_storno=1, stornuje_zaznam_id=5)  # type: ignore[arg-type]
+
+    def test_stornuje_id_nula_vyhodi(self):
+        with pytest.raises(ValidationError, match="stornuje_zaznam_id"):
+            _zaznam(je_storno=True, stornuje_zaznam_id=0)
+
+    def test_stornuje_id_zaporny_vyhodi(self):
+        with pytest.raises(ValidationError, match="stornuje_zaznam_id"):
+            _zaznam(je_storno=True, stornuje_zaznam_id=-1)
+
+    def test_with_id_zachova_storno_pole(self):
+        z = _zaznam(
+            md_ucet="601", dal_ucet="311",
+            je_storno=True, stornuje_zaznam_id=42,
+        )
+        z2 = z.with_id(100)
+        assert z2.id == 100
+        assert z2.je_storno is True
+        assert z2.stornuje_zaznam_id == 42
