@@ -1,4 +1,9 @@
-"""Ucet — entita účtu z účtové osnovy."""
+"""Ucet — entita účtu z účtové osnovy.
+
+Podporuje syntetické účty (3 číslice, např. '501') i analytické účty
+(formát xxx.yyy, např. '501.100'). Analytika odkazuje na parent syntetický
+účet přes parent_kod.
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,8 @@ import re
 from domain.shared.errors import ValidationError
 from domain.ucetnictvi.typy import TypUctu
 
-_CISLO_RE = re.compile(r"^\d{3,6}$")
+_SYNTETIC_RE = re.compile(r"^\d{3}$")
+_ANALYTIC_RE = re.compile(r"^\d{3}\.\w{1,3}$")
 
 
 class Ucet:
@@ -19,14 +25,43 @@ class Ucet:
         nazev: str,
         typ: TypUctu,
         je_aktivni: bool = True,
+        parent_kod: str | None = None,
+        popis: str | None = None,
     ) -> None:
         # Validace cislo
         if not isinstance(cislo, str) or not cislo.strip():
             raise ValidationError("Číslo účtu nesmí být prázdné.")
-        if not _CISLO_RE.match(cislo):
-            raise ValidationError(
-                f"Číslo účtu musí být 3-6 číslic, got: {cislo!r}"
-            )
+
+        is_analytic = "." in cislo
+
+        if is_analytic:
+            if not _ANALYTIC_RE.match(cislo):
+                raise ValidationError(
+                    f"Neplatný kód analytiky: {cislo!r}. "
+                    f"Očekáván formát xxx.yyy (např. 501.100)."
+                )
+            # Analytika musí mít parent_kod
+            if parent_kod is None:
+                raise ValidationError(
+                    f"Analytika {cislo} nemá parent_kod."
+                )
+            expected_parent = cislo.split(".")[0]
+            if parent_kod != expected_parent:
+                raise ValidationError(
+                    f"Parent_kod {parent_kod!r} neodpovídá "
+                    f"syntetiku {expected_parent!r} v kódu {cislo!r}."
+                )
+        else:
+            if not _SYNTETIC_RE.match(cislo):
+                raise ValidationError(
+                    f"Číslo účtu musí být 3 číslice (syntetický) "
+                    f"nebo xxx.yyy (analytický), got: {cislo!r}"
+                )
+            if parent_kod is not None:
+                raise ValidationError(
+                    f"Syntetický účet {cislo} nesmí mít parent_kod."
+                )
+
         # Validace nazev
         if not isinstance(nazev, str) or not nazev.strip():
             raise ValidationError("Název účtu nesmí být prázdný.")
@@ -40,6 +75,8 @@ class Ucet:
         self._nazev = nazev
         self._typ = typ
         self._je_aktivni = je_aktivni
+        self._parent_kod = parent_kod
+        self._popis = popis
 
     @property
     def cislo(self) -> str:
@@ -57,6 +94,26 @@ class Ucet:
     def je_aktivni(self) -> bool:
         return self._je_aktivni
 
+    @property
+    def parent_kod(self) -> str | None:
+        return self._parent_kod
+
+    @property
+    def popis(self) -> str | None:
+        return self._popis
+
+    @property
+    def is_analytic(self) -> bool:
+        """True pokud je to analytický účet (obsahuje tečku)."""
+        return "." in self._cislo
+
+    @property
+    def syntetic_kod(self) -> str:
+        """Vrátí syntetický kód. Pro analytiku '501.100' vrátí '501'."""
+        if self.is_analytic:
+            return self._cislo.split(".")[0]
+        return self._cislo
+
     def deaktivuj(self) -> None:
         """Deaktivuje účet — nelze ho dál používat v nových zápisech."""
         self._je_aktivni = False
@@ -72,6 +129,10 @@ class Ucet:
         if len(novy_nazev) > 200:
             raise ValidationError("Název účtu max 200 znaků.")
         self._nazev = novy_nazev
+
+    def uprav_popis(self, novy_popis: str | None) -> None:
+        """Změní popis účtu."""
+        self._popis = novy_popis
 
     def __eq__(self, other: object) -> bool:
         if not isinstance(other, Ucet):

@@ -1,9 +1,9 @@
-"""Smoke testy pro UI skeleton (Fáze 6 Krok 1).
+"""Smoke testy pro UI skeleton.
 
 Ověřuje:
   * Fonty se načtou (Space Grotesk + DM Sans)
-  * MainWindow má 3 stránky v stacku
-  * Sidebar má 10 položek, 3 z nich aktivní dle ACTIVE_KEYS
+  * MainWindow má 4 stránky v stacku
+  * Sidebar má položky, 4 z nich aktivní dle ACTIVE_KEYS
   * Disabled položky mají tooltip "Přijde v další fázi"
   * Klik na aktivní položku emituje signál a přepne stack
   * load_icon() vrací QIcon
@@ -38,8 +38,8 @@ def test_fonts_register(qtbot):
 # ──────────────────────────────────────────────
 
 
-def test_main_window_has_three_pages(main_window):
-    assert main_window.stack.count() == 3
+def test_main_window_has_four_pages(main_window):
+    assert main_window.stack.count() == 4
 
 
 def test_main_window_starts_on_dashboard(main_window):
@@ -51,12 +51,12 @@ def test_main_window_starts_on_dashboard(main_window):
 # ──────────────────────────────────────────────
 
 
-def test_sidebar_has_eleven_items(main_window):
+def test_sidebar_has_twelve_items(main_window):
     buttons = main_window.sidebar.findChildren(QPushButton)
     sidebar_buttons = [
         b for b in buttons if b.property("class") == "sidebar-item"
     ]
-    assert len(sidebar_buttons) == 11
+    assert len(sidebar_buttons) == 12
 
 
 def test_active_keys_match_enabled_buttons(main_window):
@@ -65,7 +65,7 @@ def test_active_keys_match_enabled_buttons(main_window):
         b for b in buttons if b.property("class") == "sidebar-item"
     ]
     enabled_count = sum(1 for b in sidebar_buttons if b.isEnabled())
-    assert enabled_count == len(ACTIVE_KEYS) == 3
+    assert enabled_count == len(ACTIVE_KEYS) == 4
 
 
 def test_disabled_items_have_tooltip(main_window):
@@ -94,7 +94,7 @@ def test_click_doklady_switches_stack(main_window, qtbot):
 def test_click_nastaveni_switches_stack(main_window, qtbot):
     with qtbot.waitSignal(main_window.sidebar.page_selected, timeout=1000):
         main_window.sidebar._buttons["nastaveni"].click()
-    assert main_window.stack.currentIndex() == 2
+    assert main_window.stack.currentIndex() == 3
 
 
 def test_set_active_does_not_emit_signal(main_window, qtbot):

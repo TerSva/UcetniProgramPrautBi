@@ -69,6 +69,21 @@ def seed(db_path: Path) -> None:
     factory = ConnectionFactory(db_path)
     MigrationRunner(factory, MIGRATIONS_DIR).migrate()
 
+    # Fáze 7: naplň směrnou osnovu + PRAUT analytiky
+    import importlib.util
+    _spec = importlib.util.spec_from_file_location(
+        "seed_chart_of_accounts",
+        Path(__file__).resolve().parent / "seed_chart_of_accounts.py",
+    )
+    _mod = importlib.util.module_from_spec(_spec)
+    _spec.loader.exec_module(_mod)
+    seed_chart_of_accounts = _mod.seed_chart_of_accounts
+    seed_praut_active_accounts = _mod.seed_praut_active_accounts
+    seed_praut_analytiky = _mod.seed_praut_analytiky
+    n_osnova = seed_chart_of_accounts(factory)
+    n_active = seed_praut_active_accounts(factory)
+    n_analytiky = seed_praut_analytiky(factory)
+
     zauctovani = ZauctovaniDokladuService(
         uow_factory=lambda: SqliteUnitOfWork(factory),
         doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
@@ -146,6 +161,7 @@ def seed(db_path: Path) -> None:
     ))
 
     print(f"  ✓ seed → {db_path}")
+    print(f"    Účtová osnova: {n_osnova} účtů, {n_active} aktivováno, {n_analytiky} analytik")
     print("    4 doklady (3 zaúčtované, 1 NOVÝ, 1 k dořešení)")
     print("    Výnosy YTD: 30 000 Kč · Náklady YTD: 5 000 Kč")
     print("    Hrubý zisk: 25 000 Kč · Daň 19 %: 4 750 Kč")

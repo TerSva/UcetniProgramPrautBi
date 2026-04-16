@@ -803,4 +803,73 @@ QLabel[class="status-error"] {{
     font-weight: {Fonts.WEIGHT_SEMIBOLD};
     background: transparent;
 }}
+
+/* ─── Fáze 7: Účtová osnova ─────────────────────────── */
+
+QPushButton[class="osnova-trida-header"] {{
+    font-family: {Fonts.HEADING_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    color: {Colors.PRIMARY_800};
+    background: {Surfaces.CARD};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.MD}px;
+    padding: {Spacing.S3}px {Spacing.S4}px;
+    text-align: left;
+    margin-bottom: 2px;
+}}
+
+QPushButton[class="osnova-trida-header"]:checked {{
+    background: {Colors.PRIMARY_50};
+    border-color: {Colors.PRIMARY_200};
+}}
+
+QPushButton[class="osnova-trida-header"]:hover {{
+    background: {Colors.PRIMARY_50};
+}}
+
+QLabel[class="osnova-ucet"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    color: {Colors.PRIMARY_900};
+}}
+
+QLabel[class="osnova-ucet-inactive"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    color: {Colors.GRAY_400};
+}}
+
+QLabel[class="osnova-analytika"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    color: {Colors.PRIMARY_700};
+}}
+
+QPushButton[class="osnova-edit-btn"] {{
+    font-size: {Fonts.SIZE_SM}px;
+    background: transparent;
+    border: none;
+    color: {Colors.GRAY_400};
+    padding: 0;
+}}
+
+QPushButton[class="osnova-edit-btn"]:hover {{
+    color: {Colors.PRIMARY_700};
+}}
+
+QPushButton[class="osnova-add-analytika"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    color: {Colors.PRIMARY_600};
+    background: transparent;
+    border: 1px dashed {Colors.PRIMARY_200};
+    border-radius: {Radius.SM}px;
+    padding: {Spacing.S1}px {Spacing.S3}px;
+}}
+
+QPushButton[class="osnova-add-analytika"]:hover {{
+    background: {Colors.PRIMARY_50};
+    border-color: {Colors.PRIMARY_400};
+}}
 """

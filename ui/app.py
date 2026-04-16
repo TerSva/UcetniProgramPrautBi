@@ -30,7 +30,11 @@ from infrastructure.database.repositories.uctova_osnova_repository import (
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.commands.create_doklad import CreateDokladCommand
 from services.commands.doklad_actions import DokladActionsCommand
+from services.commands.manage_chart_of_accounts import (
+    ManageChartOfAccountsCommand,
+)
 from services.commands.zauctovat_doklad import ZauctovatDokladCommand
+from services.queries.chart_of_accounts import ChartOfAccountsQuery
 from services.queries.count_all_doklady import CountAllDokladyQuery
 from services.queries.dashboard import DashboardDataQuery
 from services.queries.doklady_list import DokladyListItem, DokladyListQuery
@@ -39,7 +43,11 @@ from services.queries.uctova_osnova import UctovaOsnovaQuery
 from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
-from ui.viewmodels import DashboardViewModel, DokladyListViewModel
+from ui.viewmodels import (
+    ChartOfAccountsViewModel,
+    DashboardViewModel,
+    DokladyListViewModel,
+)
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
@@ -116,6 +124,24 @@ def _build_doklady_list_vm(
     return DokladyListViewModel(query, count_query=count_query)
 
 
+def _build_chart_of_accounts_vm(
+    factory: ConnectionFactory,
+) -> ChartOfAccountsViewModel:
+    """Sestaví ChartOfAccountsViewModel s query + command."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    osnova_repo_factory = lambda uow: SqliteUctovaOsnovaRepository(uow)  # noqa: E731
+
+    query = ChartOfAccountsQuery(
+        uow_factory=uow_factory,
+        osnova_repo_factory=osnova_repo_factory,
+    )
+    command = ManageChartOfAccountsCommand(
+        uow_factory=uow_factory,
+        osnova_repo_factory=osnova_repo_factory,
+    )
+    return ChartOfAccountsViewModel(query, command)
+
+
 def _build_factories(factory: ConnectionFactory):
     """Postaví queries + commands → VM factories pro Doklady page."""
     uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
@@ -189,6 +215,7 @@ def run(db_path: Path | None = None) -> int:
     factory = _setup_database(db_path or DEFAULT_DB_PATH)
     dashboard_vm = _build_dashboard_vm(factory)
     doklady_list_vm = _build_doklady_list_vm(factory)
+    chart_of_accounts_vm = _build_chart_of_accounts_vm(factory)
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
         _build_factories(factory)
     )
@@ -199,6 +226,7 @@ def run(db_path: Path | None = None) -> int:
         form_vm_factory=form_vm_factory,
         detail_vm_factory=detail_vm_factory,
         zauctovani_vm_factory=zauctovani_vm_factory,
+        chart_of_accounts_vm=chart_of_accounts_vm,
     )
     window.show()
 

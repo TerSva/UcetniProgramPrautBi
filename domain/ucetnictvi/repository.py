@@ -48,6 +48,10 @@ class UctovaOsnovaRepository(ABC):
     def list_by_typ(self, typ: TypUctu, jen_aktivni: bool = True) -> list[Ucet]:
         """Seznam účtů daného typu."""
 
+    @abstractmethod
+    def get_analytiky(self, parent_kod: str) -> list[Ucet]:
+        """Vrátí analytiky daného syntetického účtu (všechny, i neaktivní)."""
+
 
 class UcetniDenikRepository(ABC):
     """Abstraktní repository pro účetní deník.

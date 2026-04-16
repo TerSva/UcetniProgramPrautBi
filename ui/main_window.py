@@ -21,8 +21,12 @@ from PyQt6.QtWidgets import (
 )
 
 from services.queries.doklady_list import DokladyListItem
-from ui.pages import DashboardPage, DokladyPage, NastaveniPage
-from ui.viewmodels import DashboardViewModel, DokladyListViewModel
+from ui.pages import ChartOfAccountsPage, DashboardPage, DokladyPage, NastaveniPage
+from ui.viewmodels import (
+    ChartOfAccountsViewModel,
+    DashboardViewModel,
+    DokladyListViewModel,
+)
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
@@ -34,7 +38,8 @@ from ui.widgets import Sidebar
 _PAGE_INDEX: dict[str, int] = {
     "dashboard": 0,
     "doklady": 1,
-    "nastaveni": 2,
+    "osnova": 2,
+    "nastaveni": 3,
 }
 
 
@@ -55,6 +60,7 @@ class MainWindow(QMainWindow):
         zauctovani_vm_factory: Callable[
             [DokladyListItem], ZauctovaniViewModel
         ] | None = None,
+        chart_of_accounts_vm: ChartOfAccountsViewModel | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -65,6 +71,7 @@ class MainWindow(QMainWindow):
         self._form_vm_factory = form_vm_factory
         self._detail_vm_factory = detail_vm_factory
         self._zauctovani_vm_factory = zauctovani_vm_factory
+        self._chart_of_accounts_vm = chart_of_accounts_vm
         self._sidebar: Sidebar
         self._stack: QStackedWidget
         self._dashboard_page: DashboardPage
@@ -112,7 +119,17 @@ class MainWindow(QMainWindow):
 
         self._stack.addWidget(self._dashboard_page)        # index 0
         self._stack.addWidget(self._doklady_page)          # index 1
-        self._stack.addWidget(NastaveniPage(self._stack))  # index 2
+
+        # Fáze 7: Účtová osnova (index 2)
+        if self._chart_of_accounts_vm is not None:
+            self._osnova_page: QWidget = ChartOfAccountsPage(
+                self._chart_of_accounts_vm, parent=self._stack,
+            )
+        else:
+            self._osnova_page = QWidget(self._stack)
+        self._stack.addWidget(self._osnova_page)           # index 2
+
+        self._stack.addWidget(NastaveniPage(self._stack))  # index 3
 
         layout.addWidget(self._sidebar)
         layout.addWidget(self._stack, stretch=1)

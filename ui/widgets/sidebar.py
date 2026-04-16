@@ -19,7 +19,7 @@ from ui.widgets.icon import load_icon
 
 
 #: Klíče stránek, které jsou v této fázi aktivní (mají implementovanou stránku).
-ACTIVE_KEYS: tuple[str, ...] = ("dashboard", "doklady", "nastaveni")
+ACTIVE_KEYS: tuple[str, ...] = ("dashboard", "doklady", "osnova", "nastaveni")
 
 
 @dataclass(frozen=True)
@@ -43,6 +43,7 @@ _ITEMS: tuple[SidebarItem, ...] = (
     SidebarItem("denik", "Účetní deník", "book-open", "Účetnictví"),
     # Evidence
     SidebarItem("partneri", "Partneři", "users", "Evidence"),
+    SidebarItem("osnova", "Účtová osnova", "book-open", "Evidence"),
     SidebarItem("majetek", "Majetek", "package", "Evidence"),
     SidebarItem("mzdy", "Mzdy", "banknote", "Evidence"),
     # Výstupy

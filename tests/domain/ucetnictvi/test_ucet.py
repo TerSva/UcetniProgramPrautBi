@@ -13,6 +13,15 @@ def _ucet(**kwargs) -> Ucet:
     return Ucet(**defaults)
 
 
+def _analytika(**kwargs) -> Ucet:
+    defaults = dict(
+        cislo="501.100", nazev="Drobný DHM",
+        typ=TypUctu.NAKLADY, parent_kod="501",
+    )
+    defaults.update(kwargs)
+    return Ucet(**defaults)
+
+
 class TestKonstruktor:
 
     def test_validni(self):
@@ -21,18 +30,20 @@ class TestKonstruktor:
         assert u.nazev == "Pohledávky"
         assert u.typ == TypUctu.AKTIVA
         assert u.je_aktivni is True
+        assert u.parent_kod is None
+        assert u.popis is None
 
     def test_neaktivni(self):
         u = _ucet(je_aktivni=False)
         assert u.je_aktivni is False
 
-    def test_6_cislic(self):
-        u = _ucet(cislo="311100")
-        assert u.cislo == "311100"
-
     def test_3_cislice(self):
         u = _ucet(cislo="211")
         assert u.cislo == "211"
+
+    def test_s_popisem(self):
+        u = _ucet(popis="Testovací popis")
+        assert u.popis == "Testovací popis"
 
 
 class TestValidaceCislo:
@@ -46,24 +57,71 @@ class TestValidaceCislo:
             _ucet(cislo="   ")
 
     def test_2_cislice(self):
-        with pytest.raises(ValidationError, match="3-6"):
+        with pytest.raises(ValidationError, match="3 číslice"):
             _ucet(cislo="31")
 
-    def test_7_cislic(self):
-        with pytest.raises(ValidationError, match="3-6"):
-            _ucet(cislo="3111001")
+    def test_4_cislice_neni_synteticky(self):
+        with pytest.raises(ValidationError, match="3 číslice"):
+            _ucet(cislo="3111")
 
     def test_pismena(self):
-        with pytest.raises(ValidationError, match="3-6"):
+        with pytest.raises(ValidationError, match="3 číslice"):
             _ucet(cislo="ABC")
 
-    def test_tecka(self):
-        with pytest.raises(ValidationError, match="3-6"):
+    def test_mezera(self):
+        with pytest.raises(ValidationError, match="3 číslice"):
+            _ucet(cislo="31 1")
+
+    def test_tecka_bez_parent_kod(self):
+        with pytest.raises(ValidationError, match="parent_kod"):
             _ucet(cislo="311.10")
 
-    def test_mezera(self):
-        with pytest.raises(ValidationError, match="3-6"):
-            _ucet(cislo="31 1")
+
+class TestAnalytika:
+
+    def test_validni_analytika(self):
+        u = _analytika()
+        assert u.cislo == "501.100"
+        assert u.is_analytic is True
+        assert u.syntetic_kod == "501"
+        assert u.parent_kod == "501"
+
+    def test_parent_kod_required(self):
+        with pytest.raises(ValidationError, match="parent_kod"):
+            Ucet(cislo="501.100", nazev="Test", typ=TypUctu.NAKLADY)
+
+    def test_parent_kod_mismatch(self):
+        with pytest.raises(ValidationError, match="neodpovídá"):
+            Ucet(
+                cislo="501.100", nazev="Test",
+                typ=TypUctu.NAKLADY, parent_kod="518",
+            )
+
+    def test_synteticky_nema_parent(self):
+        with pytest.raises(ValidationError, match="nesmí mít parent_kod"):
+            Ucet(
+                cislo="501", nazev="Test",
+                typ=TypUctu.NAKLADY, parent_kod="501",
+            )
+
+    def test_is_analytic_synteticky(self):
+        u = _ucet()
+        assert u.is_analytic is False
+
+    def test_syntetic_kod_synteticky(self):
+        u = _ucet(cislo="311")
+        assert u.syntetic_kod == "311"
+
+    def test_syntetic_kod_analyticky(self):
+        u = _analytika(cislo="321.002", parent_kod="321")
+        assert u.syntetic_kod == "321"
+
+    def test_bad_analytic_format(self):
+        with pytest.raises(ValidationError, match="Neplatný kód analytiky"):
+            Ucet(
+                cislo="50.1", nazev="Test",
+                typ=TypUctu.NAKLADY, parent_kod="50",
+            )
 
 
 class TestValidaceNazev:
@@ -119,6 +177,19 @@ class TestUpravNazev:
         u = _ucet()
         with pytest.raises(ValidationError, match="max 200"):
             u.uprav_nazev("X" * 201)
+
+
+class TestUpravPopis:
+
+    def test_zmeni_popis(self):
+        u = _ucet()
+        u.uprav_popis("Nový popis")
+        assert u.popis == "Nový popis"
+
+    def test_smaze_popis(self):
+        u = _ucet(popis="Starý")
+        u.uprav_popis(None)
+        assert u.popis is None
 
 
 class TestEquality:

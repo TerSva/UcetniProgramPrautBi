@@ -24,9 +24,13 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
     def add(self, ucet: Ucet) -> Ucet:
         try:
             self._conn.execute(
-                """INSERT INTO uctova_osnova (cislo, nazev, typ, je_aktivni)
-                   VALUES (?, ?, ?, ?)""",
-                (ucet.cislo, ucet.nazev, ucet.typ.value, int(ucet.je_aktivni)),
+                """INSERT INTO uctova_osnova
+                   (cislo, nazev, typ, je_aktivni, parent_kod, popis)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    ucet.cislo, ucet.nazev, ucet.typ.value,
+                    int(ucet.je_aktivni), ucet.parent_kod, ucet.popis,
+                ),
             )
         except sqlite3.IntegrityError as e:
             if "UNIQUE" in str(e) or "PRIMARY" in str(e):
@@ -38,9 +42,13 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
 
     def update(self, ucet: Ucet) -> None:
         cursor = self._conn.execute(
-            """UPDATE uctova_osnova SET nazev = ?, typ = ?, je_aktivni = ?
+            """UPDATE uctova_osnova
+               SET nazev = ?, typ = ?, je_aktivni = ?, popis = ?
                WHERE cislo = ?""",
-            (ucet.nazev, ucet.typ.value, int(ucet.je_aktivni), ucet.cislo),
+            (
+                ucet.nazev, ucet.typ.value, int(ucet.je_aktivni),
+                ucet.popis, ucet.cislo,
+            ),
         )
         if cursor.rowcount == 0:
             raise NotFoundError(f"Účet s číslem {ucet.cislo!r} neexistuje.")
@@ -84,10 +92,19 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
             ).fetchall()
         return [self._row_to_ucet(r) for r in rows]
 
+    def get_analytiky(self, parent_kod: str) -> list[Ucet]:
+        rows = self._conn.execute(
+            "SELECT * FROM uctova_osnova WHERE parent_kod = ? ORDER BY cislo",
+            (parent_kod,),
+        ).fetchall()
+        return [self._row_to_ucet(r) for r in rows]
+
     def _row_to_ucet(self, row: sqlite3.Row) -> Ucet:
         return Ucet(
             cislo=row["cislo"],
             nazev=row["nazev"],
             typ=TypUctu(row["typ"]),
             je_aktivni=bool(row["je_aktivni"]),
+            parent_kod=row["parent_kod"] if "parent_kod" in row.keys() else None,
+            popis=row["popis"] if "popis" in row.keys() else None,
         )

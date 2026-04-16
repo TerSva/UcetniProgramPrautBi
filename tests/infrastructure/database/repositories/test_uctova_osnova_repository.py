@@ -139,3 +139,131 @@ class TestGetByCislo:
             repo = SqliteUctovaOsnovaRepository(uow)
             with pytest.raises(NotFoundError, match="999"):
                 repo.get_by_cislo("999")
+
+
+class TestAnalytikaRoundTrip:
+    """Fáze 7: analytické účty — persistence."""
+
+    def test_add_analytika_roundtrip(self, db_factory):
+        """Přidání analytiky a zpětné čtení."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            analytika = Ucet(
+                cislo="501.100",
+                nazev="Kancelářské potřeby",
+                typ=TypUctu.NAKLADY,
+                parent_kod="501",
+                popis="Papíry, tonery",
+            )
+            repo.add(analytika)
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUctovaOsnovaRepository(uow2)
+            loaded = repo2.get_by_cislo("501.100")
+            assert loaded.cislo == "501.100"
+            assert loaded.nazev == "Kancelářské potřeby"
+            assert loaded.typ == TypUctu.NAKLADY
+            assert loaded.parent_kod == "501"
+            assert loaded.popis == "Papíry, tonery"
+            assert loaded.is_analytic is True
+
+    def test_get_analytiky(self, db_factory):
+        """get_analytiky vrátí jen analytiky daného syntetického účtu."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+            repo.add(Ucet("501.200", "Služby", TypUctu.NAKLADY, parent_kod="501"))
+            repo.add(Ucet("518.100", "IT služby", TypUctu.NAKLADY, parent_kod="518"))
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUctovaOsnovaRepository(uow2)
+            analytiky_501 = repo2.get_analytiky("501")
+            assert len(analytiky_501) == 2
+            assert {a.cislo for a in analytiky_501} == {"501.100", "501.200"}
+
+            analytiky_518 = repo2.get_analytiky("518")
+            assert len(analytiky_518) == 1
+
+            analytiky_311 = repo2.get_analytiky("311")
+            assert len(analytiky_311) == 0
+
+    def test_update_popis(self, db_factory):
+        """Update analytiky — popis se uloží."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUctovaOsnovaRepository(uow2)
+            u = repo2.get_by_cislo("501.100")
+            u.uprav_popis("Nový popis")
+            u.uprav_nazev("Nový název")
+            repo2.update(u)
+            uow2.commit()
+
+        uow3 = SqliteUnitOfWork(db_factory)
+        with uow3:
+            repo3 = SqliteUctovaOsnovaRepository(uow3)
+            u2 = repo3.get_by_cislo("501.100")
+            assert u2.popis == "Nový popis"
+            assert u2.nazev == "Nový název"
+
+    def test_deaktivace_analytiky(self, db_factory):
+        """Deaktivace analytiky se správně persistuje."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUctovaOsnovaRepository(uow2)
+            u = repo2.get_by_cislo("501.100")
+            u.deaktivuj()
+            repo2.update(u)
+            uow2.commit()
+
+        uow3 = SqliteUnitOfWork(db_factory)
+        with uow3:
+            repo3 = SqliteUctovaOsnovaRepository(uow3)
+            u2 = repo3.get_by_cislo("501.100")
+            assert u2.je_aktivni is False
+
+    def test_duplicitni_analytika(self, db_factory):
+        """Pokus o přidání duplicitní analytiky vyhodí ConflictError."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUctovaOsnovaRepository(uow2)
+            with pytest.raises(ConflictError, match="501.100"):
+                repo2.add(Ucet("501.100", "Duplicita", TypUctu.NAKLADY, parent_kod="501"))
+
+    def test_list_all_includes_analytiky(self, db_factory):
+        """list_all vrátí i analytické účty."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+            uow.commit()
+
+        uow2 = SqliteUnitOfWork(db_factory)
+        with uow2:
+            repo2 = SqliteUctovaOsnovaRepository(uow2)
+            all_ucty = repo2.list_all(jen_aktivni=False)
+            cisla = {u.cislo for u in all_ucty}
+            assert "501.100" in cisla
