@@ -27,7 +27,9 @@ from PyQt6.QtWidgets import (
 from domain.doklady.typy import TypDokladu
 from services.commands.create_doklad import CreateDokladInput
 from services.queries.doklady_list import DokladyListItem
+from services.queries.partneri_list import PartneriListItem
 from ui.design_tokens import Spacing
+from ui.dialogs.partner_dialog import PartnerDialog
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.widgets.badge import typ_display_text
 from ui.widgets.labeled_inputs import (
@@ -37,6 +39,7 @@ from ui.widgets.labeled_inputs import (
     LabeledMoneyEdit,
     LabeledTextEdit,
 )
+from ui.widgets.partner_selector import PartnerSelector
 
 
 class DokladFormDialog(QDialog):
@@ -45,6 +48,8 @@ class DokladFormDialog(QDialog):
     def __init__(
         self,
         view_model: DokladFormViewModel,
+        partner_items: list[PartneriListItem] | None = None,
+        on_partner_created: object = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -55,9 +60,12 @@ class DokladFormDialog(QDialog):
         self.resize(480, 620)
 
         self._vm = view_model
+        self._partner_items = partner_items or []
+        self._on_partner_created = on_partner_created
         self._created_item: DokladyListItem | None = None
 
         # Widgety — inicializace v _build_ui
+        self._partner_selector: PartnerSelector
         self._typ_combo: LabeledComboBox
         self._cislo_input: LabeledLineEdit
         self._datum_vystaveni: LabeledDateEdit
@@ -130,6 +138,11 @@ class DokladFormDialog(QDialog):
             self._typ_combo.add_item(typ_display_text(t), t)
         self._typ_combo.set_value(TypDokladu.FAKTURA_VYDANA)
         root.addWidget(self._typ_combo)
+
+        # Partner selector
+        self._partner_selector = PartnerSelector(self)
+        self._partner_selector.set_items(self._partner_items)
+        root.addWidget(self._partner_selector)
 
         # Číslo — prefilled, editovatelné
         self._cislo_input = LabeledLineEdit(
@@ -216,6 +229,9 @@ class DokladFormDialog(QDialog):
 
     def _wire_signals(self) -> None:
         self._typ_combo.current_value_changed.connect(self._on_typ_changed)
+        self._partner_selector.new_partner_requested.connect(
+            self._on_new_partner,
+        )
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
         self._k_doreseni_check.toggled.connect(self._on_k_doreseni_toggled)
@@ -232,6 +248,18 @@ class DokladFormDialog(QDialog):
             return
         cislo = self._vm.suggest_cislo(typ, date.today().year)
         self._cislo_input.set_value(cislo)
+
+    def _on_new_partner(self) -> None:
+        """Inline vytvoření partnera z dropdown."""
+        dialog = PartnerDialog(parent=self)
+        if dialog.exec() and dialog.result is not None:
+            if callable(self._on_partner_created):
+                new_partner = self._on_partner_created(dialog.result)
+                if new_partner is not None:
+                    # Refresh items and select the new one
+                    self._partner_items.append(new_partner)
+                    self._partner_selector.set_items(self._partner_items)
+                    self._partner_selector.set_selected_id(new_partner.id)
 
     def _on_typ_changed(self, value: object) -> None:
         if not isinstance(value, TypDokladu):
@@ -278,6 +306,7 @@ class DokladFormDialog(QDialog):
             datum_splatnosti=datum_splatnosti,
             castka_celkem=castka,
             popis=popis,
+            partner_id=self._partner_selector.selected_id(),
         )
 
         k_doreseni = self._k_doreseni_check.isChecked()

@@ -130,14 +130,15 @@ class TestCheckConstraints:
         finally:
             conn.close()
 
-    def test_partneri_typ_neplatny(self, migrated_factory):
-        """CHECK constraint: partneri.typ neplatný → IntegrityError."""
+    def test_partneri_kategorie_neplatna(self, migrated_factory):
+        """CHECK constraint: partneri.kategorie neplatná → IntegrityError."""
         conn = migrated_factory.create()
         try:
             conn.execute("BEGIN")
             with pytest.raises(sqlite3.IntegrityError):
                 conn.execute(
-                    "INSERT INTO partneri (nazev, typ) VALUES ('Test', 'neplatny')"
+                    "INSERT INTO partneri (nazev, kategorie) "
+                    "VALUES ('Test', 'neplatny')"
                 )
         finally:
             conn.close()
@@ -221,7 +222,7 @@ class TestValidniZaznamy:
 
             # Partner
             conn.execute(
-                "INSERT INTO partneri (nazev, ico, typ) "
+                "INSERT INTO partneri (nazev, ico, kategorie) "
                 "VALUES ('Firma s.r.o.', '12345678', 'dodavatel')"
             )
 

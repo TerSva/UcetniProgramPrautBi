@@ -7,9 +7,11 @@ načtení na injectovanou query. Page widget čte properties a renderuje.
 from ui.viewmodels.chart_of_accounts_vm import ChartOfAccountsViewModel
 from ui.viewmodels.dashboard_vm import DashboardViewModel
 from ui.viewmodels.doklady_list_vm import DokladyListViewModel
+from ui.viewmodels.partneri_vm import PartneriViewModel
 
 __all__ = [
     "ChartOfAccountsViewModel",
     "DashboardViewModel",
     "DokladyListViewModel",
+    "PartneriViewModel",
 ]

@@ -29,8 +29,8 @@ class TestRouting:
 
     def test_navigate_to_placeholder(self, main_window, qtbot):
         """Klik na placeholder stránku zobrazí PlaceholderPage."""
-        main_window.sidebar._buttons["partneri"].click()
-        idx = main_window.page_index["partneri"]
+        main_window.sidebar._buttons["banka"].click()
+        idx = main_window.page_index["banka"]
         assert main_window.stack.currentIndex() == idx
         page = main_window.stack.widget(idx)
         assert isinstance(page, PlaceholderPage)

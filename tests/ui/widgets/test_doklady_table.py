@@ -32,6 +32,7 @@ def _item(
         typ=typ,
         datum_vystaveni=datum,
         datum_splatnosti=splatnost,
+        partner_id=None,
         partner_nazev=partner,
         castka_celkem=Money.from_koruny(castka),
         stav=stav,

@@ -55,7 +55,7 @@ def _sample_item() -> DokladyListItem:
         typ=TypDokladu.FAKTURA_VYDANA,
         datum_vystaveni=date(2026, 3, 1),
         datum_splatnosti=date(2026, 3, 15),
-        partner_nazev=None,
+        partner_id=None, partner_nazev=None,
         castka_celkem=Money.from_koruny("1000"),
         stav=StavDokladu.NOVY,
         k_doreseni=False,
@@ -170,7 +170,7 @@ class TestSubmitSFlagKDoreseni:
             id=item.id, cislo=item.cislo, typ=item.typ,
             datum_vystaveni=item.datum_vystaveni,
             datum_splatnosti=item.datum_splatnosti,
-            partner_nazev=None, castka_celkem=item.castka_celkem,
+            partner_id=None, partner_nazev=None, castka_celkem=item.castka_celkem,
             stav=item.stav, k_doreseni=True,
             poznamka_doreseni="chybí IČO", popis=item.popis,
         )

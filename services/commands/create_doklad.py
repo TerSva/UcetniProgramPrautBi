@@ -39,6 +39,7 @@ class CreateDokladInput:
     castka_celkem: Money
     datum_splatnosti: date | None = None
     popis: str | None = None
+    partner_id: int | None = None
 
 
 class CreateDokladCommand:
@@ -65,6 +66,7 @@ class CreateDokladCommand:
             typ=data.typ,
             datum_vystaveni=data.datum_vystaveni,
             castka_celkem=data.castka_celkem,
+            partner_id=data.partner_id,
             datum_splatnosti=data.datum_splatnosti,
             popis=data.popis,
         )

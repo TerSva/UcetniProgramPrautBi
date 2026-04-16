@@ -395,6 +395,63 @@ def seed_praut_active_accounts(factory: ConnectionFactory) -> int:
     return count
 
 
+def seed_praut_partneri(factory: ConnectionFactory) -> int:
+    """Přidá partnery specifické pro PRAUT s.r.o.
+
+    Returns:
+        Počet nově vytvořených partnerů.
+    """
+    from decimal import Decimal
+    from domain.partneri.partner import KategoriePartnera, Partner
+    from infrastructure.database.repositories.partneri_repository import (
+        SqlitePartneriRepository,
+    )
+
+    partneri = [
+        Partner(
+            nazev="Martin Švanda",
+            kategorie=KategoriePartnera.SPOLECNIK,
+            podil_procent=Decimal("90"),
+            ucet_pohledavka="355.001",
+            ucet_zavazek="365.001",
+        ),
+        Partner(
+            nazev="Tomáš Hůf",
+            kategorie=KategoriePartnera.SPOLECNIK,
+            podil_procent=Decimal("10"),
+            ucet_pohledavka="355",
+            ucet_zavazek="365",
+        ),
+        Partner(
+            nazev="iStyle CZ, s.r.o.",
+            kategorie=KategoriePartnera.DODAVATEL,
+            ico="27583368",
+            dic="CZ27583368",
+            adresa="Revoluční 1003/3, 110 00 Praha",
+        ),
+        Partner(
+            nazev="Meta Platforms Ireland Limited",
+            kategorie=KategoriePartnera.DODAVATEL,
+            dic="IE9692928F",
+            adresa="Merrion Road, Dublin 4, D04 X2K5, Ireland",
+        ),
+    ]
+
+    count = 0
+    uow = SqliteUnitOfWork(factory)
+    with uow:
+        repo = SqlitePartneriRepository(uow)
+        existing = repo.list_all(jen_aktivni=False)
+        existing_names = {p.nazev for p in existing}
+        for p in partneri:
+            if p.nazev in existing_names:
+                continue
+            repo.add(p)
+            count += 1
+        uow.commit()
+    return count
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Použití: python scripts/seed_chart_of_accounts.py <db_path>")
@@ -412,9 +469,11 @@ def main() -> int:
     n_osnova = seed_chart_of_accounts(factory)
     n_active = seed_praut_active_accounts(factory)
     n_analytiky = seed_praut_analytiky(factory)
+    n_partneri = seed_praut_partneri(factory)
     print(f"  ✓ Směrná osnova: {n_osnova} účtů importováno")
     print(f"  ✓ PRAUT aktivní: {n_active} účtů aktivováno")
     print(f"  ✓ PRAUT analytiky: {n_analytiky} analytik vytvořeno")
+    print(f"  ✓ PRAUT partneři: {n_partneri} partnerů vytvořeno")
     return 0
 
 

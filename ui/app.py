@@ -21,6 +21,9 @@ from infrastructure.database.migrations.runner import MigrationRunner
 from infrastructure.database.repositories.doklady_repository import (
     SqliteDokladyRepository,
 )
+from infrastructure.database.repositories.partneri_repository import (
+    SqlitePartneriRepository,
+)
 from infrastructure.database.repositories.ucetni_denik_repository import (
     SqliteUcetniDenikRepository,
 )
@@ -33,11 +36,13 @@ from services.commands.doklad_actions import DokladActionsCommand
 from services.commands.manage_chart_of_accounts import (
     ManageChartOfAccountsCommand,
 )
+from services.commands.manage_partneri import ManagePartneriCommand
 from services.commands.zauctovat_doklad import ZauctovatDokladCommand
 from services.queries.chart_of_accounts import ChartOfAccountsQuery
 from services.queries.count_all_doklady import CountAllDokladyQuery
 from services.queries.dashboard import DashboardDataQuery
 from services.queries.doklady_list import DokladyListItem, DokladyListQuery
+from services.queries.partneri_list import PartneriListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
 from services.queries.uctova_osnova import UctovaOsnovaQuery
 from services.zauctovani_service import ZauctovaniDokladuService
@@ -47,6 +52,7 @@ from ui.viewmodels import (
     ChartOfAccountsViewModel,
     DashboardViewModel,
     DokladyListViewModel,
+    PartneriViewModel,
 )
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
@@ -116,6 +122,7 @@ def _build_doklady_list_vm(
         uow_factory=lambda: SqliteUnitOfWork(factory),
         doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
         denik_repo_factory=lambda uow: SqliteUcetniDenikRepository(uow),
+        partneri_repo_factory=lambda uow: SqlitePartneriRepository(uow),
     )
     count_query = CountAllDokladyQuery(
         uow_factory=lambda: SqliteUnitOfWork(factory),
@@ -140,6 +147,22 @@ def _build_chart_of_accounts_vm(
         osnova_repo_factory=osnova_repo_factory,
     )
     return ChartOfAccountsViewModel(query, command)
+
+
+def _build_partneri_vm(factory: ConnectionFactory) -> PartneriViewModel:
+    """Sestaví PartneriViewModel."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    partneri_repo_factory = lambda uow: SqlitePartneriRepository(uow)  # noqa: E731
+
+    query = PartneriListQuery(
+        uow_factory=uow_factory,
+        partneri_repo_factory=partneri_repo_factory,
+    )
+    command = ManagePartneriCommand(
+        uow_factory=uow_factory,
+        partneri_repo_factory=partneri_repo_factory,
+    )
+    return PartneriViewModel(query, command)
 
 
 def _build_factories(factory: ConnectionFactory):
@@ -216,6 +239,7 @@ def run(db_path: Path | None = None) -> int:
     dashboard_vm = _build_dashboard_vm(factory)
     doklady_list_vm = _build_doklady_list_vm(factory)
     chart_of_accounts_vm = _build_chart_of_accounts_vm(factory)
+    partneri_vm = _build_partneri_vm(factory)
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
         _build_factories(factory)
     )
@@ -227,6 +251,7 @@ def run(db_path: Path | None = None) -> int:
         detail_vm_factory=detail_vm_factory,
         zauctovani_vm_factory=zauctovani_vm_factory,
         chart_of_accounts_vm=chart_of_accounts_vm,
+        partneri_vm=partneri_vm,
     )
     window.show()
 

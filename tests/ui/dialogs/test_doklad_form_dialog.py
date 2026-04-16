@@ -44,7 +44,7 @@ def _item() -> DokladyListItem:
         typ=TypDokladu.FAKTURA_VYDANA,
         datum_vystaveni=date(2026, 4, 1),
         datum_splatnosti=None,
-        partner_nazev=None,
+        partner_id=None, partner_nazev=None,
         castka_celkem=Money.from_koruny("12100"),
         stav=StavDokladu.NOVY,
         k_doreseni=False,

@@ -27,7 +27,7 @@ def _item(
         typ=TypDokladu.FAKTURA_VYDANA,
         datum_vystaveni=date(2026, 2, 1),
         datum_splatnosti=None,
-        partner_nazev=None,
+        partner_id=None, partner_nazev=None,
         castka_celkem=Money.from_koruny("1000"),
         stav=StavDokladu.NOVY,
         k_doreseni=k_doreseni,

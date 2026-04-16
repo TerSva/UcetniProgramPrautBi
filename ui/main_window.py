@@ -27,12 +27,14 @@ from ui.pages import (
     ChartOfAccountsPage,
     DashboardPage,
     DokladyPage,
+    PartneriPage,
     PlaceholderPage,
 )
 from ui.viewmodels import (
     ChartOfAccountsViewModel,
     DashboardViewModel,
     DokladyListViewModel,
+    PartneriViewModel,
 )
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
@@ -66,11 +68,6 @@ _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
         "ucetni_denik", "Účetní deník",
         "Seznam všech účetních zápisů.",
         13, "Účetní deník",
-    ),
-    (
-        "partneri", "Partneři",
-        "Evidence odběratelů, dodavatelů a společníků.",
-        9, "Partneři + Společníci",
     ),
     (
         "vykazy", "Výkazy",
@@ -118,6 +115,7 @@ class MainWindow(QMainWindow):
             [DokladyListItem], ZauctovaniViewModel
         ] | None = None,
         chart_of_accounts_vm: ChartOfAccountsViewModel | None = None,
+        partneri_vm: PartneriViewModel | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -129,6 +127,7 @@ class MainWindow(QMainWindow):
         self._detail_vm_factory = detail_vm_factory
         self._zauctovani_vm_factory = zauctovani_vm_factory
         self._chart_of_accounts_vm = chart_of_accounts_vm
+        self._partneri_vm = partneri_vm
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -198,7 +197,16 @@ class MainWindow(QMainWindow):
             osnova_page = QWidget(self._stack)
         self._add_page("osnova", osnova_page)
 
-        # 4. Placeholder pages
+        # 4. Partneři (Fáze 9)
+        if self._partneri_vm is not None:
+            partneri_page: QWidget = PartneriPage(
+                self._partneri_vm, parent=self._stack,
+            )
+        else:
+            partneri_page = QWidget(self._stack)
+        self._add_page("partneri", partneri_page)
+
+        # 5. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:
             page = PlaceholderPage(
                 title=title,

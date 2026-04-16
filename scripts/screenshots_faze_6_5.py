@@ -45,7 +45,7 @@ def _item(
         typ=TypDokladu.FAKTURA_VYDANA,
         datum_vystaveni=date(2026, 4, 1),
         datum_splatnosti=date(2026, 4, 15),
-        partner_nazev="Tereza Svanda",
+        partner_id=None, partner_nazev="Tereza Svanda",
         castka_celkem=Money.from_koruny("12100"),
         stav=stav,
         k_doreseni=False,

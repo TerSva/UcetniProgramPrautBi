@@ -21,6 +21,7 @@ from typing import Callable
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
 from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.partneri.repository import PartneriRepository
 from domain.shared.money import Money
 from domain.ucetnictvi.repository import UcetniDenikRepository
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
@@ -79,7 +80,8 @@ class DokladyListItem:
     typ: TypDokladu
     datum_vystaveni: date
     datum_splatnosti: date | None
-    partner_nazev: str | None   # zatím vždy None (Partneři entita neexistuje)
+    partner_id: int | None
+    partner_nazev: str | None
     castka_celkem: Money
     stav: StavDokladu
     k_doreseni: bool
@@ -92,14 +94,14 @@ class DokladyListItem:
         cls,
         doklad: Doklad,
         datum_storna: date | None = None,
+        partner_nazev: str | None = None,
     ) -> "DokladyListItem":
         """Vytvoří DTO z doménové entity. `id` musí být nastaveno.
 
         Args:
             doklad: doménová entita.
             datum_storna: pro STORNOVANY dokladu datum opravného zápisu.
-                Získává se přes ``UcetniDenikRepository.list_by_doklad`` —
-                viz ``DokladyListQuery`` pro enrichment.
+            partner_nazev: název partnera (z JOIN).
         """
         if doklad.id is None:
             raise ValueError(
@@ -111,7 +113,8 @@ class DokladyListItem:
             typ=doklad.typ,
             datum_vystaveni=doklad.datum_vystaveni,
             datum_splatnosti=doklad.datum_splatnosti,
-            partner_nazev=None,
+            partner_id=doklad.partner_id,
+            partner_nazev=partner_nazev,
             castka_celkem=doklad.castka_celkem,
             stav=doklad.stav,
             k_doreseni=doklad.k_doreseni,
@@ -155,10 +158,14 @@ class DokladyListQuery:
         denik_repo_factory: Callable[
             [SqliteUnitOfWork], UcetniDenikRepository
         ] | None = None,
+        partneri_repo_factory: Callable[
+            [SqliteUnitOfWork], PartneriRepository
+        ] | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._doklady_repo_factory = doklady_repo_factory
         self._denik_repo_factory = denik_repo_factory
+        self._partneri_repo_factory = partneri_repo_factory
 
     def execute(self, f: DokladyFilter) -> list[DokladyListItem]:
         """Vrátí filtrovaný seznam DTO, řazeno datum_vystaveni DESC, id DESC."""
@@ -187,8 +194,23 @@ class DokladyListQuery:
                     continue
                 filtered.append(d)
 
+            # Enrichment: partner_nazev (batch lookup)
+            partner_names: dict[int, str] = {}
+            if self._partneri_repo_factory is not None:
+                partner_ids = {
+                    d.partner_id for d in filtered
+                    if d.partner_id is not None
+                }
+                if partner_ids:
+                    p_repo = self._partneri_repo_factory(uow)
+                    for pid in partner_ids:
+                        try:
+                            p = p_repo.get_by_id(pid)
+                            partner_names[pid] = p.nazev
+                        except Exception:
+                            pass
+
             # Enrichment: datum_storna pro STORNOVANY
-            # (N+1 — viz class docstring)
             denik_repo = (
                 self._denik_repo_factory(uow)
                 if self._denik_repo_factory is not None
@@ -207,7 +229,17 @@ class DokladyListQuery:
                         (z for z in zaznamy if z.je_storno), None,
                     )
                     datum_storna = storno.datum if storno is not None else None
+
+                p_name = (
+                    partner_names.get(d.partner_id)
+                    if d.partner_id is not None
+                    else None
+                )
                 items.append(
-                    DokladyListItem.from_domain(d, datum_storna=datum_storna)
+                    DokladyListItem.from_domain(
+                        d,
+                        datum_storna=datum_storna,
+                        partner_nazev=p_name,
+                    )
                 )
             return items

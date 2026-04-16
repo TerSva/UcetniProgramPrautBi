@@ -73,6 +73,7 @@ def _build_main_window():
         ChartOfAccountsViewModel,
         DashboardViewModel,
         DokladyListViewModel,
+        PartneriViewModel,
     )
 
     import tempfile
@@ -87,14 +88,23 @@ def _build_main_window():
         seed_chart_of_accounts,
         seed_praut_active_accounts,
         seed_praut_analytiky,
+        seed_praut_partneri,
     )
     seed_chart_of_accounts(factory)
     seed_praut_active_accounts(factory)
     seed_praut_analytiky(factory)
+    seed_praut_partneri(factory)
+
+    from infrastructure.database.repositories.partneri_repository import (
+        SqlitePartneriRepository,
+    )
+    from services.commands.manage_partneri import ManagePartneriCommand
+    from services.queries.partneri_list import PartneriListQuery
 
     uow_factory = lambda: SqliteUnitOfWork(factory)
     doklady_repo_factory = lambda uow: SqliteDokladyRepository(uow)
     osnova_repo_factory = lambda uow: SqliteUctovaOsnovaRepository(uow)
+    partneri_repo_factory = lambda uow: SqlitePartneriRepository(uow)
 
     dashboard_query = DashboardDataQuery(
         uow_factory=uow_factory,
@@ -105,6 +115,7 @@ def _build_main_window():
     doklady_query = DokladyListQuery(
         uow_factory=uow_factory,
         doklady_repo_factory=doklady_repo_factory,
+        partneri_repo_factory=partneri_repo_factory,
     )
     chart_query = ChartOfAccountsQuery(
         uow_factory=uow_factory,
@@ -115,12 +126,22 @@ def _build_main_window():
         osnova_repo_factory=osnova_repo_factory,
     )
 
+    partneri_query = PartneriListQuery(
+        uow_factory=uow_factory,
+        partneri_repo_factory=partneri_repo_factory,
+    )
+    partneri_command = ManagePartneriCommand(
+        uow_factory=uow_factory,
+        partneri_repo_factory=partneri_repo_factory,
+    )
+
     return MainWindow(
         dashboard_vm=DashboardViewModel(dashboard_query),
         doklady_list_vm=DokladyListViewModel(doklady_query),
         chart_of_accounts_vm=ChartOfAccountsViewModel(
             chart_query, chart_command,
         ),
+        partneri_vm=PartneriViewModel(partneri_query, partneri_command),
     )
 
 
