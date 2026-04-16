@@ -172,6 +172,11 @@ QFrame[class="kpi-card"][positive="true"] {{
     background: {Colors.PRIMARY_25};
 }}
 
+QFrame[class="kpi-card"][clickable="true"]:hover {{
+    border: 1px solid {Colors.BRAND};
+    background: {Surfaces.HOVER};
+}}
+
 QLabel[class="kpi-label"] {{
     color: {Colors.GRAY_500};
     font-family: {Fonts.BODY_STACK};
@@ -275,6 +280,22 @@ QWidget#FilterBar {{
     background: {Surfaces.CARD};
     border: 1px solid {Borders.DEFAULT};
     border-radius: {Radius.MD}px;
+}}
+
+QWidget#FilterBar[active="true"] {{
+    border: 1px solid {Colors.INFO_700};
+    background: {Colors.INFO_50};
+}}
+
+QLabel[class="filter-active-indicator"] {{
+    color: {Colors.INFO_700};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    background: {Colors.INFO_50};
+    border: 1px solid {Colors.INFO_700};
+    border-radius: {Radius.SM}px;
+    padding: 2px 8px;
 }}
 
 QLabel[class="filter-label"] {{
@@ -495,6 +516,47 @@ QLabel[class="doreseni-note"] {{
     font-size: {Fonts.SIZE_SM}px;
     font-weight: {Fonts.WEIGHT_REGULAR};
     background: transparent;
+}}
+
+QLabel[class="doreseni-note"][empty="true"] {{
+    color: {Colors.GRAY_400};
+    font-style: italic;
+}}
+
+QCheckBox[class="form-check"] {{
+    color: {Colors.GRAY_900};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: transparent;
+    spacing: {Spacing.S2}px;
+    padding: 2px 0;
+}}
+
+QCheckBox[class="form-check"]::indicator {{
+    width: 16px;
+    height: 16px;
+    border: 1px solid {Borders.STRONG};
+    border-radius: {Radius.SM}px;
+    background: {Surfaces.CARD};
+}}
+
+QCheckBox[class="form-check"]::indicator:checked {{
+    background: {Colors.BRAND};
+    border: 1px solid {Colors.BRAND};
+}}
+
+QCheckBox[class="form-check"]::indicator:hover {{
+    border: 1px solid {Colors.BRAND};
+}}
+
+QLabel[class="doklady-status-bar"] {{
+    color: {Colors.GRAY_500};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: transparent;
+    padding: {Spacing.S2}px {Spacing.S1}px 0 {Spacing.S1}px;
 }}
 
 /* ═══════════════════════════════════════════════════════════

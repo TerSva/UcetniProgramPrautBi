@@ -9,6 +9,10 @@ Jedna třída sdružuje mutace, které UI volá z detailu nebo kontextového men
 * ``upravit_popis_a_splatnost(doklad_id, popis, splatnost)`` —
   atomická úprava dvou polí, která entita povoluje (popis kdykoli
   kromě STORNOVANY, splatnost jen NOVY).
+* ``upravit_pole_novy_dokladu(doklad_id, popis, splatnost, k_doreseni,
+  poznamka_doreseni)`` — kompletní edit NOVY dokladu (popis + splatnost
+  + flag k dořešení + poznámka) v jedné transakci. Slouží detail
+  dialogu v edit mode.
 
 Každá metoda běží v jedné transakci. Vrací ``DokladyListItem`` DTO
 (kromě ``smazat``, které vrací ``None``).
@@ -129,6 +133,52 @@ class DokladActionsCommand:
             # stejnou hodnotu a u ne-NOVY dokladu by vyhodila.
             if splatnost != doklad.datum_splatnosti:
                 doklad.uprav_splatnost(splatnost)
+
+            repo.update(doklad)
+            uow.commit()
+        return DokladyListItem.from_domain(doklad)
+
+    def upravit_pole_novy_dokladu(
+        self,
+        doklad_id: int,
+        popis: str | None,
+        splatnost: date | None,
+        k_doreseni: bool,
+        poznamka_doreseni: str | None,
+    ) -> DokladyListItem:
+        """Atomicky upraví všechna editovatelná pole NOVY dokladu.
+
+        Slouží detail dialogu v edit mode, kde uživatelka může zároveň
+        upravit popis, splatnost a flag k_doreseni + poznámku. Všechno
+        v jedné transakci — buď se povede všechno, nebo nic.
+
+        Flag/poznámka:
+        - ``k_doreseni=True``  → zavolá ``oznac_k_doreseni(poznamka)``
+          (idempotentní — funguje i jako update poznámky, když už flag byl).
+        - ``k_doreseni=False`` → zavolá ``dores()`` (idempotentní).
+
+        Splatnost se aplikuje jen pokud se liší (stejná logika jako
+        ``upravit_popis_a_splatnost`` — entita u ne-NOVY vyhodí).
+
+        Raises:
+            ValidationError: popis přes limit, splatnost < datum vystavení,
+                doklad není NOVY (splatnost), STORNOVANY, poznámka přes limit.
+            NotFoundError: doklad neexistuje.
+        """
+        uow = self._uow_factory()
+        with uow:
+            repo = self._doklady_repo_factory(uow)
+            doklad = repo.get_by_id(doklad_id)
+
+            doklad.uprav_popis(popis)
+
+            if splatnost != doklad.datum_splatnosti:
+                doklad.uprav_splatnost(splatnost)
+
+            if k_doreseni:
+                doklad.oznac_k_doreseni(poznamka_doreseni)
+            else:
+                doklad.dores()
 
             repo.update(doklad)
             uow.commit()

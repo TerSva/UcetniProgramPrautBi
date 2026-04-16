@@ -49,8 +49,11 @@ class _FakeActions:
         self.smazat_called: int = 0
         self.storno_called: int = 0
         self.flag_on_called: int = 0
+        self.flag_on_calls: list[tuple[int, str | None]] = []
         self.flag_off_called: int = 0
         self.upravit_called: int = 0
+        self.upravit_pole_novy_called: int = 0
+        self.upravit_pole_novy_last: dict | None = None
         self.raise_on_smazat: Exception | None = None
 
     def stornovat(self, doklad_id: int) -> DokladyListItem:
@@ -67,6 +70,7 @@ class _FakeActions:
         self, doklad_id: int, poznamka: str | None = None,
     ) -> DokladyListItem:
         self.flag_on_called += 1
+        self.flag_on_calls.append((doklad_id, poznamka))
         self._item = replace(
             self._item, k_doreseni=True, poznamka_doreseni=poznamka,
         )
@@ -88,6 +92,31 @@ class _FakeActions:
         self.upravit_called += 1
         self._item = replace(
             self._item, popis=popis, datum_splatnosti=splatnost,
+        )
+        return self._item
+
+    def upravit_pole_novy_dokladu(
+        self,
+        doklad_id: int,
+        popis: str | None,
+        splatnost: date | None,
+        k_doreseni: bool,
+        poznamka_doreseni: str | None,
+    ) -> DokladyListItem:
+        self.upravit_pole_novy_called += 1
+        self.upravit_pole_novy_last = {
+            "id": doklad_id,
+            "popis": popis,
+            "splatnost": splatnost,
+            "k_doreseni": k_doreseni,
+            "poznamka_doreseni": poznamka_doreseni,
+        }
+        self._item = replace(
+            self._item,
+            popis=popis,
+            datum_splatnosti=splatnost,
+            k_doreseni=k_doreseni,
+            poznamka_doreseni=poznamka_doreseni,
         )
         return self._item
 
@@ -155,8 +184,13 @@ class TestDetailDialog:
         assert d._close_button_widget.isVisibleTo(d) is True
 
     def test_save_edit_zavola_actions(self, qtbot):
-        actions = _FakeActions(_item(popis="A"))
-        d = DokladDetailDialog(_vm(_item(popis="A"), actions))
+        """Non-NOVY doklad volá ``upravit_popis_a_splatnost``."""
+        actions = _FakeActions(
+            _item(popis="A", stav=StavDokladu.ZAUCTOVANY),
+        )
+        d = DokladDetailDialog(_vm(
+            _item(popis="A", stav=StavDokladu.ZAUCTOVANY), actions,
+        ))
         qtbot.addWidget(d)
         d.show()
         d._edit_button_widget.click()
@@ -165,10 +199,22 @@ class TestDetailDialog:
 
     # ── Akce ──────────────────────────────────────────────────────
 
-    def test_flag_button_prepne_flag(self, qtbot):
-        actions = _FakeActions(_item())
-        d = DokladDetailDialog(_vm(_item(), actions))
+    def test_flag_button_prepne_flag(self, qtbot, monkeypatch):
+        """Non-NOVY: klik na flag button volá ``oznac_k_doreseni``.
+
+        NOVY doklad má flag_button schovaný (viz Fáze 6.7 — flag ovládá
+        edit mode), proto test používá ZAUCTOVANY.
+        """
+        actions = _FakeActions(_item(stav=StavDokladu.ZAUCTOVANY))
+        d = DokladDetailDialog(_vm(
+            _item(stav=StavDokladu.ZAUCTOVANY), actions,
+        ))
         qtbot.addWidget(d)
+        # Obejít ask_with_note — vrať (True, "pz")
+        monkeypatch.setattr(
+            "ui.dialogs.doklad_detail_dialog.ConfirmDialog.ask_with_note",
+            classmethod(lambda cls, *a, **kw: (True, "pz")),
+        )
         d._flag_button_widget.click()
         assert actions.flag_on_called == 1
 
@@ -242,3 +288,167 @@ class TestDetailDialog:
         qtbot.addWidget(d)
         d.show()
         assert d._storno_value.isVisible() is False
+
+
+class TestDetailDialogEditKDoreseni:
+    """Fáze 6.7: edit NOVY obsahuje k_doreseni checkbox + poznámku."""
+
+    def test_k_doreseni_check_skryty_mimo_edit(self, qtbot):
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY)))
+        qtbot.addWidget(d)
+        d.show()
+        assert d._k_doreseni_check_widget.isVisible() is False
+
+    def test_k_doreseni_check_viditelny_v_edit_pro_novy(self, qtbot):
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY)))
+        qtbot.addWidget(d)
+        d.show()
+        d._edit_button_widget.click()
+        assert d._k_doreseni_check_widget.isVisible() is True
+
+    def test_k_doreseni_check_skryty_v_edit_pro_zauctovany(self, qtbot):
+        """ZAUCTOVANY nemá flag v edit módu — flag ovládá tlačítko."""
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY)))
+        qtbot.addWidget(d)
+        d.show()
+        d._edit_button_widget.click()
+        assert d._k_doreseni_check_widget.isVisible() is False
+
+    def test_k_doreseni_check_prefilled_z_draftu(self, qtbot):
+        """Po vstupu do edit módu je checkbox prefilled z doklad.k_doreseni."""
+        d = DokladDetailDialog(_vm(
+            _item(stav=StavDokladu.NOVY, k_doreseni=True, poznamka="pz"),
+        ))
+        qtbot.addWidget(d)
+        d.show()
+        d._edit_button_widget.click()
+        assert d._k_doreseni_check_widget.isChecked() is True
+
+    def test_poznamka_edit_viditelna_kdyz_check_zaskrtnuty(self, qtbot):
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY)))
+        qtbot.addWidget(d)
+        d.show()
+        d._edit_button_widget.click()
+        d._k_doreseni_check_widget.setChecked(True)
+        assert d._poznamka_doreseni_edit_widget.isVisible() is True
+
+    def test_poznamka_edit_skryta_kdyz_check_odskrtnuty(self, qtbot):
+        d = DokladDetailDialog(_vm(
+            _item(stav=StavDokladu.NOVY, k_doreseni=True, poznamka="x"),
+        ))
+        qtbot.addWidget(d)
+        d.show()
+        d._edit_button_widget.click()
+        assert d._k_doreseni_check_widget.isChecked() is True
+        d._k_doreseni_check_widget.setChecked(False)
+        assert d._poznamka_doreseni_edit_widget.isVisible() is False
+
+    def test_save_edit_novy_vola_upravit_pole_novy(self, qtbot):
+        actions = _FakeActions(_item(stav=StavDokladu.NOVY))
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY), actions))
+        qtbot.addWidget(d)
+        d.show()
+        d._edit_button_widget.click()
+        d._k_doreseni_check_widget.setChecked(True)
+        d._poznamka_doreseni_edit_widget.set_value("chybí IČO")
+        d._save_edit_widget.click()
+        assert actions.upravit_pole_novy_called == 1
+        assert actions.upravit_pole_novy_last is not None
+        assert actions.upravit_pole_novy_last["k_doreseni"] is True
+        assert actions.upravit_pole_novy_last["poznamka_doreseni"] == "chybí IČO"
+
+
+class TestDetailDialogFlagButton:
+    """Fáze 6.7: flag_button chování podle stavu."""
+
+    def test_flag_button_skryty_pro_novy(self, qtbot):
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.NOVY)))
+        qtbot.addWidget(d)
+        d.show()
+        assert d._flag_button_widget.isVisible() is False
+
+    def test_flag_button_viditelny_pro_zauctovany(self, qtbot):
+        d = DokladDetailDialog(_vm(_item(stav=StavDokladu.ZAUCTOVANY)))
+        qtbot.addWidget(d)
+        d.show()
+        assert d._flag_button_widget.isVisible() is True
+
+    def test_flag_click_non_novy_vola_ask_with_note(self, qtbot, monkeypatch):
+        """Non-NOVY doklad: flag → ConfirmDialog.ask_with_note → poznámka."""
+        calls: list[dict] = []
+
+        def fake_ask(cls, *a, **kw):
+            calls.append({"args": a, "kwargs": kw})
+            return (True, "ručně zadaná poznámka")
+
+        monkeypatch.setattr(
+            "ui.dialogs.doklad_detail_dialog.ConfirmDialog.ask_with_note",
+            classmethod(fake_ask),
+        )
+        actions = _FakeActions(_item(stav=StavDokladu.ZAUCTOVANY))
+        d = DokladDetailDialog(_vm(
+            _item(stav=StavDokladu.ZAUCTOVANY), actions,
+        ))
+        qtbot.addWidget(d)
+        d._flag_button_widget.click()
+        assert len(calls) == 1
+        assert actions.flag_on_called == 1
+        assert actions.flag_on_calls[-1][1] == "ručně zadaná poznámka"
+
+    def test_flag_click_non_novy_zrušení_nevola_actions(
+        self, qtbot, monkeypatch,
+    ):
+        """Když uživatelka zruší ask_with_note, flag se nezmění."""
+        monkeypatch.setattr(
+            "ui.dialogs.doklad_detail_dialog.ConfirmDialog.ask_with_note",
+            classmethod(lambda cls, *a, **kw: (False, None)),
+        )
+        actions = _FakeActions(_item(stav=StavDokladu.ZAUCTOVANY))
+        d = DokladDetailDialog(_vm(
+            _item(stav=StavDokladu.ZAUCTOVANY), actions,
+        ))
+        qtbot.addWidget(d)
+        d._flag_button_widget.click()
+        assert actions.flag_on_called == 0
+
+    def test_doresit_flagnuty_non_novy_bez_potvrzeni(self, qtbot):
+        """Odflagování: ``dores()`` se volá rovnou (bez dialogu)."""
+        actions = _FakeActions(
+            _item(stav=StavDokladu.ZAUCTOVANY, k_doreseni=True, poznamka="x"),
+        )
+        d = DokladDetailDialog(_vm(
+            _item(stav=StavDokladu.ZAUCTOVANY, k_doreseni=True, poznamka="x"),
+            actions,
+        ))
+        qtbot.addWidget(d)
+        d._flag_button_widget.click()
+        assert actions.flag_off_called == 1
+
+
+class TestDetailDialogDoreseniBezPoznamky:
+    """Fáze 6.7: „(bez poznámky)" render pro flagnutý doklad bez poznámky."""
+
+    def test_bez_poznamky_ukazuje_placeholder(self, qtbot):
+        d = DokladDetailDialog(_vm(
+            _item(k_doreseni=True, poznamka=None, stav=StavDokladu.ZAUCTOVANY),
+        ))
+        qtbot.addWidget(d)
+        d.show()
+        assert "(bez poznámky)" in d._doreseni_note_widget.text()
+
+    def test_bez_poznamky_property_empty_true(self, qtbot):
+        d = DokladDetailDialog(_vm(
+            _item(k_doreseni=True, poznamka=None, stav=StavDokladu.ZAUCTOVANY),
+        ))
+        qtbot.addWidget(d)
+        d.show()
+        assert d._doreseni_note_widget.property("empty") == "true"
+
+    def test_s_poznamkou_property_empty_false(self, qtbot):
+        d = DokladDetailDialog(_vm(
+            _item(k_doreseni=True, poznamka="pz", stav=StavDokladu.ZAUCTOVANY),
+        ))
+        qtbot.addWidget(d)
+        d.show()
+        assert d._doreseni_note_widget.property("empty") == "false"
+        assert d._doreseni_note_widget.text() == "pz"

@@ -176,3 +176,65 @@ class TestSubtitleClickable:
         )
         w.subtitle_widget.mousePressEvent(ev)
         assert received == []
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Card clickable (Fáze 6.7 — drill-down z Dashboardu)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestCardClickable:
+
+    def test_default_neni_card_clickable(self, qtbot):
+        w = KpiCard(label="X", value="1")
+        qtbot.addWidget(w)
+        assert w.property("clickable") == "false"
+
+    def test_konstruktor_card_clickable_nastavi_property(self, qtbot):
+        w = KpiCard(label="X", value="1", card_clickable=True)
+        qtbot.addWidget(w)
+        assert w.property("clickable") == "true"
+
+    def test_set_card_clickable_prepne_property(self, qtbot):
+        w = KpiCard(label="X", value="1")
+        qtbot.addWidget(w)
+        w.set_card_clickable(True)
+        assert w.property("clickable") == "true"
+        w.set_card_clickable(False)
+        assert w.property("clickable") == "false"
+
+    def test_klik_na_clickable_kartu_emituje_signal(self, qtbot):
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+        w = KpiCard(label="X", value="1", card_clickable=True)
+        qtbot.addWidget(w)
+        received = []
+        w.card_clicked.connect(lambda: received.append(True))
+
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(5, 5),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        w.mousePressEvent(ev)
+        assert received == [True]
+
+    def test_klik_na_nclickable_kartu_neemituje(self, qtbot):
+        from PyQt6.QtCore import QPointF, Qt
+        from PyQt6.QtGui import QMouseEvent
+        w = KpiCard(label="X", value="1")
+        qtbot.addWidget(w)
+        received = []
+        w.card_clicked.connect(lambda: received.append(True))
+
+        ev = QMouseEvent(
+            QMouseEvent.Type.MouseButtonPress,
+            QPointF(5, 5),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        w.mousePressEvent(ev)
+        assert received == []

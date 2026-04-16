@@ -24,6 +24,7 @@ from datetime import date
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -81,6 +82,8 @@ class DokladDetailDialog(QDialog):
         self._splatnost_display: QLabel
         self._popis_edit: LabeledTextEdit
         self._splatnost_edit: LabeledDateEdit
+        self._k_doreseni_check: QCheckBox
+        self._poznamka_doreseni_edit: LabeledTextEdit
         self._error_label: QLabel
 
         self._edit_button: QPushButton
@@ -150,6 +153,18 @@ class DokladDetailDialog(QDialog):
     @property
     def _cancel_edit_widget(self) -> QPushButton:
         return self._cancel_edit_button
+
+    @property
+    def _k_doreseni_check_widget(self) -> QCheckBox:
+        return self._k_doreseni_check
+
+    @property
+    def _poznamka_doreseni_edit_widget(self) -> LabeledTextEdit:
+        return self._poznamka_doreseni_edit
+
+    @property
+    def _doreseni_note_widget(self) -> QLabel:
+        return self._doreseni_note
 
     # ─── Build ───────────────────────────────────────────────────
 
@@ -239,6 +254,24 @@ class DokladDetailDialog(QDialog):
         )
         self._splatnost_edit.setVisible(False)
         root.addWidget(self._splatnost_edit)
+
+        # K dořešení edit widgety — viditelné jen v edit módu pro NOVY
+        self._k_doreseni_check = QCheckBox(
+            "Označit k dořešení", self,
+        )
+        self._k_doreseni_check.setProperty("class", "form-check")
+        self._k_doreseni_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._k_doreseni_check.setVisible(False)
+        root.addWidget(self._k_doreseni_check)
+
+        self._poznamka_doreseni_edit = LabeledTextEdit(
+            "Poznámka k dořešení",
+            placeholder="Proč vyžaduje pozornost? (nepovinné)",
+            rows=2,
+            parent=self,
+        )
+        self._poznamka_doreseni_edit.setVisible(False)
+        root.addWidget(self._poznamka_doreseni_edit)
 
         self._error_label = QLabel("", self)
         self._error_label.setProperty("class", "dialog-error")
@@ -370,7 +403,19 @@ class DokladDetailDialog(QDialog):
         self._cancel_edit_button.clicked.connect(self._on_cancel_edit)
         self._save_edit_button.clicked.connect(self._on_save_edit)
 
+        self._k_doreseni_check.toggled.connect(
+            self._on_k_doreseni_toggled_edit
+        )
+
+    def _on_k_doreseni_toggled_edit(self, checked: bool) -> None:
+        """V edit módu: checkbox skrývá/zobrazuje pole poznámky."""
+        if self._vm.edit_mode and self._is_novy():
+            self._poznamka_doreseni_edit.setVisible(checked)
+
     # ─── Slots ───────────────────────────────────────────────────
+
+    def _is_novy(self) -> bool:
+        return self._vm.doklad.stav == StavDokladu.NOVY
 
     def _on_edit(self) -> None:
         self._vm.enter_edit()
@@ -379,6 +424,11 @@ class DokladDetailDialog(QDialog):
         self._splatnost_edit.set_value(self._vm.draft_splatnost)
         self._splatnost_edit.inner_widget.setEnabled(
             self._vm.can_edit_splatnost
+        )
+        # K dořešení edit — jen pro NOVY
+        self._k_doreseni_check.setChecked(self._vm.draft_k_doreseni)
+        self._poznamka_doreseni_edit.set_value(
+            self._vm.draft_poznamka_doreseni or ""
         )
         self._sync_ui()
 
@@ -396,6 +446,17 @@ class DokladDetailDialog(QDialog):
         )
         self._vm.set_draft_popis(popis)
         self._vm.set_draft_splatnost(splatnost)
+
+        # K dořešení edit — jen pro NOVY má význam
+        if self._is_novy():
+            flag = self._k_doreseni_check.isChecked()
+            self._vm.set_draft_k_doreseni(flag)
+            if flag:
+                raw = self._poznamka_doreseni_edit.value().strip()
+                self._vm.set_draft_poznamka_doreseni(raw or None)
+            else:
+                self._vm.set_draft_poznamka_doreseni(None)
+
         result = self._vm.save_edit()
         if result is None:
             self._show_error(self._vm.error or "Uložení selhalo.")
@@ -407,10 +468,27 @@ class DokladDetailDialog(QDialog):
         self.zauctovat_requested.emit(self._vm.doklad)
 
     def _on_toggle_flag(self) -> None:
+        # NOVY doklady řeší flag přes edit mode — tlačítko je pro ně
+        # schované (viz _sync_ui). Tenhle handler obsluhuje jen
+        # ZAUCTOVANY/CASTECNE_UHRAZENY/UHRAZENY.
         if self._vm.doklad.k_doreseni:
             self._vm.dores()
         else:
-            self._vm.oznac_k_doreseni()
+            confirmed, poznamka = ConfirmDialog.ask_with_note(
+                self,
+                title="Označit k dořešení",
+                message=(
+                    f"Označit doklad {self._vm.doklad.cislo} jako "
+                    f"k dořešení?\n"
+                    "Můžeš volitelně přidat poznámku, proč vyžaduje "
+                    "pozornost."
+                ),
+                confirm_text="Označit",
+                note_placeholder="Proč vyžaduje pozornost? (nepovinné)",
+            )
+            if not confirmed:
+                return
+            self._vm.oznac_k_doreseni(poznamka)
         if self._vm.error:
             self._show_error(self._vm.error)
         else:
@@ -491,10 +569,17 @@ class DokladDetailDialog(QDialog):
         else:
             self._storno_value.setText("—")
 
-        # K dořešení box
+        # K dořešení box — render „(bez poznámky)" dimmed italic když prázdná
         self._doreseni_box.setVisible(item.k_doreseni)
         if item.k_doreseni:
-            self._doreseni_note.setText(item.poznamka_doreseni or "")
+            if item.poznamka_doreseni:
+                self._doreseni_note.setText(item.poznamka_doreseni)
+                self._doreseni_note.setProperty("empty", "false")
+            else:
+                self._doreseni_note.setText("(bez poznámky)")
+                self._doreseni_note.setProperty("empty", "true")
+            self._doreseni_note.style().unpolish(self._doreseni_note)
+            self._doreseni_note.style().polish(self._doreseni_note)
 
         # Edit mode: toggle sets
         edit = self._vm.edit_mode
@@ -504,6 +589,14 @@ class DokladDetailDialog(QDialog):
         self._splatnost_display.setVisible(not edit)
         self._actions_row.setVisible(not edit)
         self._edit_actions_row.setVisible(edit)
+
+        # K dořešení edit widgety — jen v edit mode pro NOVY doklady.
+        # Poznámka pole viditelné jen když checkbox zaškrtnutý.
+        is_novy = item.stav == StavDokladu.NOVY
+        self._k_doreseni_check.setVisible(edit and is_novy)
+        self._poznamka_doreseni_edit.setVisible(
+            edit and is_novy and self._k_doreseni_check.isChecked()
+        )
 
         # Button enabled
         self._edit_button.setEnabled(self._vm.can_edit)
@@ -519,6 +612,9 @@ class DokladDetailDialog(QDialog):
             and item.stav != StavDokladu.NOVY
         )
         self._smazat_button.setEnabled(self._vm.can_smazat)
+        # Fáze 6.7: „Označit k dořešení" se pro NOVY skrývá — flag
+        # ovládá edit mode. Pro zaúčtované doklady tlačítko zůstává.
+        self._flag_button.setVisible(not is_novy)
         self._flag_button.setEnabled(self._vm.can_toggle_flag)
         self._flag_button.setText(
             "Dořešit" if item.k_doreseni else "Označit k dořešení"

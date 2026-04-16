@@ -121,6 +121,9 @@ class MainWindow(QMainWindow):
         self._dashboard_page.navigate_to_doklady_k_doreseni.connect(
             self._on_navigate_k_doreseni
         )
+        self._dashboard_page.navigate_to_doklady_with_typ.connect(
+            self._on_navigate_with_typ
+        )
 
         self.setCentralWidget(central)
 
@@ -135,3 +138,12 @@ class MainWindow(QMainWindow):
         self._sidebar.set_active("doklady")
         self._stack.setCurrentIndex(_PAGE_INDEX["doklady"])
         self._doklady_page.apply_k_doreseni_filter()
+
+    def _on_navigate_with_typ(self, typ: object) -> None:
+        """Fáze 6.7: Dashboard drill Pohledávky/Závazky → filter na typ."""
+        from domain.doklady.typy import TypDokladu
+        if not isinstance(typ, TypDokladu):
+            return
+        self._sidebar.set_active("doklady")
+        self._stack.setCurrentIndex(_PAGE_INDEX["doklady"])
+        self._doklady_page.apply_typ_filter(typ)

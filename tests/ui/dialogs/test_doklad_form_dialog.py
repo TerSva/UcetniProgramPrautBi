@@ -56,10 +56,12 @@ def _item() -> DokladyListItem:
 def _vm(
     next_number: _FakeNextNumber | None = None,
     create: _FakeCreate | None = None,
+    actions: object | None = None,
 ) -> DokladFormViewModel:
     return DokladFormViewModel(
         next_number_query=cast(object, next_number or _FakeNextNumber()),
         create_command=cast(object, create or _FakeCreate(_item())),
+        actions_command=cast(object, actions),
     )  # type: ignore[arg-type]
 
 
@@ -126,3 +128,76 @@ class TestDokladFormDialog:
         d._cancel_button.click()
         assert d.isVisible() is False
         assert d.created_item is None
+
+
+class TestDokladFormDialogKDoreseni:
+    """Fáze 6.7: checkbox „k dořešení" + poznámka v dialogu nového dokladu."""
+
+    def test_default_checkbox_odznaceny(self, qtbot):
+        d = DokladFormDialog(_vm())
+        qtbot.addWidget(d)
+        assert d._k_doreseni_check_widget.isChecked() is False
+
+    def test_default_poznamka_skryta(self, qtbot):
+        d = DokladFormDialog(_vm())
+        qtbot.addWidget(d)
+        d.show()
+        assert d._poznamka_doreseni_widget.isVisible() is False
+
+    def test_zaskrtnuti_zobrazi_poznamku(self, qtbot):
+        d = DokladFormDialog(_vm())
+        qtbot.addWidget(d)
+        d.show()
+        d._k_doreseni_check_widget.setChecked(True)
+        assert d._poznamka_doreseni_widget.isVisible() is True
+
+    def test_odskrtnuti_skryje_poznamku(self, qtbot):
+        d = DokladFormDialog(_vm())
+        qtbot.addWidget(d)
+        d.show()
+        d._k_doreseni_check_widget.setChecked(True)
+        d._k_doreseni_check_widget.setChecked(False)
+        assert d._poznamka_doreseni_widget.isVisible() is False
+
+    def test_submit_s_flagem_vola_actions(self, qtbot):
+        from unittest.mock import MagicMock
+        create = _FakeCreate(_item())
+        actions = MagicMock()
+        actions.oznac_k_doreseni.return_value = _item()
+        d = DokladFormDialog(_vm(create=create, actions=actions))
+        qtbot.addWidget(d)
+        d.show()
+        d._cislo_widget.set_value("FV-2026-001")
+        d._castka_widget.line_widget.setText("12100")
+        d._k_doreseni_check_widget.setChecked(True)
+        d._poznamka_doreseni_widget.set_value("chybí IČO")
+        d._submit_widget.click()
+        actions.oznac_k_doreseni.assert_called_once_with(1, "chybí IČO")
+        assert d.created_item is not None
+
+    def test_submit_bez_flagu_nevola_actions(self, qtbot):
+        from unittest.mock import MagicMock
+        create = _FakeCreate(_item())
+        actions = MagicMock()
+        d = DokladFormDialog(_vm(create=create, actions=actions))
+        qtbot.addWidget(d)
+        d.show()
+        d._cislo_widget.set_value("FV-2026-001")
+        d._castka_widget.line_widget.setText("12100")
+        d._submit_widget.click()
+        actions.oznac_k_doreseni.assert_not_called()
+
+    def test_flag_s_prazdnou_poznamkou_posle_none(self, qtbot):
+        from unittest.mock import MagicMock
+        create = _FakeCreate(_item())
+        actions = MagicMock()
+        actions.oznac_k_doreseni.return_value = _item()
+        d = DokladFormDialog(_vm(create=create, actions=actions))
+        qtbot.addWidget(d)
+        d.show()
+        d._cislo_widget.set_value("FV-2026-001")
+        d._castka_widget.line_widget.setText("12100")
+        d._k_doreseni_check_widget.setChecked(True)
+        # Poznámka prázdná
+        d._submit_widget.click()
+        actions.oznac_k_doreseni.assert_called_once_with(1, None)

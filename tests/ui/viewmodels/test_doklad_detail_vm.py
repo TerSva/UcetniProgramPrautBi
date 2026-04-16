@@ -53,6 +53,24 @@ class _StubActions:
         assert self.result is not None
         return self.result
 
+    def upravit_pole_novy_dokladu(
+        self,
+        doklad_id: int,
+        popis: str | None,
+        splatnost: date | None,
+        k_doreseni: bool,
+        poznamka_doreseni: str | None,
+    ) -> DokladyListItem:
+        self.calls.append(("upravit_pole_novy", {
+            "id": doklad_id,
+            "popis": popis,
+            "splatnost": splatnost,
+            "k_doreseni": k_doreseni,
+            "poznamka_doreseni": poznamka_doreseni,
+        }))
+        assert self.result is not None
+        return self.result
+
 
 class _ErrorActions:
     def __init__(self, exc: Exception):
@@ -71,6 +89,11 @@ class _ErrorActions:
         raise self.exc
 
     def upravit_popis_a_splatnost(self, doklad_id, popis, splatnost):
+        raise self.exc
+
+    def upravit_pole_novy_dokladu(
+        self, doklad_id, popis, splatnost, k_doreseni, poznamka_doreseni,
+    ):
         raise self.exc
 
 
@@ -250,3 +273,68 @@ class TestAkce:
         assert vm.doklad is new
         assert vm.draft_popis == "novy"
         assert vm.edit_mode is False
+
+
+class TestEditModeKDoreseni:
+    """Fáze 6.7: edit mode pro NOVY doklad zahrnuje k_doreseni + poznámku."""
+
+    def test_draft_k_doreseni_kopie_puvodnich(self):
+        i = _item(k_doreseni=True, poznamka="pz")
+        vm = DokladDetailViewModel(i, _StubActions())
+        assert vm.draft_k_doreseni is True
+        assert vm.draft_poznamka_doreseni == "pz"
+
+    def test_set_draft_k_doreseni(self):
+        vm = DokladDetailViewModel(_item(), _StubActions())
+        vm.enter_edit()
+        vm.set_draft_k_doreseni(True)
+        vm.set_draft_poznamka_doreseni("nová")
+        assert vm.draft_k_doreseni is True
+        assert vm.draft_poznamka_doreseni == "nová"
+
+    def test_cancel_edit_vrati_k_doreseni(self):
+        vm = DokladDetailViewModel(
+            _item(k_doreseni=False, poznamka=None), _StubActions(),
+        )
+        vm.enter_edit()
+        vm.set_draft_k_doreseni(True)
+        vm.set_draft_poznamka_doreseni("změna")
+        vm.cancel_edit()
+        assert vm.draft_k_doreseni is False
+        assert vm.draft_poznamka_doreseni is None
+
+    def test_save_edit_novy_vola_upravit_pole_novy(self):
+        """NOVY doklad → upravit_pole_novy_dokladu (včetně flagu + poznámky)."""
+        result = _item(popis="x", k_doreseni=True, poznamka="pz")
+        actions = _StubActions(result=result)
+        vm = DokladDetailViewModel(_item(StavDokladu.NOVY), actions)
+        vm.enter_edit()
+        vm.set_draft_popis("x")
+        vm.set_draft_k_doreseni(True)
+        vm.set_draft_poznamka_doreseni("pz")
+        vm.save_edit()
+        assert actions.calls[0][0] == "upravit_pole_novy"
+        assert actions.calls[0][1]["popis"] == "x"
+        assert actions.calls[0][1]["k_doreseni"] is True
+        assert actions.calls[0][1]["poznamka_doreseni"] == "pz"
+
+    def test_save_edit_zauctovany_vola_upravit_popis_a_splatnost(self):
+        """Non-NOVY → jen upravit_popis_a_splatnost, bez flagu."""
+        result = _item(StavDokladu.ZAUCTOVANY, popis="x")
+        actions = _StubActions(result=result)
+        vm = DokladDetailViewModel(
+            _item(StavDokladu.ZAUCTOVANY), actions,
+        )
+        vm.enter_edit()
+        vm.set_draft_popis("x")
+        # k_doreseni draft se nemá aplikovat pro non-NOVY
+        vm.set_draft_k_doreseni(True)
+        vm.save_edit()
+        assert actions.calls[0][0] == "upravit"
+
+    def test_refresh_from_obnovi_k_doreseni(self):
+        vm = DokladDetailViewModel(_item(), _StubActions())
+        new = _item(k_doreseni=True, poznamka="pz")
+        vm.refresh_from(new)
+        assert vm.draft_k_doreseni is True
+        assert vm.draft_poznamka_doreseni == "pz"

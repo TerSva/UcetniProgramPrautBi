@@ -31,6 +31,7 @@ from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.commands.create_doklad import CreateDokladCommand
 from services.commands.doklad_actions import DokladActionsCommand
 from services.commands.zauctovat_doklad import ZauctovatDokladCommand
+from services.queries.count_all_doklady import CountAllDokladyQuery
 from services.queries.dashboard import DashboardDataQuery
 from services.queries.doklady_list import DokladyListItem, DokladyListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
@@ -98,13 +99,21 @@ def _build_dashboard_vm(factory: ConnectionFactory) -> DashboardViewModel:
 def _build_doklady_list_vm(
     factory: ConnectionFactory,
 ) -> DokladyListViewModel:
-    """Sestaví DokladyListViewModel s injectovaným DokladyListQuery."""
+    """Sestaví DokladyListViewModel s injectovaným DokladyListQuery.
+
+    Fáze 6.7: injectuje i CountAllDokladyQuery pro status bar
+    „Zobrazeno X z Y dokladů".
+    """
     query = DokladyListQuery(
         uow_factory=lambda: SqliteUnitOfWork(factory),
         doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
         denik_repo_factory=lambda uow: SqliteUcetniDenikRepository(uow),
     )
-    return DokladyListViewModel(query)
+    count_query = CountAllDokladyQuery(
+        uow_factory=lambda: SqliteUnitOfWork(factory),
+        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+    )
+    return DokladyListViewModel(query, count_query=count_query)
 
 
 def _build_factories(factory: ConnectionFactory):
@@ -147,6 +156,7 @@ def _build_factories(factory: ConnectionFactory):
         return DokladFormViewModel(
             next_number_query=next_number_query,
             create_command=create_cmd,
+            actions_command=actions_cmd,
         )
 
     def detail_vm_factory(item: DokladyListItem) -> DokladDetailViewModel:

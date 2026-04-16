@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from domain.doklady.typy import TypDokladu
 from services.queries.doklady_list import DokladyFilter, DokladyListItem
 from ui.design_tokens import Spacing
 from ui.dialogs.doklad_detail_dialog import DokladDetailDialog
@@ -44,6 +45,26 @@ from ui.widgets.filter_bar import FilterBar
 #: Index stránek v interním QStackedWidget pro přepínání obsah vs. empty state.
 _STACK_CONTENT = 0
 _STACK_EMPTY = 1
+
+
+def _czech_plural_filtry(count: int) -> str:
+    """Česká množná čísla pro slovo „filtr".
+
+    1 filtr / 2-4 filtry / 5+ nebo 0 filtrů.
+    """
+    if count == 1:
+        return "1 filtr aktivní"
+    if 2 <= count <= 4:
+        return f"{count} filtry aktivní"
+    return f"{count} filtrů aktivní"
+
+
+def _czech_plural_dokladu(count: int) -> str:
+    """Česká „dokladů" — skloňuje se stejně pro všechny počty v genitivu plurálu.
+
+    „Zobrazeno X z Y **dokladů**" — nezáleží na X ani Y, vždy genitiv pl.
+    """
+    return "dokladů"
 
 
 class DokladyPage(QWidget):
@@ -89,6 +110,16 @@ class DokladyPage(QWidget):
         self._filter_bar.set_filter(self._vm.filter)
         self._sync_ui_with_vm()
 
+    def apply_typ_filter(self, typ: TypDokladu) -> None:
+        """Fáze 6.7: Dashboard drill → filtr na konkrétní typ dokladu.
+
+        Používá se pro karty Pohledávky (FV) a Závazky (FP). VM resetuje
+        ostatní filtry a aplikuje jen ``typ``, FilterBar se zresynchronizuje.
+        """
+        self._vm.set_typ_filter(typ)
+        self._filter_bar.set_filter(self._vm.filter)
+        self._sync_ui_with_vm()
+
     # ────────────────────────────────────────────────
     # Test-only accessors (underscore = interní)
     # ────────────────────────────────────────────────
@@ -120,6 +151,10 @@ class DokladyPage(QWidget):
     @property
     def _novy_button(self) -> QPushButton:
         return self._button_novy
+
+    @property
+    def _status_bar_widget(self) -> QLabel:
+        return self._status_bar
 
     # ────────────────────────────────────────────────
     # Build
@@ -180,10 +215,17 @@ class DokladyPage(QWidget):
         self._empty_container = self._build_empty_state()
         self._stack.addWidget(self._empty_container)   # _STACK_EMPTY = 1
 
+        # Fáze 6.7: status bar pod tabulkou — „Zobrazeno X z Y dokladů
+        # · N filtrů aktivní"
+        self._status_bar = QLabel("", self)
+        self._status_bar.setProperty("class", "doklady-status-bar")
+        self._status_bar.setVisible(False)
+
         root.addLayout(header)
         root.addWidget(self._filter_bar)
         root.addWidget(self._error_label)
         root.addWidget(self._stack, stretch=1)
+        root.addWidget(self._status_bar)
 
     def _build_empty_state(self) -> QWidget:
         container = QWidget(self)
@@ -302,6 +344,7 @@ class DokladyPage(QWidget):
             self._stack.setCurrentIndex(_STACK_EMPTY)
             self._empty_label.setText("Data nejsou k dispozici.")
             self._empty_clear_button.setVisible(False)
+            self._status_bar.setVisible(False)
             return
 
         self._error_label.setVisible(False)
@@ -320,7 +363,29 @@ class DokladyPage(QWidget):
                     "Nový doklad můžete přidat tlačítkem nahoře."
                 )
                 self._empty_clear_button.setVisible(False)
+            self._status_bar.setVisible(False)
             return
 
         self._table.set_items(items)
         self._stack.setCurrentIndex(_STACK_CONTENT)
+        self._update_status_bar()
+
+    def _update_status_bar(self) -> None:
+        """Aktualizuj status bar: „Zobrazeno X z Y dokladů · N filtrů aktivní".
+
+        Skryje se, pokud není k dispozici ``total_count`` z VM (legacy
+        testy bez count_query).
+        """
+        visible = self._vm.visible_count
+        total = self._vm.total_count
+        if total <= 0:
+            self._status_bar.setVisible(False)
+            return
+        parts = [
+            f"Zobrazeno {visible} z {total} {_czech_plural_dokladu(total)}",
+        ]
+        n_active = self._filter_bar.active_filters_count()
+        if n_active > 0:
+            parts.append(_czech_plural_filtry(n_active))
+        self._status_bar.setText(" · ".join(parts))
+        self._status_bar.setVisible(True)

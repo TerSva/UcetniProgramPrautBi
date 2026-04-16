@@ -34,6 +34,14 @@ class _DokladActionsCommand(Protocol):
         popis: str | None,
         splatnost: date | None,
     ) -> DokladyListItem: ...
+    def upravit_pole_novy_dokladu(
+        self,
+        doklad_id: int,
+        popis: str | None,
+        splatnost: date | None,
+        k_doreseni: bool,
+        poznamka_doreseni: str | None,
+    ) -> DokladyListItem: ...
 
 
 class DokladDetailViewModel:
@@ -49,6 +57,8 @@ class DokladDetailViewModel:
         self._edit_mode: bool = False
         self._draft_popis: str | None = doklad.popis
         self._draft_splatnost: date | None = doklad.datum_splatnosti
+        self._draft_k_doreseni: bool = doklad.k_doreseni
+        self._draft_poznamka_doreseni: str | None = doklad.poznamka_doreseni
         self._error: str | None = None
         self._deleted: bool = False
 
@@ -69,6 +79,14 @@ class DokladDetailViewModel:
     @property
     def draft_splatnost(self) -> date | None:
         return self._draft_splatnost
+
+    @property
+    def draft_k_doreseni(self) -> bool:
+        return self._draft_k_doreseni
+
+    @property
+    def draft_poznamka_doreseni(self) -> str | None:
+        return self._draft_poznamka_doreseni
 
     @property
     def error(self) -> str | None:
@@ -125,6 +143,8 @@ class DokladDetailViewModel:
         self._edit_mode = True
         self._draft_popis = self._doklad.popis
         self._draft_splatnost = self._doklad.datum_splatnosti
+        self._draft_k_doreseni = self._doklad.k_doreseni
+        self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
         self._error = None
 
     def cancel_edit(self) -> None:
@@ -132,6 +152,8 @@ class DokladDetailViewModel:
         self._edit_mode = False
         self._draft_popis = self._doklad.popis
         self._draft_splatnost = self._doklad.datum_splatnosti
+        self._draft_k_doreseni = self._doklad.k_doreseni
+        self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
         self._error = None
 
     def set_draft_popis(self, popis: str | None) -> None:
@@ -140,14 +162,35 @@ class DokladDetailViewModel:
     def set_draft_splatnost(self, splatnost: date | None) -> None:
         self._draft_splatnost = splatnost
 
+    def set_draft_k_doreseni(self, flag: bool) -> None:
+        self._draft_k_doreseni = flag
+
+    def set_draft_poznamka_doreseni(self, poznamka: str | None) -> None:
+        self._draft_poznamka_doreseni = poznamka
+
     def save_edit(self) -> DokladyListItem | None:
-        """Uloží draft přes DokladActionsCommand."""
+        """Uloží draft přes DokladActionsCommand.
+
+        NOVY doklad → ``upravit_pole_novy_dokladu`` (popis + splatnost +
+        flag + poznámka).
+        Jiný stav → ``upravit_popis_a_splatnost`` (jen popis, splatnost
+        je stejná jako stávající).
+        """
         try:
-            item = self._actions.upravit_popis_a_splatnost(
-                self._doklad.id,
-                popis=self._draft_popis,
-                splatnost=self._draft_splatnost,
-            )
+            if self._doklad.stav == StavDokladu.NOVY:
+                item = self._actions.upravit_pole_novy_dokladu(
+                    self._doklad.id,
+                    popis=self._draft_popis,
+                    splatnost=self._draft_splatnost,
+                    k_doreseni=self._draft_k_doreseni,
+                    poznamka_doreseni=self._draft_poznamka_doreseni,
+                )
+            else:
+                item = self._actions.upravit_popis_a_splatnost(
+                    self._doklad.id,
+                    popis=self._draft_popis,
+                    splatnost=self._draft_splatnost,
+                )
             self._doklad = item
             self._edit_mode = False
             self._error = None
@@ -209,5 +252,7 @@ class DokladDetailViewModel:
         self._doklad = doklad
         self._draft_popis = doklad.popis
         self._draft_splatnost = doklad.datum_splatnosti
+        self._draft_k_doreseni = doklad.k_doreseni
+        self._draft_poznamka_doreseni = doklad.poznamka_doreseni
         self._edit_mode = False
         self._error = None

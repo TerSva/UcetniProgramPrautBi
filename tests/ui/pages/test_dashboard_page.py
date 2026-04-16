@@ -331,3 +331,50 @@ class TestDrillKDoreseni:
         )
         page.card_doklady.subtitle_widget.mousePressEvent(ev)
         assert received == [True]
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Fáze 6.7 — drill-down z Pohledávky / Závazky na filtr FV / FP
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestDrillPohledavkyZavazky:
+
+    def test_karta_pohledavky_je_klikatelna(self, page_factory):
+        vm = DashboardViewModel(_StubQuery(_data()))
+        page = page_factory(vm)
+        assert page.card_pohledavky.property("clickable") == "true"
+
+    def test_karta_zavazky_je_klikatelna(self, page_factory):
+        vm = DashboardViewModel(_StubQuery(_data()))
+        page = page_factory(vm)
+        assert page.card_zavazky.property("clickable") == "true"
+
+    def test_klik_na_pohledavky_emituje_fv(self, page_factory):
+        from domain.doklady.typy import TypDokladu
+        vm = DashboardViewModel(_StubQuery(_data()))
+        page = page_factory(vm)
+        received: list[object] = []
+        page.navigate_to_doklady_with_typ.connect(
+            lambda typ: received.append(typ)
+        )
+        page.card_pohledavky.card_clicked.emit()
+        assert received == [TypDokladu.FAKTURA_VYDANA]
+
+    def test_klik_na_zavazky_emituje_fp(self, page_factory):
+        from domain.doklady.typy import TypDokladu
+        vm = DashboardViewModel(_StubQuery(_data()))
+        page = page_factory(vm)
+        received: list[object] = []
+        page.navigate_to_doklady_with_typ.connect(
+            lambda typ: received.append(typ)
+        )
+        page.card_zavazky.card_clicked.emit()
+        assert received == [TypDokladu.FAKTURA_PRIJATA]
+
+    def test_karty_doklady_a_zisk_nejsou_klikatelne(self, page_factory):
+        vm = DashboardViewModel(_StubQuery(_data()))
+        page = page_factory(vm)
+        # Doklady má subtitle-clickable, ne card-clickable
+        assert page.card_doklady.property("clickable") == "false"
+        assert page.card_zisk.property("clickable") == "false"

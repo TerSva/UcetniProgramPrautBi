@@ -76,6 +76,14 @@ class DokladyRepository(ABC):
         """Doklady s datum_vystaveni v intervalu [od, do], sestupně."""
 
     @abstractmethod
+    def count_all(self) -> int:
+        """Celkový počet všech dokladů v DB bez ohledu na stav/typ/flag.
+
+        Použití: status bar „Zobrazeno X z Y dokladů" pod tabulkou Doklady.
+        Triviální `SELECT COUNT(*)` — pro MVP škálu OK.
+        """
+
+    @abstractmethod
     def list_k_doreseni(
         self, limit: int = 100, offset: int = 0
     ) -> list[Doklad]:

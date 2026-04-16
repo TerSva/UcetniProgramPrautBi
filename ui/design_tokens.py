@@ -88,7 +88,7 @@ class Colors:
     ERROR_50: Final[str] = "#FEF2F2"
 
     # ── Semantic: Info ──
-    INFO_700: Final[str] = "#0369A1"
+    INFO_700: Final[str] = "#1D4ED8"
     INFO_600: Final[str] = "#0284C7"
     INFO_500: Final[str] = "#0EA5E9"
     INFO_100: Final[str] = "#E0F2FE"

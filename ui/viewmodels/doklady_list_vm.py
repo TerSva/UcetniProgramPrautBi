@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from domain.doklady.typy import TypDokladu
 from services.queries.doklady_list import (
     DokladyFilter,
     DokladyListItem,
@@ -22,15 +23,27 @@ class _DokladyListQuery(Protocol):
     def execute(self, f: DokladyFilter) -> list[DokladyListItem]: ...
 
 
+class _CountAllQuery(Protocol):
+    """Strukturální typ — cokoli s `execute() -> int`."""
+
+    def execute(self) -> int: ...
+
+
 class DokladyListViewModel:
     """ViewModel pro stránku Doklady. Bez Qt, jen Python state."""
 
-    def __init__(self, query: _DokladyListQuery) -> None:
+    def __init__(
+        self,
+        query: _DokladyListQuery,
+        count_query: _CountAllQuery | None = None,
+    ) -> None:
         self._query = query
+        self._count_query = count_query
         self._items: list[DokladyListItem] = []
         self._filter: DokladyFilter = DokladyFilter()
         self._error: str | None = None
         self._loaded: bool = False
+        self._total_count: int = 0
 
     # ────────────────────────────────────────────────
     # Read-only state
@@ -57,6 +70,21 @@ class DokladyListViewModel:
         return self._loaded and self._error is None
 
     @property
+    def total_count(self) -> int:
+        """Celkový počet všech dokladů v DB (bez filtru).
+
+        Refreshuje se při každém ``load()`` pokud je ``count_query`` zadaný.
+        Používá se v status baru: „Zobrazeno X z Y dokladů".
+        Vrací 0 pokud count_query není zadaný nebo ještě nebyl načten.
+        """
+        return self._total_count
+
+    @property
+    def visible_count(self) -> int:
+        """Počet aktuálně zobrazených dokladů (po filtrech)."""
+        return len(self._items)
+
+    @property
     def is_empty_because_of_filter(self) -> bool:
         """True, když items=[] ale filtr není výchozí.
 
@@ -74,7 +102,12 @@ class DokladyListViewModel:
     # ────────────────────────────────────────────────
 
     def load(self) -> None:
-        """Načti data se současným filtrem. Při výjimce nastav error."""
+        """Načti data se současným filtrem. Při výjimce nastav error.
+
+        Pokud je zadaný ``count_query``, refreshne i ``total_count``.
+        Chyba v count_query je non-fatal — total_count zůstane na
+        poslední úspěšné hodnotě (resp. 0).
+        """
         try:
             self._items = self._query.execute(self._filter)
             self._error = None
@@ -82,6 +115,11 @@ class DokladyListViewModel:
             self._items = []
             self._error = str(exc) or exc.__class__.__name__
         self._loaded = True
+        if self._count_query is not None:
+            try:
+                self._total_count = self._count_query.execute()
+            except Exception:  # noqa: BLE001 — non-fatal
+                pass
 
     def apply_filters(self, new_filter: DokladyFilter) -> None:
         """Nahraď filtr novým snapshotem a reloadni data."""
@@ -100,4 +138,14 @@ class DokladyListViewModel:
         na předchozí stav filtrů.
         """
         self._filter = DokladyFilter(k_doreseni=KDoreseniFilter.POUZE)
+        self.load()
+
+    def set_typ_filter(self, typ: TypDokladu) -> None:
+        """Dashboard drill — nastav filtr na zadaný typ, ostatní resetuj.
+
+        Používá se pro drill-down z dashboard karet Pohledávky (FV)
+        a Závazky (FP). Resetuje rok, stav a k_doreseni, aby uživatelka
+        viděla všechny doklady daného typu.
+        """
+        self._filter = DokladyFilter(typ=typ)
         self.load()

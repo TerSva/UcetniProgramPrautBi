@@ -15,6 +15,7 @@ from typing import cast
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -63,6 +64,8 @@ class DokladFormDialog(QDialog):
         self._datum_splatnosti: LabeledDateEdit
         self._castka_input: LabeledMoneyEdit
         self._popis_input: LabeledTextEdit
+        self._k_doreseni_check: QCheckBox
+        self._poznamka_doreseni_input: LabeledTextEdit
         self._error_label: QLabel
         self._submit_button: QPushButton
         self._cancel_button: QPushButton
@@ -99,6 +102,14 @@ class DokladFormDialog(QDialog):
     @property
     def _error_widget(self) -> QLabel:
         return self._error_label
+
+    @property
+    def _k_doreseni_check_widget(self) -> QCheckBox:
+        return self._k_doreseni_check
+
+    @property
+    def _poznamka_doreseni_widget(self) -> LabeledTextEdit:
+        return self._poznamka_doreseni_input
 
     # ─── Build ───────────────────────────────────────────────────
 
@@ -161,6 +172,23 @@ class DokladFormDialog(QDialog):
         )
         root.addWidget(self._popis_input)
 
+        # K dořešení — checkbox + poznámka (viditelná jen když zaškrtnuto)
+        self._k_doreseni_check = QCheckBox(
+            "Označit jako k dořešení", self,
+        )
+        self._k_doreseni_check.setProperty("class", "form-check")
+        self._k_doreseni_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        root.addWidget(self._k_doreseni_check)
+
+        self._poznamka_doreseni_input = LabeledTextEdit(
+            "Poznámka k dořešení",
+            placeholder="Proč vyžaduje pozornost? (nepovinné)",
+            rows=2,
+            parent=self,
+        )
+        self._poznamka_doreseni_input.setVisible(False)
+        root.addWidget(self._poznamka_doreseni_input)
+
         # Error label — shown above buttons when submit fails
         self._error_label = QLabel("", self)
         self._error_label.setProperty("class", "dialog-error")
@@ -190,6 +218,11 @@ class DokladFormDialog(QDialog):
         self._typ_combo.current_value_changed.connect(self._on_typ_changed)
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
+        self._k_doreseni_check.toggled.connect(self._on_k_doreseni_toggled)
+
+    def _on_k_doreseni_toggled(self, checked: bool) -> None:
+        """Zobraz/skryj pole poznámky podle checkboxu."""
+        self._poznamka_doreseni_input.setVisible(checked)
 
     # ─── Slots ────────────────────────────────────────────────────
 
@@ -246,13 +279,26 @@ class DokladFormDialog(QDialog):
             castka_celkem=castka,
             popis=popis,
         )
-        item = self._vm.submit(data)
+
+        k_doreseni = self._k_doreseni_check.isChecked()
+        poznamka = None
+        if k_doreseni:
+            raw = self._poznamka_doreseni_input.value().strip()
+            poznamka = raw or None
+
+        item = self._vm.submit(
+            data,
+            k_doreseni=k_doreseni,
+            poznamka_doreseni=poznamka,
+        )
         if item is None:
             self._show_form_error(
                 self._vm.error or "Vytvoření dokladu selhalo.",
             )
             return
         self._created_item = item
+        # Pokud flag krok selhal (2-UoW trade-off), doklad přesto existuje.
+        # Dialog zavřeme, UI zobrazí toast s ``vm.error``.
         self.accept()
 
     def _show_form_error(self, message: str) -> None:

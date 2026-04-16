@@ -53,11 +53,13 @@ class FilterBar(QWidget):
         super().__init__(parent)
         self.setObjectName("FilterBar")
         self.setProperty("class", "filter-bar")
+        self.setProperty("active", "false")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._suppress_signals = False
         self._build_ui()
         self._wire_signals()
+        self._refresh_active_indicator()
 
     # ────────────────────────────────────────────────
     # Public API
@@ -82,11 +84,53 @@ class FilterBar(QWidget):
             self._set_combo_data(self._combo_doreseni, f.k_doreseni)
         finally:
             self._suppress_signals = False
+        self._refresh_active_indicator()
+
+    def set_typ(self, typ: TypDokladu | None) -> None:
+        """Nastav jen Typ filter programaticky a emitni filters_changed.
+
+        Slouží pro drill-down z Dashboardu — klik na Pohledávky vyvolá
+        ``filter_bar.set_typ(TypDokladu.FAKTURA_VYDANA)``, ostatní filtry
+        zůstanou beze změny.
+        """
+        self._suppress_signals = True
+        try:
+            self._set_combo_data(self._combo_typ, typ)
+        finally:
+            self._suppress_signals = False
+        self._refresh_active_indicator()
+        self.filters_changed.emit(
+            self._combo_rok.currentData(),
+            self._combo_typ.currentData(),
+            self._combo_stav.currentData(),
+            self._combo_doreseni.currentData(),
+        )
 
     def reset(self) -> None:
         """Vrať všechny dropdowny do default stavu a emitni clear_requested."""
         self.set_filter(DokladyFilter())
         self.clear_requested.emit()
+
+    def has_active_filters(self) -> bool:
+        """True pokud je nějaký filtr na jiné než výchozí hodnotě."""
+        return not self.current_filter().je_vychozi
+
+    def active_filters_count(self) -> int:
+        """Počet filtrů s non-default hodnotou (0–4).
+
+        Používá se pro status bar „N filtrů aktivní".
+        """
+        f = self.current_filter()
+        count = 0
+        if f.rok is not None:
+            count += 1
+        if f.typ is not None:
+            count += 1
+        if f.stav is not None:
+            count += 1
+        if f.k_doreseni != KDoreseniFilter.SKRYT:
+            count += 1
+        return count
 
     # ────────────────────────────────────────────────
     # Test-only accessors (underscore prefix = interní API)
@@ -158,6 +202,12 @@ class FilterBar(QWidget):
 
         row.addStretch(1)
 
+        # Aktivní-filtr indikátor — barevná tečka s textem. Skrytý v default stavu.
+        self._active_indicator = QLabel("● Filtr aktivní", self)
+        self._active_indicator.setProperty("class", "filter-active-indicator")
+        self._active_indicator.setVisible(False)
+        row.addWidget(self._active_indicator)
+
         # Clear button
         self._clear_button = QPushButton("Vymazat filtry", self)
         self._clear_button.setProperty("class", "secondary")
@@ -183,6 +233,7 @@ class FilterBar(QWidget):
     def _on_any_changed(self, _index: int) -> None:
         if self._suppress_signals:
             return
+        self._refresh_active_indicator()
         self.filters_changed.emit(
             self._combo_rok.currentData(),
             self._combo_typ.currentData(),
@@ -192,6 +243,14 @@ class FilterBar(QWidget):
 
     def _on_clear_clicked(self) -> None:
         self.reset()
+
+    def _refresh_active_indicator(self) -> None:
+        """Přepni indikátor podle aktuálního stavu filtrů."""
+        active = self.has_active_filters()
+        self._active_indicator.setVisible(active)
+        self.setProperty("active", "true" if active else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
 
     # ────────────────────────────────────────────────
     # Internals

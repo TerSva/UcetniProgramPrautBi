@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -37,6 +38,9 @@ class ConfirmDialog(QDialog):
         confirm_text: str = "Potvrdit",
         cancel_text: str = "Zrušit",
         destructive: bool = False,
+        show_note: bool = False,
+        note_placeholder: str = "Volitelná poznámka…",
+        initial_note: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -50,9 +54,14 @@ class ConfirmDialog(QDialog):
         self._message_label: QLabel
         self._confirm_button: QPushButton
         self._cancel_button: QPushButton
+        self._note_edit: QTextEdit | None = None
         self._destructive = destructive
+        self._show_note = show_note
 
-        self._build_ui(title, message, confirm_text, cancel_text)
+        self._build_ui(
+            title, message, confirm_text, cancel_text,
+            note_placeholder, initial_note,
+        )
 
     @classmethod
     def ask(
@@ -75,6 +84,50 @@ class ConfirmDialog(QDialog):
         )
         return dialog.exec() == QDialog.DialogCode.Accepted
 
+    @classmethod
+    def ask_with_note(
+        cls,
+        parent: QWidget | None,
+        title: str,
+        message: str,
+        confirm_text: str = "Potvrdit",
+        cancel_text: str = "Zrušit",
+        destructive: bool = False,
+        note_placeholder: str = "Volitelná poznámka…",
+        initial_note: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """Jako ``ask``, navíc s textovým polem pro poznámku.
+
+        Fokus je po otevření na textovém poli, aby uživatelka mohla
+        rovnou psát. Prázdná poznámka se vrátí jako ``None``.
+
+        Returns:
+            (confirmed, note) — ``confirmed=False`` → ``note=None``.
+        """
+        dialog = cls(
+            title=title,
+            message=message,
+            confirm_text=confirm_text,
+            cancel_text=cancel_text,
+            destructive=destructive,
+            show_note=True,
+            note_placeholder=note_placeholder,
+            initial_note=initial_note,
+            parent=parent,
+        )
+        confirmed = dialog.exec() == QDialog.DialogCode.Accepted
+        if not confirmed:
+            return (False, None)
+        raw = dialog.note_text()
+        stripped = raw.strip() if raw else ""
+        return (True, stripped or None)
+
+    def note_text(self) -> str:
+        """Vrátí text z textového pole (prázdný string pokud chybí pole)."""
+        if self._note_edit is None:
+            return ""
+        return self._note_edit.toPlainText()
+
     # ─── Test-only accessors ──────────────────────────────────────
 
     @property
@@ -89,6 +142,10 @@ class ConfirmDialog(QDialog):
     def _message_widget(self) -> QLabel:
         return self._message_label
 
+    @property
+    def _note_edit_widget(self) -> QTextEdit | None:
+        return self._note_edit
+
     # ─── Build ────────────────────────────────────────────────────
 
     def _build_ui(
@@ -97,6 +154,8 @@ class ConfirmDialog(QDialog):
         message: str,
         confirm_text: str,
         cancel_text: str,
+        note_placeholder: str,
+        initial_note: str | None,
     ) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(
@@ -112,6 +171,16 @@ class ConfirmDialog(QDialog):
         self._message_label.setProperty("class", "dialog-message")
         self._message_label.setWordWrap(True)
         root.addWidget(self._message_label)
+
+        if self._show_note:
+            self._note_edit = QTextEdit(self)
+            self._note_edit.setProperty("class", "dialog-note")
+            self._note_edit.setPlaceholderText(note_placeholder)
+            self._note_edit.setAcceptRichText(False)
+            self._note_edit.setMinimumHeight(80)
+            if initial_note:
+                self._note_edit.setPlainText(initial_note)
+            root.addWidget(self._note_edit)
 
         root.addStretch(1)
 
@@ -132,3 +201,7 @@ class ConfirmDialog(QDialog):
         footer.addWidget(self._confirm_button)
 
         root.addLayout(footer)
+
+        # Fokus na textarea, pokud existuje — uživatelka může rovnou psát.
+        if self._note_edit is not None:
+            self._note_edit.setFocus()

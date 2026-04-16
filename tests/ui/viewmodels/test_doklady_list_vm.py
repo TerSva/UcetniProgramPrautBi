@@ -180,3 +180,87 @@ class TestIsEmptyBecauseOfFilter:
         vm = DokladyListViewModel(_StubQuery([_item("A")]))
         vm.apply_filters(DokladyFilter(rok=2026))
         assert vm.is_empty_because_of_filter is False
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Fáze 6.7 — total_count + visible_count + set_typ_filter
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestTotalCount:
+    """Status bar: „Zobrazeno X z Y dokladů"."""
+
+    def test_default_total_count_je_nula(self):
+        """Bez count_query je total_count 0."""
+        vm = DokladyListViewModel(_StubQuery([]))
+        assert vm.total_count == 0
+
+    def test_visible_count_je_len_items(self):
+        vm = DokladyListViewModel(_StubQuery([_item("A"), _item("B")]))
+        vm.load()
+        assert vm.visible_count == 2
+
+    def test_load_refreshne_total_count(self):
+        from unittest.mock import MagicMock
+        count_q = MagicMock()
+        count_q.execute.return_value = 42
+        vm = DokladyListViewModel(
+            _StubQuery([_item("A")]), count_query=count_q,
+        )
+        vm.load()
+        assert vm.total_count == 42
+        count_q.execute.assert_called_once()
+
+    def test_apply_filters_refreshne_total_count(self):
+        from unittest.mock import MagicMock
+        count_q = MagicMock()
+        count_q.execute.side_effect = [10, 10]
+        vm = DokladyListViewModel(
+            _StubQuery([]), count_query=count_q,
+        )
+        vm.load()
+        vm.apply_filters(DokladyFilter(rok=2026))
+        assert count_q.execute.call_count == 2
+        assert vm.total_count == 10
+
+    def test_count_query_chyba_je_non_fatal(self):
+        """Pokud count_query selže, load stále funguje."""
+        from unittest.mock import MagicMock
+        count_q = MagicMock()
+        count_q.execute.side_effect = RuntimeError("DB")
+        vm = DokladyListViewModel(
+            _StubQuery([_item("A")]), count_query=count_q,
+        )
+        vm.load()
+        assert vm.error is None  # load neovlivněn
+        assert vm.items == [_item("A")]
+        assert vm.total_count == 0  # zůstává na defaultu
+
+
+class TestSetTypFilter:
+
+    def test_set_typ_filter(self):
+        q = _StubQuery([])
+        vm = DokladyListViewModel(q)
+        vm.set_typ_filter(TypDokladu.FAKTURA_VYDANA)
+        assert vm.filter.typ == TypDokladu.FAKTURA_VYDANA
+        assert vm.filter.rok is None
+        assert vm.filter.k_doreseni == KDoreseniFilter.SKRYT
+
+    def test_set_typ_filter_resetuje_jine(self):
+        q = _StubQuery([])
+        vm = DokladyListViewModel(q)
+        vm.apply_filters(DokladyFilter(
+            rok=2025, k_doreseni=KDoreseniFilter.POUZE,
+        ))
+        vm.set_typ_filter(TypDokladu.FAKTURA_PRIJATA)
+        assert vm.filter.typ == TypDokladu.FAKTURA_PRIJATA
+        assert vm.filter.rok is None
+        assert vm.filter.k_doreseni == KDoreseniFilter.SKRYT
+
+    def test_set_typ_filter_zavola_load(self):
+        q = _StubQuery([_item("A")])
+        vm = DokladyListViewModel(q)
+        vm.set_typ_filter(TypDokladu.FAKTURA_VYDANA)
+        assert q.calls[-1].typ == TypDokladu.FAKTURA_VYDANA
+        assert vm.items == [_item("A")]

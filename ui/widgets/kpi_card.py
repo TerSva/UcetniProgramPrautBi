@@ -65,6 +65,10 @@ class KpiCard(QFrame):
     #: Emituje se při kliku na subtitle, pokud je `subtitle_clickable=True`.
     subtitle_clicked = pyqtSignal()
 
+    #: Emituje se při kliku kamkoli na kartu, pokud je `card_clickable=True`.
+    #: Slouží pro Dashboard drill-down — klik na Pohledávky otevře filtr FV.
+    card_clicked = pyqtSignal()
+
     def __init__(
         self,
         label: str,
@@ -72,12 +76,15 @@ class KpiCard(QFrame):
         subtitle: str | None = None,
         positive: bool = False,
         subtitle_clickable: bool = False,
+        card_clickable: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.setProperty("class", "kpi-card")
         self.setProperty("positive", "true" if positive else "false")
+        self.setProperty("clickable", "false")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self._card_clickable = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
@@ -108,6 +115,9 @@ class KpiCard(QFrame):
         layout.addStretch(1)
         layout.addWidget(self._subtitle)
 
+        if card_clickable:
+            self.set_card_clickable(True)
+
     # ────────────────────────────────────────────────
     # Public API
     # ────────────────────────────────────────────────
@@ -131,6 +141,37 @@ class KpiCard(QFrame):
     def set_subtitle_clickable(self, clickable: bool) -> None:
         """Zapne/vypne klikatelnost subtitle. Žádný signál se neemituje."""
         self._subtitle.set_clickable(clickable)
+
+    def set_card_clickable(self, clickable: bool) -> None:
+        """Zapne/vypne klikatelnost celé karty.
+
+        Při kliku kamkoli na kartu se emituje ``card_clicked``. Subtitle
+        si zachovává vlastní ``subtitle_clicked`` signál — díky tomu, že
+        child widget v PyQt dostane event first a ho accept()uje, karta
+        ho nedostane. Takže obě signály lze použít paralelně.
+        """
+        self._card_clickable = clickable
+        self.setProperty("clickable", "true" if clickable else "false")
+        if clickable:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+        else:
+            self.unsetCursor()
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    # ────────────────────────────────────────────────
+    # Mouse events
+    # ────────────────────────────────────────────────
+
+    def mousePressEvent(self, ev: QMouseEvent) -> None:  # noqa: N802 (Qt API)
+        if (
+            self._card_clickable
+            and ev.button() == Qt.MouseButton.LeftButton
+        ):
+            self.card_clicked.emit()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
 
     # ────────────────────────────────────────────────
     # Test-friendly accessors

@@ -237,3 +237,77 @@ class TestUpravitPopisASplatnost:
             doklad_id, popis=None, splatnost=None,
         )
         assert item.popis is None
+
+
+class TestUpravitPoleNovyDokladu:
+    """Fáze 6.7: kompletní edit NOVY dokladu (popis+splatnost+flag+poznámka)."""
+
+    def test_upravi_vsechna_pole_naraz(self, db_factory):
+        doklad_id = _seed(db_factory, splatnost=date(2026, 3, 10),
+                          popis="původní")
+        cmd = _build(db_factory)
+        item = cmd.upravit_pole_novy_dokladu(
+            doklad_id,
+            popis="nový popis",
+            splatnost=date(2026, 3, 25),
+            k_doreseni=True,
+            poznamka_doreseni="zkontrolovat IČO",
+        )
+        assert item.popis == "nový popis"
+        assert item.datum_splatnosti == date(2026, 3, 25)
+        assert item.k_doreseni is True
+        assert item.poznamka_doreseni == "zkontrolovat IČO"
+
+    def test_zrusi_flag_kdyz_k_doreseni_false(self, db_factory):
+        doklad_id = _seed(db_factory, k_doreseni=True, poznamka="něco")
+        cmd = _build(db_factory)
+        item = cmd.upravit_pole_novy_dokladu(
+            doklad_id,
+            popis=None,
+            splatnost=None,
+            k_doreseni=False,
+            poznamka_doreseni=None,
+        )
+        assert item.k_doreseni is False
+        assert item.poznamka_doreseni is None
+
+    def test_flag_bez_poznamky(self, db_factory):
+        doklad_id = _seed(db_factory)
+        cmd = _build(db_factory)
+        item = cmd.upravit_pole_novy_dokladu(
+            doklad_id,
+            popis="x",
+            splatnost=None,
+            k_doreseni=True,
+            poznamka_doreseni=None,
+        )
+        assert item.k_doreseni is True
+        assert item.poznamka_doreseni is None
+
+    def test_update_poznamky_na_jiz_flagnutem(self, db_factory):
+        doklad_id = _seed(db_factory, k_doreseni=True, poznamka="staré")
+        cmd = _build(db_factory)
+        item = cmd.upravit_pole_novy_dokladu(
+            doklad_id,
+            popis=None,
+            splatnost=None,
+            k_doreseni=True,
+            poznamka_doreseni="nové",
+        )
+        assert item.k_doreseni is True
+        assert item.poznamka_doreseni == "nové"
+
+    def test_splatnost_vyhodi_na_zauctovanem(self, db_factory):
+        """Defenzivní: když UI pustí call pro ne-NOVY se splatností."""
+        doklad_id = _seed(db_factory, castka="500",
+                          splatnost=date(2026, 3, 15))
+        _zauctuj(db_factory, doklad_id, "500")
+        cmd = _build(db_factory)
+        with pytest.raises(ValidationError):
+            cmd.upravit_pole_novy_dokladu(
+                doklad_id,
+                popis="x",
+                splatnost=date(2026, 3, 30),
+                k_doreseni=False,
+                poznamka_doreseni=None,
+            )

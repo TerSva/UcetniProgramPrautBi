@@ -273,6 +273,30 @@ class TestUpdate:
         assert len(row2["upraveno"]) == 19  # "YYYY-MM-DD HH:MM:SS"
 
 
+class TestCountAll:
+    """count_all — triviální helper pro status bar pod tabulkou."""
+
+    def test_empty_db_vraci_nula(self, db_factory):
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            assert repo.count_all() == 0
+
+    def test_scita_vsechny_bez_ohledu_na_stav(self, db_factory):
+        write_uow = SqliteUnitOfWork(db_factory)
+        with write_uow:
+            repo = SqliteDokladyRepository(write_uow)
+            repo.add(_doklad(cislo="FV-001"))
+            repo.add(_doklad(cislo="FV-002"))
+            repo.add(_doklad(cislo="FP-001", typ=TypDokladu.FAKTURA_PRIJATA))
+            write_uow.commit()
+
+        read_uow = SqliteUnitOfWork(db_factory)
+        with read_uow:
+            repo = SqliteDokladyRepository(read_uow)
+            assert repo.count_all() == 3
+
+
 class TestListByTyp:
 
     def test_filtruje_typ(self, db_factory):

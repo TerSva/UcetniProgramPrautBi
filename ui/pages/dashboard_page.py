@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from domain.doklady.typy import TypDokladu
 from ui.design_tokens import Spacing
 from ui.viewmodels import DashboardViewModel
 from ui.widgets import KpiCard
@@ -53,6 +54,11 @@ class DashboardPage(QWidget):
     #: filter POUZE_K_DORESENI.
     navigate_to_doklady_k_doreseni = pyqtSignal()
 
+    #: Fáze 6.7: Emituje TypDokladu (FAKTURA_VYDANA nebo FAKTURA_PRIJATA)
+    #: při kliku na kartu Pohledávky nebo Závazky. MainWindow naviguje
+    #: na stránku Doklady a aplikuje filtr na daný typ.
+    navigate_to_doklady_with_typ = pyqtSignal(object)
+
     def __init__(
         self,
         view_model: DashboardViewModel,
@@ -68,6 +74,17 @@ class DashboardPage(QWidget):
         # Propagace signálu subtitle → page → main window
         self._card_doklady.subtitle_clicked.connect(
             self.navigate_to_doklady_k_doreseni
+        )
+        # Fáze 6.7: drill-down z Pohledávky / Závazky na filtr v Doklady
+        self._card_pohledavky.card_clicked.connect(
+            lambda: self.navigate_to_doklady_with_typ.emit(
+                TypDokladu.FAKTURA_VYDANA,
+            )
+        )
+        self._card_zavazky.card_clicked.connect(
+            lambda: self.navigate_to_doklady_with_typ.emit(
+                TypDokladu.FAKTURA_PRIJATA,
+            )
         )
         self._show_count: int = 0
         self.refresh()
@@ -140,10 +157,12 @@ class DashboardPage(QWidget):
             "Hrubý zisk", "—", subtitle=None, parent=self,
         )
         self._card_pohledavky = KpiCard(
-            "Pohledávky", "—", subtitle=None, parent=self,
+            "Pohledávky", "—",
+            subtitle=None, card_clickable=True, parent=self,
         )
         self._card_zavazky = KpiCard(
-            "Závazky", "—", subtitle=None, parent=self,
+            "Závazky", "—",
+            subtitle=None, card_clickable=True, parent=self,
         )
 
         grid = QGridLayout()

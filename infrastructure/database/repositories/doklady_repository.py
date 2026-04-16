@@ -166,6 +166,12 @@ class SqliteDokladyRepository(DokladyRepository):
         ).fetchall()
         return [self._row_to_doklad(r) for r in rows]
 
+    def count_all(self) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM doklady"
+        ).fetchone()
+        return int(row[0])
+
     def list_k_doreseni(
         self, limit: int = 100, offset: int = 0
     ) -> list[Doklad]:

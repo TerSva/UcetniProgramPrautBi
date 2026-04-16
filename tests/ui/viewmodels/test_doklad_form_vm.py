@@ -146,3 +146,90 @@ class TestSubmit:
         )
         vm.submit(_sample_input())
         assert vm.created_item is None
+
+
+class TestSubmitSFlagKDoreseni:
+    """Fáze 6.7: submit s k_doreseni=True volá actions_command po create."""
+
+    def test_bez_flagu_neni_volan_actions(self):
+        from unittest.mock import MagicMock
+        item = _sample_item()
+        actions = MagicMock()
+        vm = DokladFormViewModel(
+            _StubNextNumberQuery(),
+            _StubCreateCommand(item),
+            actions_command=actions,
+        )
+        vm.submit(_sample_input(), k_doreseni=False)
+        actions.oznac_k_doreseni.assert_not_called()
+
+    def test_s_flagem_vola_actions_s_poznamkou(self):
+        from unittest.mock import MagicMock
+        item = _sample_item()
+        flagged = DokladyListItem(
+            id=item.id, cislo=item.cislo, typ=item.typ,
+            datum_vystaveni=item.datum_vystaveni,
+            datum_splatnosti=item.datum_splatnosti,
+            partner_nazev=None, castka_celkem=item.castka_celkem,
+            stav=item.stav, k_doreseni=True,
+            poznamka_doreseni="chybí IČO", popis=item.popis,
+        )
+        actions = MagicMock()
+        actions.oznac_k_doreseni.return_value = flagged
+        vm = DokladFormViewModel(
+            _StubNextNumberQuery(),
+            _StubCreateCommand(item),
+            actions_command=actions,
+        )
+        result = vm.submit(
+            _sample_input(),
+            k_doreseni=True,
+            poznamka_doreseni="chybí IČO",
+        )
+        actions.oznac_k_doreseni.assert_called_once_with(42, "chybí IČO")
+        assert result is flagged
+        assert vm.created_item is flagged
+        assert vm.error is None
+
+    def test_flag_bez_poznamky(self):
+        from unittest.mock import MagicMock
+        item = _sample_item()
+        actions = MagicMock()
+        actions.oznac_k_doreseni.return_value = item
+        vm = DokladFormViewModel(
+            _StubNextNumberQuery(),
+            _StubCreateCommand(item),
+            actions_command=actions,
+        )
+        vm.submit(_sample_input(), k_doreseni=True, poznamka_doreseni=None)
+        actions.oznac_k_doreseni.assert_called_once_with(42, None)
+
+    def test_selhani_flag_kroku_vraci_puvodni_item_s_errorem(self):
+        """2-UoW trade-off: doklad existuje, flag se nepodaří — UI informováno."""
+        from unittest.mock import MagicMock
+        item = _sample_item()
+        actions = MagicMock()
+        actions.oznac_k_doreseni.side_effect = RuntimeError("DB zamčená")
+        vm = DokladFormViewModel(
+            _StubNextNumberQuery(),
+            _StubCreateCommand(item),
+            actions_command=actions,
+        )
+        result = vm.submit(_sample_input(), k_doreseni=True)
+        # Doklad existuje — vrací se původní item, error nastavený.
+        assert result is item
+        assert vm.created_item is item
+        assert vm.error is not None
+        assert "DB zamčená" in vm.error
+
+    def test_selhani_create_neda_volat_actions(self):
+        from unittest.mock import MagicMock
+        actions = MagicMock()
+        vm = DokladFormViewModel(
+            _StubNextNumberQuery(),
+            _ErrorCreateCommand(RuntimeError("boom")),
+            actions_command=actions,
+        )
+        result = vm.submit(_sample_input(), k_doreseni=True)
+        assert result is None
+        actions.oznac_k_doreseni.assert_not_called()

@@ -60,3 +60,62 @@ class TestConfirmDialog:
         d = ConfirmDialog(title="t", message="velmi dlouhá zpráva" * 20)
         qtbot.addWidget(d)
         assert d._message_widget.wordWrap() is True
+
+
+class TestConfirmDialogWithNote:
+    """Fáze 6.7: ask_with_note — dialog s textarea pro poznámku."""
+
+    def test_show_note_vytvori_text_edit(self, qtbot):
+        d = ConfirmDialog(title="t", message="m", show_note=True)
+        qtbot.addWidget(d)
+        assert d._note_edit_widget is not None
+
+    def test_default_nema_text_edit(self, qtbot):
+        d = ConfirmDialog(title="t", message="m")
+        qtbot.addWidget(d)
+        assert d._note_edit_widget is None
+
+    def test_initial_note_predvyplni(self, qtbot):
+        d = ConfirmDialog(
+            title="t", message="m",
+            show_note=True, initial_note="staré",
+        )
+        qtbot.addWidget(d)
+        assert d._note_edit_widget.toPlainText() == "staré"
+
+    def test_note_text_vrati_zadany_text(self, qtbot):
+        d = ConfirmDialog(title="t", message="m", show_note=True)
+        qtbot.addWidget(d)
+        d._note_edit_widget.setPlainText("chybí IČO")
+        assert d.note_text() == "chybí IČO"
+
+    def test_placeholder_text(self, qtbot):
+        d = ConfirmDialog(
+            title="t", message="m",
+            show_note=True, note_placeholder="Proč flagneš?",
+        )
+        qtbot.addWidget(d)
+        assert d._note_edit_widget.placeholderText() == "Proč flagneš?"
+
+    def test_focus_je_na_textarea(self, qtbot):
+        """Po otevření dialogu je fokus na textarea, aby user mohl rovnou psát."""
+        d = ConfirmDialog(title="t", message="m", show_note=True)
+        qtbot.addWidget(d)
+        d.show()
+        qtbot.waitExposed(d)
+        # Fokus byl setnutý v _build_ui — defaultně by byl na prvním
+        # fokusovatelném widgetu (cancel button).
+        assert d.focusWidget() is d._note_edit_widget
+
+    def test_ask_with_note_cancel_vrati_none(self, qtbot):
+        """Zrušení dialogu → (False, None) bez ohledu na obsah textarea."""
+        # Stejná technika jako u `ask` — test instance, ne exec().
+        # Simulujeme reject přímo.
+        d = ConfirmDialog(title="t", message="m", show_note=True)
+        qtbot.addWidget(d)
+        d._note_edit_widget.setPlainText("něco")
+        d.reject()
+        # note_text() stále funguje, ale ask_with_note by vrátil None:
+        # tady testujeme jen, že note_text sám nic neshodí
+        assert d.note_text() == "něco"
+        assert d.result() == d.DialogCode.Rejected
