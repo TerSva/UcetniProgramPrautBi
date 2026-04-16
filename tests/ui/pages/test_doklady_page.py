@@ -284,3 +284,51 @@ class TestCzechPlural:
         assert _czech_plural_filtry(3) == "3 filtry aktivní"
         assert _czech_plural_filtry(4) == "4 filtry aktivní"
         assert _czech_plural_filtry(5) == "5 filtrů aktivní"
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Fáze 8 — preset_typ (typová stránka Doklady)
+# ──────────────────────────────────────────────────────────────────────
+
+
+class TestPresetTyp:
+
+    def test_fv_page_has_preset_typ(self, qtbot):
+        query = _StubQuery([])
+        vm = DokladyListViewModel(query)
+        page = DokladyPage(
+            vm,
+            preset_typ=TypDokladu.FAKTURA_VYDANA,
+            preset_title="Vydané faktury",
+        )
+        qtbot.addWidget(page)
+        assert page._title_widget.text() == "Vydané faktury"
+
+    def test_fp_page_has_preset_typ(self, qtbot):
+        query = _StubQuery([])
+        vm = DokladyListViewModel(query)
+        page = DokladyPage(
+            vm,
+            preset_typ=TypDokladu.FAKTURA_PRIJATA,
+            preset_title="Přijaté faktury",
+        )
+        qtbot.addWidget(page)
+        assert page._title_widget.text() == "Přijaté faktury"
+
+    def test_typ_dropdown_disabled_when_preset(self, qtbot):
+        query = _StubQuery([])
+        vm = DokladyListViewModel(query)
+        page = DokladyPage(
+            vm,
+            preset_typ=TypDokladu.FAKTURA_VYDANA,
+            preset_title="Vydané faktury",
+        )
+        qtbot.addWidget(page)
+        assert not page._filter_bar_widget._combo_typ_widget.isEnabled()
+
+    def test_default_title_without_preset(self, qtbot):
+        query = _StubQuery([])
+        vm = DokladyListViewModel(query)
+        page = DokladyPage(vm)
+        qtbot.addWidget(page)
+        assert page._title_widget.text() == "Doklady"

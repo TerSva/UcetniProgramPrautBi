@@ -51,6 +51,7 @@ class ChartOfAccountsPage(QWidget):
         self._show_inactive_check: QCheckBox
         self._tree_container: QWidget
         self._tree_layout: QVBoxLayout
+        self._expanded_tridy: set[int] = set()
 
         self._build_ui()
         self._wire_signals()
@@ -197,11 +198,14 @@ class ChartOfAccountsPage(QWidget):
         self._show_inactive_check.setChecked(self._vm.show_inactive)
         self._show_inactive_check.blockSignals(False)
 
-        # Clear tree
+        # Clear tree — setParent(None) to detach immediately
+        # (deleteLater defers destruction, old signals can fire and corrupt state)
         while self._tree_layout.count():
             child = self._tree_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            w = child.widget()
+            if w:
+                w.blockSignals(True)
+                w.setParent(None)
 
         # Rebuild tree
         for trida in self._vm.tridy:
@@ -220,20 +224,29 @@ class ChartOfAccountsPage(QWidget):
         header.setProperty("class", "osnova-trida-header")
         header.setCursor(Qt.CursorShape.PointingHandCursor)
         header.setCheckable(True)
-        header.setChecked(False)
 
-        # Container pro účty (initially hidden)
+        was_expanded = trida.trida in self._expanded_tridy
+        header.setChecked(was_expanded)
+
+        # Container pro účty
         content = QWidget(self._tree_container)
         content.setProperty("class", "osnova-trida-content")
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(Spacing.S4, 0, 0, 0)
         content_layout.setSpacing(2)
-        content.setVisible(False)
+        content.setVisible(was_expanded)
 
         for item in trida.ucty:
             self._add_ucet_row(content_layout, item)
 
-        header.toggled.connect(lambda checked: content.setVisible(checked))
+        def _on_toggled(checked: bool, t=trida.trida) -> None:
+            content.setVisible(checked)
+            if checked:
+                self._expanded_tridy.add(t)
+            else:
+                self._expanded_tridy.discard(t)
+
+        header.toggled.connect(_on_toggled)
 
         self._tree_layout.addWidget(header)
         self._tree_layout.addWidget(content)

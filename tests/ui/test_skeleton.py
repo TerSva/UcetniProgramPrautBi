@@ -2,9 +2,8 @@
 
 Ověřuje:
   * Fonty se načtou (Space Grotesk + DM Sans)
-  * MainWindow má 4 stránky v stacku
-  * Sidebar má položky, 4 z nich aktivní dle ACTIVE_KEYS
-  * Disabled položky mají tooltip "Přijde v další fázi"
+  * MainWindow má 18 stránek v stacku (Fáze 8)
+  * Sidebar má 5 sekcí s celkem 17 navigovatelnými položkami
   * Klik na aktivní položku emituje signál a přepne stack
   * load_icon() vrací QIcon
   * load_icon() hází FileNotFoundError pro neexistující ikonu
@@ -19,7 +18,7 @@ from PyQt6.QtWidgets import QPushButton
 
 from ui.app import register_fonts
 from ui.widgets.icon import load_icon
-from ui.widgets.sidebar import ACTIVE_KEYS, Sidebar
+from ui.widgets.sidebar import ACTIVE_KEYS, SIDEBAR_STRUCTURE, Sidebar
 
 
 # ──────────────────────────────────────────────
@@ -38,8 +37,8 @@ def test_fonts_register(qtbot):
 # ──────────────────────────────────────────────
 
 
-def test_main_window_has_four_pages(main_window):
-    assert main_window.stack.count() == 4
+def test_main_window_has_eighteen_pages(main_window):
+    assert main_window.stack.count() == 18
 
 
 def test_main_window_starts_on_dashboard(main_window):
@@ -51,32 +50,28 @@ def test_main_window_starts_on_dashboard(main_window):
 # ──────────────────────────────────────────────
 
 
-def test_sidebar_has_twelve_items(main_window):
-    buttons = main_window.sidebar.findChildren(QPushButton)
-    sidebar_buttons = [
-        b for b in buttons if b.property("class") == "sidebar-item"
-    ]
-    assert len(sidebar_buttons) == 12
+def test_sidebar_has_five_sections(main_window):
+    assert len(SIDEBAR_STRUCTURE) == 5
+    section_names = [s.title for s in SIDEBAR_STRUCTURE]
+    assert section_names == ["Přehled", "Účetnictví", "Evidence", "Výstupy", "Systém"]
 
 
-def test_active_keys_match_enabled_buttons(main_window):
-    buttons = main_window.sidebar.findChildren(QPushButton)
-    sidebar_buttons = [
-        b for b in buttons if b.property("class") == "sidebar-item"
-    ]
-    enabled_count = sum(1 for b in sidebar_buttons if b.isEnabled())
-    assert enabled_count == len(ACTIVE_KEYS) == 4
+def test_sidebar_has_navigable_items(main_window):
+    """Všechny navigovatelné klíče jsou v ACTIVE_KEYS."""
+    assert len(ACTIVE_KEYS) == 17
 
 
-def test_disabled_items_have_tooltip(main_window):
-    buttons = main_window.sidebar.findChildren(QPushButton)
-    sidebar_buttons = [
-        b for b in buttons if b.property("class") == "sidebar-item"
-    ]
-    disabled = [b for b in sidebar_buttons if not b.isEnabled()]
-    assert len(disabled) == 8
-    for b in disabled:
-        assert b.toolTip() == "Přijde v další fázi"
+def test_doklady_has_sub_items(main_window):
+    """Doklady parent má 6 sub-items."""
+    for section in SIDEBAR_STRUCTURE:
+        for item in section.items:
+            if item.key == "doklady":
+                assert len(item.sub_items) == 6
+                sub_keys = [s.key for s in item.sub_items]
+                assert "doklady_fv" in sub_keys
+                assert "doklady_fp" in sub_keys
+                return
+    pytest.fail("Doklady item not found")
 
 
 # ──────────────────────────────────────────────
@@ -84,22 +79,42 @@ def test_disabled_items_have_tooltip(main_window):
 # ──────────────────────────────────────────────
 
 
-def test_click_doklady_switches_stack(main_window, qtbot):
+def test_click_sub_item_navigates(main_window, qtbot):
+    """Klik na sub-item emituje signál s jeho klíčem."""
+    # Expand doklady sub-menu first
+    parent_btn = main_window.sidebar._parent_buttons.get("doklady")
+    assert parent_btn is not None
+    parent_btn.click()
+
     with qtbot.waitSignal(main_window.sidebar.page_selected, timeout=1000) as sig:
-        main_window.sidebar._buttons["doklady"].click()
-    assert sig.args == ["doklady"]
-    assert main_window.stack.currentIndex() == 1
+        main_window.sidebar._buttons["doklady_fv"].click()
+    assert sig.args == ["doklady_fv"]
+
+
+def test_click_parent_expands_sub_menu(main_window, qtbot):
+    """Klik na parent item expanduje/collapsuje sub-menu."""
+    container = main_window.sidebar._sub_containers.get("doklady")
+    assert container is not None
+    assert container.isHidden()  # default collapsed
+
+    parent_btn = main_window.sidebar._parent_buttons["doklady"]
+    parent_btn.click()
+    assert not container.isHidden()  # expanded
+
+    parent_btn.click()
+    assert container.isHidden()  # collapsed again
 
 
 def test_click_nastaveni_switches_stack(main_window, qtbot):
     with qtbot.waitSignal(main_window.sidebar.page_selected, timeout=1000):
         main_window.sidebar._buttons["nastaveni"].click()
-    assert main_window.stack.currentIndex() == 3
+    idx = main_window.page_index["nastaveni"]
+    assert main_window.stack.currentIndex() == idx
 
 
 def test_set_active_does_not_emit_signal(main_window, qtbot):
     with qtbot.assertNotEmitted(main_window.sidebar.page_selected):
-        main_window.sidebar.set_active("doklady")
+        main_window.sidebar.set_active("dashboard")
 
 
 # ──────────────────────────────────────────────

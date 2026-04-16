@@ -122,6 +122,58 @@ QPushButton[class="sidebar-item"][active="true"] {{
     font-weight: {Fonts.WEIGHT_SEMIBOLD};
 }}
 
+QWidget[class="sidebar-sub-container"] {{
+    background: transparent;
+}}
+
+QScrollArea[class="sidebar-scroll"] {{
+    background: transparent;
+    border: none;
+}}
+
+QWidget[class="sidebar-scroll-content"] {{
+    background: transparent;
+}}
+
+QPushButton[class="sidebar-sub-item"] {{
+    color: rgba(255, 255, 255, 0.75);
+    background: transparent;
+    border: none;
+    border-left: 3px solid transparent;
+    padding: {Spacing.S1}px {Spacing.S4}px {Spacing.S1}px {Spacing.S2}px;
+    text-align: left;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_REGULAR};
+    min-height: 28px;
+}}
+
+QPushButton[class="sidebar-sub-item"]:hover {{
+    background: {Surfaces.SIDEBAR_HOVER};
+    color: {Colors.WHITE};
+}}
+
+QPushButton[class="sidebar-sub-item"][active="true"] {{
+    border-left: 3px solid {Colors.ACCENT_400};
+    background: rgba(255, 255, 255, 0.10);
+    color: {Colors.WHITE};
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+}}
+
+/* ── Placeholder badge ─────────────────────────────── */
+
+QLabel[class="placeholder-badge"] {{
+    background: {Colors.INFO_50};
+    color: {Colors.INFO_700};
+    border: 1px solid {Colors.INFO_100};
+    border-radius: {Radius.LG}px;
+    padding: {Spacing.S6}px {Spacing.S8}px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_BASE}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    line-height: 1.6;
+}}
+
 /* ═══════════════════════════════════════════════════════════
    PAGES — placeholder stránky (dashboard, doklady, nastavení)
    ═══════════════════════════════════════════════════════════ */

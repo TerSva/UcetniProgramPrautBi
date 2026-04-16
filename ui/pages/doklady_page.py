@@ -80,6 +80,8 @@ class DokladyPage(QWidget):
         zauctovani_vm_factory: Callable[
             [DokladyListItem], ZauctovaniViewModel
         ] | None = None,
+        preset_typ: TypDokladu | None = None,
+        preset_title: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -87,12 +89,21 @@ class DokladyPage(QWidget):
         self._form_vm_factory = form_vm_factory
         self._detail_vm_factory = detail_vm_factory
         self._zauctovani_vm_factory = zauctovani_vm_factory
+        self._preset_typ = preset_typ
+        self._preset_title = preset_title or "Doklady"
 
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._build_ui()
         self._wire_signals()
+
+        # Apply preset typ filter
+        if self._preset_typ is not None:
+            self._vm.set_typ_filter(self._preset_typ)
+            self._filter_bar.set_filter(self._vm.filter)
+            self._filter_bar._combo_typ_widget.setEnabled(False)
+
         self.refresh()
 
     # ────────────────────────────────────────────────
@@ -168,7 +179,7 @@ class DokladyPage(QWidget):
         root.setSpacing(Spacing.S4)
 
         # Header
-        self._title = QLabel("Doklady", self)
+        self._title = QLabel(self._preset_title, self)
         self._title.setProperty("class", "page-title")
 
         subtitle = QLabel(

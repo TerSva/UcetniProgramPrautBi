@@ -1,15 +1,9 @@
 -- 005_analytika.sql
 -- Fáze 7: Analytické účty + popis + TypUctu 'Z' (závěrkové).
 --
--- SQLite neumí ALTER CHECK, proto musíme recreate tabulku.
+-- SQLite neumí ALTER CHECK, proto recreate tabulku s rozšířeným CHECK.
 
--- 1) Přidáme nové sloupce (parent_kod, popis)
-ALTER TABLE uctova_osnova ADD COLUMN parent_kod TEXT
-    REFERENCES uctova_osnova(cislo);
-
-ALTER TABLE uctova_osnova ADD COLUMN popis TEXT;
-
--- 2) Recreate tabulku s rozšířeným CHECK pro typ (přidáno 'Z')
+-- Recreate tabulku s rozšířeným CHECK pro typ (přidáno 'Z') + nové sloupce
 CREATE TABLE uctova_osnova_new (
     cislo TEXT PRIMARY KEY,
     nazev TEXT NOT NULL,
@@ -19,17 +13,14 @@ CREATE TABLE uctova_osnova_new (
     popis TEXT
 );
 
-INSERT INTO uctova_osnova_new (cislo, nazev, typ, je_aktivni, parent_kod, popis)
-    SELECT cislo, nazev, typ, je_aktivni, parent_kod, popis
+INSERT INTO uctova_osnova_new (cislo, nazev, typ, je_aktivni)
+    SELECT cislo, nazev, typ, je_aktivni
     FROM uctova_osnova;
 
 DROP TABLE uctova_osnova;
 
 ALTER TABLE uctova_osnova_new RENAME TO uctova_osnova;
 
--- 3) Indexy
+-- Indexy
 CREATE INDEX idx_uctova_osnova_parent ON uctova_osnova(parent_kod)
     WHERE parent_kod IS NOT NULL;
-
--- 4) Recreate FK references from ucetni_zaznamy
--- (SQLite foreign keys reference by name, table rename preserves them)
