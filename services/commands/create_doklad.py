@@ -16,9 +16,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Callable
 
+from decimal import Decimal
+
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import TypDokladu
+from domain.doklady.typy import Mena, TypDokladu
 from domain.shared.errors import ConflictError
 from domain.shared.money import Money
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
@@ -40,6 +42,9 @@ class CreateDokladInput:
     datum_splatnosti: date | None = None
     popis: str | None = None
     partner_id: int | None = None
+    mena: Mena = Mena.CZK
+    castka_mena: Money | None = None
+    kurz: Decimal | None = None
 
 
 class CreateDokladCommand:
@@ -69,6 +74,9 @@ class CreateDokladCommand:
             partner_id=data.partner_id,
             datum_splatnosti=data.datum_splatnosti,
             popis=data.popis,
+            mena=data.mena,
+            castka_mena=data.castka_mena,
+            kurz=data.kurz,
         )
 
         uow = self._uow_factory()

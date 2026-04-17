@@ -11,6 +11,7 @@ Submit → ``DokladFormViewModel.submit(CreateDokladInput)`` → při úspěchu
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from typing import cast
 
 from PyQt6.QtCore import Qt
@@ -24,7 +25,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.doklady.typy import TypDokladu
+from domain.doklady.typy import Mena, TypDokladu
+from domain.partneri.partner import KategoriePartnera
 from services.commands.create_doklad import CreateDokladInput
 from services.queries.doklady_list import DokladyListItem
 from services.queries.partneri_list import PartneriListItem
@@ -64,6 +66,11 @@ class DokladFormDialog(QDialog):
         self._on_partner_created = on_partner_created
         self._created_item: DokladyListItem | None = None
 
+        self._spolecnici_items = [
+            p for p in self._partner_items
+            if p.kategorie == KategoriePartnera.SPOLECNIK
+        ]
+
         # Widgety — inicializace v _build_ui
         self._partner_selector: PartnerSelector
         self._typ_combo: LabeledComboBox
@@ -71,6 +78,14 @@ class DokladFormDialog(QDialog):
         self._datum_vystaveni: LabeledDateEdit
         self._datum_splatnosti: LabeledDateEdit
         self._castka_input: LabeledMoneyEdit
+        self._mena_combo: LabeledComboBox
+        self._castka_mena_input: LabeledMoneyEdit
+        self._kurz_input: LabeledLineEdit
+        self._prepocet_label: QLabel
+        self._mena_section: QWidget
+        self._spolecnik_check: QCheckBox
+        self._spolecnik_combo: LabeledComboBox
+        self._spolecnik_section: QWidget
         self._popis_input: LabeledTextEdit
         self._k_doreseni_check: QCheckBox
         self._poznamka_doreseni_input: LabeledTextEdit
@@ -118,6 +133,38 @@ class DokladFormDialog(QDialog):
     @property
     def _poznamka_doreseni_widget(self) -> LabeledTextEdit:
         return self._poznamka_doreseni_input
+
+    @property
+    def _mena_combo_widget(self) -> LabeledComboBox:
+        return self._mena_combo
+
+    @property
+    def _castka_mena_widget(self) -> LabeledMoneyEdit:
+        return self._castka_mena_input
+
+    @property
+    def _kurz_widget(self) -> LabeledLineEdit:
+        return self._kurz_input
+
+    @property
+    def _prepocet_widget(self) -> QLabel:
+        return self._prepocet_label
+
+    @property
+    def _mena_section_widget(self) -> QWidget:
+        return self._mena_section
+
+    @property
+    def _spolecnik_check_widget(self) -> QCheckBox:
+        return self._spolecnik_check
+
+    @property
+    def _spolecnik_combo_widget(self) -> LabeledComboBox:
+        return self._spolecnik_combo
+
+    @property
+    def _spolecnik_section_widget(self) -> QWidget:
+        return self._spolecnik_section
 
     # ─── Build ───────────────────────────────────────────────────
 
@@ -176,6 +223,70 @@ class DokladFormDialog(QDialog):
         )
         root.addWidget(self._castka_input)
 
+        # ── Sekce Měna ──
+        self._mena_combo = LabeledComboBox("Měna", self)
+        for m in Mena:
+            self._mena_combo.add_item(m.value, m)
+        self._mena_combo.set_value(Mena.CZK)
+        root.addWidget(self._mena_combo)
+
+        self._mena_section = QWidget(self)
+        mena_layout = QVBoxLayout(self._mena_section)
+        mena_layout.setContentsMargins(0, 0, 0, 0)
+        mena_layout.setSpacing(Spacing.S2)
+
+        mena_row = QHBoxLayout()
+        mena_row.setContentsMargins(0, 0, 0, 0)
+        mena_row.setSpacing(Spacing.S3)
+
+        self._castka_mena_input = LabeledMoneyEdit(
+            "Částka v cizí měně", placeholder="0,00", parent=self._mena_section,
+        )
+        mena_row.addWidget(self._castka_mena_input, stretch=1)
+
+        self._kurz_input = LabeledLineEdit(
+            "Kurz ČNB (Kč/1 j.)", placeholder="25,100",
+            parent=self._mena_section,
+        )
+        mena_row.addWidget(self._kurz_input, stretch=1)
+        mena_layout.addLayout(mena_row)
+
+        self._prepocet_label = QLabel("= 0,00 Kč", self._mena_section)
+        self._prepocet_label.setProperty("class", "dialog-value")
+        mena_layout.addWidget(self._prepocet_label)
+
+        self._mena_section.setVisible(False)
+        root.addWidget(self._mena_section)
+
+        # ── Placeno společníkem ──
+        self._spolecnik_section = QWidget(self)
+        spol_layout = QVBoxLayout(self._spolecnik_section)
+        spol_layout.setContentsMargins(0, 0, 0, 0)
+        spol_layout.setSpacing(Spacing.S2)
+
+        self._spolecnik_check = QCheckBox(
+            "Placeno ze soukromé karty/účtu společníka", self._spolecnik_section,
+        )
+        self._spolecnik_check.setProperty("class", "form-check")
+        self._spolecnik_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        spol_layout.addWidget(self._spolecnik_check)
+
+        self._spolecnik_combo = LabeledComboBox(
+            "Společník", self._spolecnik_section,
+        )
+        for sp in self._spolecnici_items:
+            label = f"{sp.nazev} ({sp.podil_procent}%)" if sp.podil_procent else sp.nazev
+            self._spolecnik_combo.add_item(label, sp.id)
+        self._spolecnik_combo.setVisible(False)
+        spol_layout.addWidget(self._spolecnik_combo)
+
+        # Visible only for FP and PD
+        typ_val = cast(TypDokladu | None, self._typ_combo.value())
+        self._spolecnik_section.setVisible(
+            typ_val in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.POKLADNI_DOKLAD)
+        )
+        root.addWidget(self._spolecnik_section)
+
         # Popis
         self._popis_input = LabeledTextEdit(
             "Popis (nepovinné)",
@@ -232,6 +343,14 @@ class DokladFormDialog(QDialog):
         self._partner_selector.new_partner_requested.connect(
             self._on_new_partner,
         )
+        self._mena_combo.current_value_changed.connect(self._on_mena_changed)
+        self._castka_mena_input.line_widget.editingFinished.connect(
+            self._on_foreign_amount_changed,
+        )
+        self._kurz_input.text_changed.connect(
+            lambda _: self._on_foreign_amount_changed(),
+        )
+        self._spolecnik_check.toggled.connect(self._on_spolecnik_toggled)
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
         self._k_doreseni_check.toggled.connect(self._on_k_doreseni_toggled)
@@ -261,16 +380,52 @@ class DokladFormDialog(QDialog):
                     self._partner_selector.set_items(self._partner_items)
                     self._partner_selector.set_selected_id(new_partner.id)
 
+    def _on_mena_changed(self, value: object) -> None:
+        if not isinstance(value, Mena):
+            return
+        is_foreign = value != Mena.CZK
+        self._mena_section.setVisible(is_foreign)
+        # When switching to CZK, make castka editable again
+        self._castka_input.line_widget.setReadOnly(is_foreign)
+        if not is_foreign:
+            self._prepocet_label.setText("= 0,00 Kč")
+        else:
+            self._on_foreign_amount_changed()
+
+    def _on_foreign_amount_changed(self) -> None:
+        castka_mena = self._castka_mena_input.value()
+        kurz_text = self._kurz_input.value().strip().replace(",", ".")
+        try:
+            kurz = Decimal(kurz_text) if kurz_text else None
+        except InvalidOperation:
+            kurz = None
+
+        if castka_mena is not None and kurz is not None and kurz > 0:
+            czk = castka_mena * kurz
+            self._prepocet_label.setText(f"= {czk.format_cz()}")
+            self._castka_input.set_value(czk)
+        else:
+            self._prepocet_label.setText("= ? Kč")
+
+    def _on_spolecnik_toggled(self, checked: bool) -> None:
+        self._spolecnik_combo.setVisible(checked)
+
     def _on_typ_changed(self, value: object) -> None:
         if not isinstance(value, TypDokladu):
             return
         cislo = self._vm.suggest_cislo(value, date.today().year)
         self._cislo_input.set_value(cislo)
+        # Show společník section only for FP and PD
+        self._spolecnik_section.setVisible(
+            value in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.POKLADNI_DOKLAD)
+        )
 
     def _on_submit(self) -> None:
         # Vyresetuj error badges
         self._cislo_input.set_error(None)
         self._castka_input.set_error(None)
+        self._castka_mena_input.set_error(None)
+        self._kurz_input.set_error(None)
         self._error_label.setVisible(False)
 
         typ = cast(TypDokladu | None, self._typ_combo.value())
@@ -299,6 +454,26 @@ class DokladFormDialog(QDialog):
         assert datum_vystaveni is not None
         assert castka is not None
 
+        # Měna
+        mena = cast(Mena | None, self._mena_combo.value()) or Mena.CZK
+        castka_mena_val: "Money | None" = None
+        kurz_val: Decimal | None = None
+        if mena != Mena.CZK:
+            castka_mena_val = self._castka_mena_input.value()
+            kurz_text = self._kurz_input.value().strip().replace(",", ".")
+            try:
+                kurz_val = Decimal(kurz_text) if kurz_text else None
+            except InvalidOperation:
+                kurz_val = None
+            if castka_mena_val is None:
+                self._castka_mena_input.set_error("Částka v cizí měně je povinná.")
+                has_error = True
+            if kurz_val is None or kurz_val <= 0:
+                self._kurz_input.set_error("Kurz je povinný a musí být kladný.")
+                has_error = True
+            if has_error:
+                return
+
         data = CreateDokladInput(
             cislo=cislo,
             typ=typ,
@@ -307,6 +482,9 @@ class DokladFormDialog(QDialog):
             castka_celkem=castka,
             popis=popis,
             partner_id=self._partner_selector.selected_id(),
+            mena=mena,
+            castka_mena=castka_mena_val,
+            kurz=kurz_val,
         )
 
         k_doreseni = self._k_doreseni_check.isChecked()

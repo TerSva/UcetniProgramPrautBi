@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import re
 from datetime import date, timedelta
+from decimal import Decimal
 
-from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.doklady.typy import Mena, StavDokladu, TypDokladu
 from domain.shared.errors import ValidationError
 from domain.shared.money import Money
 
@@ -44,6 +45,9 @@ class Doklad:
         stav: StavDokladu = StavDokladu.NOVY,
         k_doreseni: bool = False,
         poznamka_doreseni: str | None = None,
+        mena: Mena = Mena.CZK,
+        castka_mena: Money | None = None,
+        kurz: Decimal | None = None,
         id: int | None = None,
     ) -> None:
         # Validace cislo
@@ -124,6 +128,22 @@ class Doklad:
                 "Stornované doklady nelze flagovat k dořešení."
             )
 
+        # Validace cizoměnových polí
+        if mena != Mena.CZK:
+            if kurz is None or kurz <= 0:
+                raise ValidationError(
+                    f"Pro měnu {mena.value} je kurz povinný a musí být kladný."
+                )
+            if castka_mena is None:
+                raise ValidationError(
+                    f"Pro měnu {mena.value} je částka v cizí měně povinná."
+                )
+        else:
+            if kurz is not None or castka_mena is not None:
+                raise ValidationError(
+                    "Pro CZK nelze zadávat kurz ani částku v cizí měně."
+                )
+
         self._id = id
         self._cislo = cislo
         self._typ = typ
@@ -136,6 +156,9 @@ class Doklad:
         self._stav = stav
         self._k_doreseni = k_doreseni
         self._poznamka_doreseni = poznamka_doreseni
+        self._mena = mena
+        self._castka_mena = castka_mena
+        self._kurz = kurz
 
     # --- Properties ---
 
@@ -186,6 +209,18 @@ class Doklad:
     @property
     def poznamka_doreseni(self) -> str | None:
         return self._poznamka_doreseni
+
+    @property
+    def mena(self) -> Mena:
+        return self._mena
+
+    @property
+    def castka_mena(self) -> Money | None:
+        return self._castka_mena
+
+    @property
+    def kurz(self) -> Decimal | None:
+        return self._kurz
 
     # --- Stavový stroj ---
 

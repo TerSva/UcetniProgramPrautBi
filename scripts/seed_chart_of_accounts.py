@@ -452,6 +452,68 @@ def seed_praut_partneri(factory: ConnectionFactory) -> int:
     return count
 
 
+def seed_praut_demo_doklady(factory: ConnectionFactory) -> int:
+    """Přidá demo doklady: ID doklad + cizoměnový FP.
+
+    Returns:
+        Počet nově vytvořených dokladů.
+    """
+    from decimal import Decimal
+    from datetime import date
+    from domain.doklady.doklad import Doklad
+    from domain.doklady.typy import Mena, TypDokladu
+    from domain.shared.money import Money
+    from infrastructure.database.repositories.doklady_repository import (
+        SqliteDokladyRepository,
+    )
+    from infrastructure.database.repositories.partneri_repository import (
+        SqlitePartneriRepository,
+    )
+
+    count = 0
+    uow = SqliteUnitOfWork(factory)
+    with uow:
+        drepo = SqliteDokladyRepository(uow)
+        prepo = SqlitePartneriRepository(uow)
+
+        # Lookup partner ids
+        partners = prepo.list_all(jen_aktivni=True)
+        p_map = {p.nazev: p.id for p in partners}
+
+        # 1. ID doklad: Převzetí MacBooku od jednatele
+        if not drepo.existuje_cislo("ID-2026-001"):
+            drepo.add(Doklad(
+                cislo="ID-2026-001",
+                typ=TypDokladu.INTERNI_DOKLAD,
+                datum_vystaveni=date(2026, 3, 15),
+                castka_celkem=Money(7999000),  # 79 990 Kč
+                partner_id=p_map.get("Martin Švanda"),
+                popis="Převzetí MacBooku Pro M4 od jednatele do majetku firmy",
+            ))
+            count += 1
+
+        # 2. FP od Hetzner: 10 EUR za server (cizoměnový)
+        if not drepo.existuje_cislo("FP-2026-001"):
+            castka_eur = Money(1000)  # 10,00 EUR
+            kurz = Decimal("25.10")
+            czk = castka_eur * kurz  # 251,00 Kč
+            drepo.add(Doklad(
+                cislo="FP-2026-001",
+                typ=TypDokladu.FAKTURA_PRIJATA,
+                datum_vystaveni=date(2026, 4, 1),
+                datum_splatnosti=date(2026, 4, 15),
+                castka_celkem=czk,
+                mena=Mena.EUR,
+                castka_mena=castka_eur,
+                kurz=kurz,
+                popis="Hetzner Cloud server - duben 2026",
+            ))
+            count += 1
+
+        uow.commit()
+    return count
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("Použití: python scripts/seed_chart_of_accounts.py <db_path>")
@@ -470,10 +532,12 @@ def main() -> int:
     n_active = seed_praut_active_accounts(factory)
     n_analytiky = seed_praut_analytiky(factory)
     n_partneri = seed_praut_partneri(factory)
+    n_doklady = seed_praut_demo_doklady(factory)
     print(f"  ✓ Směrná osnova: {n_osnova} účtů importováno")
     print(f"  ✓ PRAUT aktivní: {n_active} účtů aktivováno")
     print(f"  ✓ PRAUT analytiky: {n_analytiky} analytik vytvořeno")
     print(f"  ✓ PRAUT partneři: {n_partneri} partnerů vytvořeno")
+    print(f"  ✓ PRAUT demo doklady: {n_doklady} dokladů vytvořeno")
     return 0
 
 

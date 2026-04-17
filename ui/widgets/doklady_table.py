@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from domain.doklady.typy import Mena
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors
 from ui.widgets.badge import (
@@ -176,6 +177,12 @@ class DokladyTableModel(QAbstractTableModel):
             if col == _COL_PARTNER:
                 return item.partner_nazev or "—"
             if col == _COL_CASTKA:
+                if item.mena != Mena.CZK and item.castka_mena is not None:
+                    foreign = item.castka_mena.to_koruny()
+                    return (
+                        f"{foreign:,.2f}\u00a0{item.mena.value} "
+                        f"({item.castka_celkem.format_cz()})"
+                    ).replace(",", "\u00a0").replace(".", ",")
                 return item.castka_celkem.format_cz()
             if col == _COL_STAV:
                 return stav_display_text(item.stav)
@@ -341,7 +348,7 @@ class DokladyTable(QTableView):
         h.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         h.setSectionResizeMode(_COL_PARTNER, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(_COL_CASTKA, QHeaderView.ResizeMode.Fixed)
-        h.resizeSection(_COL_CASTKA, 140)
+        h.resizeSection(_COL_CASTKA, 180)
         h.setSectionResizeMode(_COL_DORESENI, QHeaderView.ResizeMode.Fixed)
         h.resizeSection(_COL_DORESENI, 44)
         h.setHighlightSections(False)

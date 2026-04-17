@@ -19,3 +19,9 @@ class StavDokladu(str, Enum):
     UHRAZENY = "uhrazeny"
     CASTECNE_UHRAZENY = "castecne_uhrazeny"
     STORNOVANY = "stornovany"
+
+
+class Mena(str, Enum):
+    CZK = "CZK"
+    EUR = "EUR"
+    USD = "USD"

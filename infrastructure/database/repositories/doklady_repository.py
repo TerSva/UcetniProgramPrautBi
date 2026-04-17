@@ -7,10 +7,11 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import date
+from decimal import Decimal
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.doklady.typy import Mena, StavDokladu, TypDokladu
 from domain.shared.errors import ConflictError, NotFoundError, ValidationError
 from domain.shared.money import Money
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
@@ -36,8 +37,8 @@ class SqliteDokladyRepository(DokladyRepository):
                 """INSERT INTO doklady
                    (cislo, typ, datum_vystaveni, datum_zdanitelneho_plneni,
                     datum_splatnosti, partner_id, castka_celkem, mena, stav, popis,
-                    k_doreseni, poznamka_doreseni)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    k_doreseni, poznamka_doreseni, castka_mena, kurz)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doklad.cislo,
                     doklad.typ.value,
@@ -50,11 +51,15 @@ class SqliteDokladyRepository(DokladyRepository):
                     else None,
                     doklad.partner_id,
                     doklad.castka_celkem.to_halire(),
-                    "CZK",
+                    doklad.mena.value,
                     doklad.stav.value,
                     doklad.popis,
                     1 if doklad.k_doreseni else 0,
                     doklad.poznamka_doreseni,
+                    doklad.castka_mena.to_halire()
+                    if doklad.castka_mena is not None
+                    else None,
+                    str(doklad.kurz) if doklad.kurz is not None else None,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -76,6 +81,9 @@ class SqliteDokladyRepository(DokladyRepository):
             stav=doklad.stav,
             k_doreseni=doklad.k_doreseni,
             poznamka_doreseni=doklad.poznamka_doreseni,
+            mena=doklad.mena,
+            castka_mena=doklad.castka_mena,
+            kurz=doklad.kurz,
             id=cursor.lastrowid,
         )
 
@@ -88,8 +96,9 @@ class SqliteDokladyRepository(DokladyRepository):
             """UPDATE doklady SET
                cislo = ?, typ = ?, datum_vystaveni = ?,
                datum_zdanitelneho_plneni = ?, datum_splatnosti = ?,
-               partner_id = ?, castka_celkem = ?, stav = ?, popis = ?,
+               partner_id = ?, castka_celkem = ?, mena = ?, stav = ?, popis = ?,
                k_doreseni = ?, poznamka_doreseni = ?,
+               castka_mena = ?, kurz = ?,
                upraveno = strftime('%Y-%m-%d %H:%M:%S', 'now')
                WHERE id = ?""",
             (
@@ -104,10 +113,15 @@ class SqliteDokladyRepository(DokladyRepository):
                 else None,
                 doklad.partner_id,
                 doklad.castka_celkem.to_halire(),
+                doklad.mena.value,
                 doklad.stav.value,
                 doklad.popis,
                 1 if doklad.k_doreseni else 0,
                 doklad.poznamka_doreseni,
+                doklad.castka_mena.to_halire()
+                if doklad.castka_mena is not None
+                else None,
+                str(doklad.kurz) if doklad.kurz is not None else None,
                 doklad.id,
             ),
         )
@@ -215,6 +229,7 @@ class SqliteDokladyRepository(DokladyRepository):
 
     def _row_to_doklad(self, row: sqlite3.Row) -> Doklad:
         """Mapuje sqlite3.Row na Doklad entitu."""
+        mena_val = row["mena"] if row["mena"] else "CZK"
         return Doklad(
             id=row["id"],
             cislo=row["cislo"],
@@ -236,4 +251,15 @@ class SqliteDokladyRepository(DokladyRepository):
             stav=StavDokladu(row["stav"]),
             k_doreseni=bool(row["k_doreseni"]),
             poznamka_doreseni=row["poznamka_doreseni"],
+            mena=Mena(mena_val),
+            castka_mena=(
+                Money(row["castka_mena"])
+                if row["castka_mena"] is not None
+                else None
+            ),
+            kurz=(
+                Decimal(row["kurz"])
+                if row["kurz"] is not None
+                else None
+            ),
         )

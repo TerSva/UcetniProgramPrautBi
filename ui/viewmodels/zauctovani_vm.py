@@ -58,10 +58,12 @@ class ZauctovaniViewModel:
         doklad: DokladyListItem,
         uctova_osnova_query: _UctovaOsnovaQuery,
         zauctovat_command: _ZauctovatCommand,
+        prefill_dal_ucet: str | None = None,
     ) -> None:
         self._doklad = doklad
         self._osnova_query = uctova_osnova_query
         self._zauctovat_cmd = zauctovat_command
+        self._prefill_dal_ucet = prefill_dal_ucet
 
         self._ucty: list[UcetItem] = []
         self._radky: list[PredpisRadek] = []
@@ -149,6 +151,7 @@ class ZauctovaniViewModel:
         if not self._radky:
             self._radky.append(PredpisRadek(
                 castka=self._doklad.castka_celkem,
+                dal_ucet=self._prefill_dal_ucet or "",
             ))
         self._loaded = True
 

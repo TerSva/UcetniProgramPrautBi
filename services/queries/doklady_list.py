@@ -15,12 +15,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal
 from enum import Enum
 from typing import Callable
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.doklady.typy import Mena, StavDokladu, TypDokladu
 from domain.partneri.repository import PartneriRepository
 from domain.shared.money import Money
 from domain.ucetnictvi.repository import UcetniDenikRepository
@@ -87,6 +88,9 @@ class DokladyListItem:
     k_doreseni: bool
     poznamka_doreseni: str | None
     popis: str | None
+    mena: Mena = Mena.CZK
+    castka_mena: Money | None = None
+    kurz: Decimal | None = None
     datum_storna: date | None = None
 
     @classmethod
@@ -120,6 +124,9 @@ class DokladyListItem:
             k_doreseni=doklad.k_doreseni,
             poznamka_doreseni=doklad.poznamka_doreseni,
             popis=doklad.popis,
+            mena=doklad.mena,
+            castka_mena=doklad.castka_mena,
+            kurz=doklad.kurz,
             datum_storna=datum_storna,
         )
 

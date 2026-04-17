@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.doklady.typy import StavDokladu
+from domain.doklady.typy import Mena, StavDokladu
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors, Spacing
 from ui.dialogs.confirm_dialog import ConfirmDialog
@@ -229,6 +229,25 @@ class DokladDetailDialog(QDialog):
         castka = self._form_value(item.castka_celkem.format_cz())
         castka.setProperty("class", "dialog-value-strong")
         form.addRow(self._form_label("Částka celkem:"), castka)
+
+        # Cizoměnový řádek — jen pokud měna != CZK
+        self._foreign_label = self._form_label("Původně:")
+        if (
+            item.mena != Mena.CZK
+            and item.castka_mena is not None
+            and item.kurz is not None
+        ):
+            foreign_koruny = item.castka_mena.to_koruny()
+            foreign_text = (
+                f"{foreign_koruny:,.2f} {item.mena.value} "
+                f"(kurz {item.kurz})"
+            ).replace(",", "\u00a0").replace(".", ",")
+            self._foreign_value = self._form_value(foreign_text)
+        else:
+            self._foreign_value = self._form_value("—")
+        self._foreign_label.setVisible(item.mena != Mena.CZK)
+        self._foreign_value.setVisible(item.mena != Mena.CZK)
+        form.addRow(self._foreign_label, self._foreign_value)
 
         self._popis_display = QLabel("", self)
         self._popis_display.setProperty("class", "dialog-value")
