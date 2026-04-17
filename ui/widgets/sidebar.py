@@ -75,6 +75,7 @@ SIDEBAR_STRUCTURE: tuple[SidebarSection, ...] = (
         items=(
             SidebarItem("partneri", "Partneři", "users", "Evidence"),
             SidebarItem("osnova", "Účtová osnova", "book-open", "Evidence"),
+            SidebarItem("pocatecni_stavy", "Počáteční stavy", "clipboard", "Evidence"),
             SidebarItem("mzdy", "Mzdy", "banknote", "Evidence"),
         ),
     ),

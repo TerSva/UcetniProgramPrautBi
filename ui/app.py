@@ -45,6 +45,8 @@ from services.queries.doklady_list import DokladyListItem, DokladyListQuery
 from services.queries.partneri_list import PartneriListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
 from services.queries.uctova_osnova import UctovaOsnovaQuery
+from services.commands.pocatecni_stavy import PocatecniStavyCommand
+from services.commands.vklad_zk import VkladZKCommand
 from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
@@ -56,6 +58,8 @@ from ui.viewmodels import (
 )
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
+from ui.viewmodels.nastaveni_vm import NastaveniViewModel
+from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 
 
@@ -224,6 +228,33 @@ def _build_factories(factory: ConnectionFactory):
     return form_vm_factory, detail_vm_factory, zauctovani_vm_factory
 
 
+def _build_nastaveni_vm(factory: ConnectionFactory) -> NastaveniViewModel:
+    """Sestaví NastaveniViewModel."""
+    return NastaveniViewModel(
+        uow_factory=lambda: SqliteUnitOfWork(factory),
+    )
+
+
+def _build_pocatecni_stavy_vm(
+    factory: ConnectionFactory,
+    nastaveni_vm: NastaveniViewModel,
+) -> PocatecniStavyViewModel:
+    """Sestaví PocatecniStavyViewModel."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    ps_cmd = PocatecniStavyCommand(uow_factory=uow_factory)
+    vklad_cmd = VkladZKCommand(uow_factory=uow_factory)
+
+    def firma_loader():
+        nastaveni_vm.load()
+        return nastaveni_vm.firma
+
+    return PocatecniStavyViewModel(
+        pocatecni_cmd=ps_cmd,
+        vklad_zk_cmd=vklad_cmd,
+        firma_loader=firma_loader,
+    )
+
+
 def run(db_path: Path | None = None) -> int:
     """Spusť aplikaci. Vrací exit code z QApplication.exec().
 
@@ -240,6 +271,8 @@ def run(db_path: Path | None = None) -> int:
     doklady_list_vm = _build_doklady_list_vm(factory)
     chart_of_accounts_vm = _build_chart_of_accounts_vm(factory)
     partneri_vm = _build_partneri_vm(factory)
+    nastaveni_vm = _build_nastaveni_vm(factory)
+    pocatecni_stavy_vm = _build_pocatecni_stavy_vm(factory, nastaveni_vm)
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
         _build_factories(factory)
     )
@@ -252,6 +285,8 @@ def run(db_path: Path | None = None) -> int:
         zauctovani_vm_factory=zauctovani_vm_factory,
         chart_of_accounts_vm=chart_of_accounts_vm,
         partneri_vm=partneri_vm,
+        nastaveni_vm=nastaveni_vm,
+        pocatecni_stavy_vm=pocatecni_stavy_vm,
     )
     window.show()
 

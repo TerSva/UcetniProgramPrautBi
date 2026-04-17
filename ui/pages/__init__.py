@@ -7,6 +7,7 @@ from ui.pages.dph_page import DphPage
 from ui.pages.nastaveni_page import NastaveniPage
 from ui.pages.partneri_page import PartneriPage
 from ui.pages.placeholder_page import PlaceholderPage
+from ui.pages.pocatecni_stavy_page import PocatecniStavyPage
 
 __all__ = [
     "ChartOfAccountsPage",
@@ -16,4 +17,5 @@ __all__ = [
     "NastaveniPage",
     "PartneriPage",
     "PlaceholderPage",
+    "PocatecniStavyPage",
 ]

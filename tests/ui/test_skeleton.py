@@ -37,8 +37,8 @@ def test_fonts_register(qtbot):
 # ──────────────────────────────────────────────
 
 
-def test_main_window_has_eighteen_pages(main_window):
-    assert main_window.stack.count() == 18
+def test_main_window_has_nineteen_pages(main_window):
+    assert main_window.stack.count() == 19
 
 
 def test_main_window_starts_on_dashboard(main_window):
@@ -58,7 +58,7 @@ def test_sidebar_has_five_sections(main_window):
 
 def test_sidebar_has_navigable_items(main_window):
     """Všechny navigovatelné klíče jsou v ACTIVE_KEYS."""
-    assert len(ACTIVE_KEYS) == 17
+    assert len(ACTIVE_KEYS) == 18
 
 
 def test_doklady_has_sub_items(main_window):

@@ -28,8 +28,10 @@ from ui.pages import (
     DashboardPage,
     DokladyPage,
     DphPage,
+    NastaveniPage,
     PartneriPage,
     PlaceholderPage,
+    PocatecniStavyPage,
 )
 from ui.viewmodels import (
     ChartOfAccountsViewModel,
@@ -40,6 +42,8 @@ from ui.viewmodels import (
 from ui.viewmodels.dph_vm import DphViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
+from ui.viewmodels.nastaveni_vm import NastaveniViewModel
+from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 from ui.widgets import Sidebar
 
@@ -87,11 +91,7 @@ _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
         "Mzdy zaměstnanců, DPP, DPČ a odvody.",
         16, "Mzdy a DPP",
     ),
-    (
-        "nastaveni", "Nastavení",
-        "Firemní údaje, účetní období, DPH a uživatelská nastavení.",
-        None, "Obecná nastavení aplikace",
-    ),
+    # Nastavení — replaced by real NastaveniPage in Fáze 14
 )
 
 
@@ -115,6 +115,8 @@ class MainWindow(QMainWindow):
         chart_of_accounts_vm: ChartOfAccountsViewModel | None = None,
         partneri_vm: PartneriViewModel | None = None,
         dph_vm: DphViewModel | None = None,
+        nastaveni_vm: NastaveniViewModel | None = None,
+        pocatecni_stavy_vm: PocatecniStavyViewModel | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -128,6 +130,8 @@ class MainWindow(QMainWindow):
         self._chart_of_accounts_vm = chart_of_accounts_vm
         self._partneri_vm = partneri_vm
         self._dph_vm = dph_vm
+        self._nastaveni_vm = nastaveni_vm
+        self._pocatecni_stavy_vm = pocatecni_stavy_vm
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -219,7 +223,37 @@ class MainWindow(QMainWindow):
             )
         self._add_page("dph", dph_page)
 
-        # 6. Placeholder pages
+        # 6. Počáteční stavy page (Fáze 14)
+        if self._pocatecni_stavy_vm is not None:
+            ps_page: QWidget = PocatecniStavyPage(
+                self._pocatecni_stavy_vm, parent=self._stack,
+            )
+        else:
+            ps_page = PlaceholderPage(
+                title="Počáteční stavy",
+                subtitle="Počáteční zůstatky účtů.",
+                phase_number=14,
+                phase_name="Počáteční stavy",
+                parent=self._stack,
+            )
+        self._add_page("pocatecni_stavy", ps_page)
+
+        # 7. Nastavení page (Fáze 14)
+        if self._nastaveni_vm is not None:
+            nastaveni_page: QWidget = NastaveniPage(
+                self._nastaveni_vm, parent=self._stack,
+            )
+        else:
+            nastaveni_page = PlaceholderPage(
+                title="Nastavení",
+                subtitle="Firemní údaje, účetní období, DPH.",
+                phase_number=None,
+                phase_name="Nastavení",
+                parent=self._stack,
+            )
+        self._add_page("nastaveni", nastaveni_page)
+
+        # 8. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:
             page = PlaceholderPage(
                 title=title,

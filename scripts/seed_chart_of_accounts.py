@@ -38,7 +38,7 @@ _DEFAULT_ACTIVE = {
     # Třída 3 — Zúčtovací vztahy
     "311", "314", "321", "331", "336",
     "341", "342", "343", "345",
-    "355", "365", "378", "379", "381",
+    "353", "355", "365", "378", "379", "381",
     # Třída 4 — Kapitálové účty
     "411", "428", "429", "431",
     # Třída 5 — Náklady
@@ -366,7 +366,7 @@ def seed_praut_active_accounts(factory: ConnectionFactory) -> int:
         # Třída 3 — Zúčtovací vztahy
         "311", "314", "321", "331", "336",
         "341", "342", "343", "345",
-        "355", "365", "378", "379", "381",
+        "353", "355", "365", "378", "379", "381",
         # Třída 4 — Kapitálové účty
         "411", "428", "429", "431",
         # Třída 5 — Náklady
@@ -452,6 +452,45 @@ def seed_praut_partneri(factory: ConnectionFactory) -> int:
     return count
 
 
+def seed_praut_firma(factory: ConnectionFactory) -> int:
+    """Přidá/aktualizuje singleton záznam firmy PRAUT s.r.o.
+
+    Returns:
+        1 pokud firma byla vytvořena/aktualizována, 0 pokud již existuje.
+    """
+    from datetime import date as date_type
+    from domain.firma.firma import Firma
+    from domain.shared.money import Money
+    from infrastructure.database.repositories.firma_repository import (
+        SqliteFirmaRepository,
+    )
+
+    uow = SqliteUnitOfWork(factory)
+    with uow:
+        repo = SqliteFirmaRepository(uow)
+        existing = repo.get()
+        if existing is not None:
+            return 0
+        firma = Firma(
+            nazev="PRAUT s.r.o.",
+            ico="22545107",
+            dic="CZ22545107",
+            sidlo="Tršnice 36, 35134 Skalná",
+            pravni_forma="s.r.o.",
+            datum_zalozeni=date_type(2025, 2, 3),
+            rok_zacatku_uctovani=2025,
+            zakladni_kapital=Money(20000000),  # 200 000 Kč
+            kategorie_uj="mikro",
+            je_identifikovana_osoba_dph=True,
+            je_platce_dph=False,
+            bankovni_ucet_1="221.001",
+            bankovni_ucet_2="221.002",
+        )
+        repo.upsert(firma)
+        uow.commit()
+    return 1
+
+
 def seed_praut_demo_doklady(factory: ConnectionFactory) -> int:
     """Přidá demo doklady: ID doklad + cizoměnový FP.
 
@@ -532,11 +571,13 @@ def main() -> int:
     n_active = seed_praut_active_accounts(factory)
     n_analytiky = seed_praut_analytiky(factory)
     n_partneri = seed_praut_partneri(factory)
+    n_firma = seed_praut_firma(factory)
     n_doklady = seed_praut_demo_doklady(factory)
     print(f"  ✓ Směrná osnova: {n_osnova} účtů importováno")
     print(f"  ✓ PRAUT aktivní: {n_active} účtů aktivováno")
     print(f"  ✓ PRAUT analytiky: {n_analytiky} analytik vytvořeno")
     print(f"  ✓ PRAUT partneři: {n_partneri} partnerů vytvořeno")
+    print(f"  ✓ PRAUT firma: {n_firma} záznam vytvořen")
     print(f"  ✓ PRAUT demo doklady: {n_doklady} dokladů vytvořeno")
     return 0
 
