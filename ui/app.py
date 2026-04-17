@@ -45,8 +45,10 @@ from services.queries.doklady_list import DokladyListItem, DokladyListQuery
 from services.queries.partneri_list import PartneriListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
 from services.queries.uctova_osnova import UctovaOsnovaQuery
+from services.commands.ocr_upload import OcrUploadCommand
 from services.commands.pocatecni_stavy import PocatecniStavyCommand
 from services.commands.vklad_zk import VkladZKCommand
+from services.queries.ocr_inbox import OcrInboxQuery
 from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
@@ -59,6 +61,7 @@ from ui.viewmodels import (
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.nastaveni_vm import NastaveniViewModel
+from ui.viewmodels.ocr_inbox_vm import OcrInboxViewModel
 from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 
@@ -228,6 +231,18 @@ def _build_factories(factory: ConnectionFactory):
     return form_vm_factory, detail_vm_factory, zauctovani_vm_factory
 
 
+def _build_ocr_inbox_vm(factory: ConnectionFactory) -> OcrInboxViewModel:
+    """Sestaví OcrInboxViewModel."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    upload_dir = Path(__file__).resolve().parent.parent / "uploads" / "ocr_inbox"
+    upload_cmd = OcrUploadCommand(
+        uow_factory=uow_factory,
+        upload_dir=upload_dir,
+    )
+    inbox_query = OcrInboxQuery(uow_factory=uow_factory)
+    return OcrInboxViewModel(upload_cmd=upload_cmd, inbox_query=inbox_query)
+
+
 def _build_nastaveni_vm(factory: ConnectionFactory) -> NastaveniViewModel:
     """Sestaví NastaveniViewModel."""
     return NastaveniViewModel(
@@ -273,6 +288,7 @@ def run(db_path: Path | None = None) -> int:
     partneri_vm = _build_partneri_vm(factory)
     nastaveni_vm = _build_nastaveni_vm(factory)
     pocatecni_stavy_vm = _build_pocatecni_stavy_vm(factory, nastaveni_vm)
+    ocr_inbox_vm = _build_ocr_inbox_vm(factory)
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
         _build_factories(factory)
     )
@@ -287,6 +303,7 @@ def run(db_path: Path | None = None) -> int:
         partneri_vm=partneri_vm,
         nastaveni_vm=nastaveni_vm,
         pocatecni_stavy_vm=pocatecni_stavy_vm,
+        ocr_inbox_vm=ocr_inbox_vm,
     )
     window.show()
 

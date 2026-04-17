@@ -59,13 +59,18 @@ class DashboardPage(QWidget):
     #: na stránku Doklady a aplikuje filtr na daný typ.
     navigate_to_doklady_with_typ = pyqtSignal(object)
 
+    #: Fáze 12: klik na OCR notifikaci → navigace na Nahrát doklady
+    navigate_to_nahrat_doklady = pyqtSignal()
+
     def __init__(
         self,
         view_model: DashboardViewModel,
+        ocr_count_fn: callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = view_model
+        self._ocr_count_fn = ocr_count_fn
 
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -173,7 +178,18 @@ class DashboardPage(QWidget):
         grid.addWidget(self._card_pohledavky, 1, 0)
         grid.addWidget(self._card_zavazky, 1, 1)
 
+        # OCR inbox notification
+        self._ocr_notification = QLabel("", self)
+        self._ocr_notification.setProperty("class", "ocr-notification")
+        self._ocr_notification.setWordWrap(True)
+        self._ocr_notification.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._ocr_notification.setVisible(False)
+        self._ocr_notification.mousePressEvent = (
+            lambda _e: self.navigate_to_nahrat_doklady.emit()
+        )
+
         root.addLayout(header)
+        root.addWidget(self._ocr_notification)
         root.addWidget(self._error_label)
         root.addLayout(grid)
         root.addStretch(1)
@@ -230,6 +246,9 @@ class DashboardPage(QWidget):
             data.hruby_zisk.is_positive and not data.je_ve_ztrate
         )
 
+        # OCR inbox notification
+        self._refresh_ocr_notification()
+
     # ────────────────────────────────────────────────
     # Test-friendly accessors
     # ────────────────────────────────────────────────
@@ -261,6 +280,25 @@ class DashboardPage(QWidget):
     # ────────────────────────────────────────────────
     # Internals
     # ────────────────────────────────────────────────
+
+    def _refresh_ocr_notification(self) -> None:
+        """Aktualizuje OCR inbox notifikaci."""
+        if self._ocr_count_fn is None:
+            self._ocr_notification.setVisible(False)
+            return
+        try:
+            count = self._ocr_count_fn()
+        except Exception:  # noqa: BLE001
+            self._ocr_notification.setVisible(False)
+            return
+        if count > 0:
+            self._ocr_notification.setText(
+                f"OCR inbox: {count} doklad{'ů' if count != 1 else ''}"
+                f" čeká na zpracování  →  Otevřít inbox"
+            )
+            self._ocr_notification.setVisible(True)
+        else:
+            self._ocr_notification.setVisible(False)
 
     def _show_error(self, message: str) -> None:
         self._error_label.setText(f"Chyba načítání dashboardu: {message}")

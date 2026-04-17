@@ -924,4 +924,60 @@ QPushButton[class="osnova-add-analytika"]:hover {{
     background: {Colors.PRIMARY_50};
     border-color: {Colors.PRIMARY_400};
 }}
+
+/* ── Fáze 12: OCR inbox ── */
+
+QWidget[class="drop-zone"] {{
+    background: {Colors.GRAY_50};
+    border: 2px dashed {Colors.GRAY_300};
+    border-radius: {Radius.MD}px;
+}}
+
+QWidget[class="drop-zone-active"] {{
+    background: {Colors.PRIMARY_25};
+    border: 2px dashed {Colors.PRIMARY_400};
+    border-radius: {Radius.MD}px;
+}}
+
+QLabel[class="ocr-notification"] {{
+    color: {Colors.PRIMARY_800};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+    background: {Colors.ACCENT_300};
+    border: 1px solid {Colors.ACCENT_500};
+    border-radius: {Radius.SM}px;
+    padding: {Spacing.S2}px {Spacing.S3}px;
+}}
+
+QPushButton[class="primary-sm"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    color: white;
+    background: {Colors.PRIMARY_700};
+    border: none;
+    border-radius: {Radius.SM}px;
+    padding: {Spacing.S1}px {Spacing.S2}px;
+}}
+
+QPushButton[class="primary-sm"]:hover {{
+    background: {Colors.PRIMARY_600};
+}}
+
+QPushButton[class="danger-sm"] {{
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+    color: {Colors.ERROR_700};
+    background: {Colors.ERROR_50};
+    border: 1px solid {Colors.ERROR_500};
+    border-radius: {Radius.SM}px;
+    padding: {Spacing.S1}px {Spacing.S2}px;
+}}
+
+QPushButton[class="danger-sm"]:hover {{
+    background: {Colors.ERROR_700};
+    color: white;
+}}
 """

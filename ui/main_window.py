@@ -28,6 +28,7 @@ from ui.pages import (
     DashboardPage,
     DokladyPage,
     DphPage,
+    NahratDokladyPage,
     NastaveniPage,
     PartneriPage,
     PlaceholderPage,
@@ -43,6 +44,7 @@ from ui.viewmodels.dph_vm import DphViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.nastaveni_vm import NastaveniViewModel
+from ui.viewmodels.ocr_inbox_vm import OcrInboxViewModel
 from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 from ui.widgets import Sidebar
@@ -60,11 +62,7 @@ _DOKLADY_TYP_PAGES: tuple[tuple[str, TypDokladu, str], ...] = (
 
 #: Definice placeholder stránek (key, title, subtitle, phase, phase_name).
 _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
-    (
-        "nahrat_doklady", "Nahrát doklady",
-        "Hromadné zpracování dokladů přes OCR.",
-        12, "OCR + Inbox",
-    ),
+    # nahrat_doklady — replaced by real NahratDokladyPage in Fáze 12
     (
         "banka", "Banka",
         "CSV import bankovních výpisů a párování plateb.",
@@ -117,6 +115,7 @@ class MainWindow(QMainWindow):
         dph_vm: DphViewModel | None = None,
         nastaveni_vm: NastaveniViewModel | None = None,
         pocatecni_stavy_vm: PocatecniStavyViewModel | None = None,
+        ocr_inbox_vm: OcrInboxViewModel | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -132,6 +131,7 @@ class MainWindow(QMainWindow):
         self._dph_vm = dph_vm
         self._nastaveni_vm = nastaveni_vm
         self._pocatecni_stavy_vm = pocatecni_stavy_vm
+        self._ocr_inbox_vm = ocr_inbox_vm
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -176,7 +176,17 @@ class MainWindow(QMainWindow):
         self._stack = QStackedWidget(central)
 
         # 1. Dashboard
-        self._dashboard_page = DashboardPage(self._dashboard_vm, self._stack)
+        ocr_count_fn = None
+        if self._ocr_inbox_vm is not None:
+            def _ocr_count():
+                self._ocr_inbox_vm.load()
+                return self._ocr_inbox_vm.pocet_nezpracovanych
+            ocr_count_fn = _ocr_count
+        self._dashboard_page = DashboardPage(
+            self._dashboard_vm,
+            ocr_count_fn=ocr_count_fn,
+            parent=self._stack,
+        )
         self._add_page("dashboard", self._dashboard_page)
 
         # 2. Six typed Doklady pages
@@ -253,7 +263,22 @@ class MainWindow(QMainWindow):
             )
         self._add_page("nastaveni", nastaveni_page)
 
-        # 8. Placeholder pages
+        # 8. Nahrát doklady page (Fáze 12)
+        if self._ocr_inbox_vm is not None:
+            nahrat_page: QWidget = NahratDokladyPage(
+                self._ocr_inbox_vm, parent=self._stack,
+            )
+        else:
+            nahrat_page = PlaceholderPage(
+                title="Nahrát doklady",
+                subtitle="Hromadné zpracování dokladů přes OCR.",
+                phase_number=12,
+                phase_name="OCR + Inbox",
+                parent=self._stack,
+            )
+        self._add_page("nahrat_doklady", nahrat_page)
+
+        # 9. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:
             page = PlaceholderPage(
                 title=title,
@@ -283,6 +308,9 @@ class MainWindow(QMainWindow):
         )
         self._dashboard_page.navigate_to_doklady_with_typ.connect(
             self._on_navigate_with_typ
+        )
+        self._dashboard_page.navigate_to_nahrat_doklady.connect(
+            self._on_navigate_nahrat_doklady
         )
 
         self.setCentralWidget(central)
@@ -314,3 +342,10 @@ class MainWindow(QMainWindow):
             return
         self._sidebar.set_active(page_key)
         self._stack.setCurrentIndex(self._page_index[page_key])
+
+    def _on_navigate_nahrat_doklady(self) -> None:
+        """Dashboard OCR notifikace → přepni na Nahrát doklady."""
+        page_key = "nahrat_doklady"
+        if page_key in self._page_index:
+            self._sidebar.set_active(page_key)
+            self._stack.setCurrentIndex(self._page_index[page_key])
