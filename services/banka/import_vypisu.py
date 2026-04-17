@@ -88,15 +88,22 @@ class ImportVypisuCommand:
         matched_transactions: list[ParsedTransaction],
         ps: Money,
         ks: Money,
+        cislo_vypisu: str | None = None,
+        datum_od: date | None = None,
+        datum_do: date | None = None,
     ) -> ImportResult:
         """Naimportuje validované transakce do DB."""
         if not matched_transactions:
             return ImportResult(success=False, error="Žádné transakce k importu")
 
-        # Determine rok/mesic from first transaction
-        first_date = matched_transactions[0].datum_zauctovani
-        rok = first_date.year
-        mesic = first_date.month
+        # Determine rok/mesic — prefer datum_do (konec období), fallback na transakce
+        if datum_do:
+            rok = datum_do.year
+            mesic = datum_do.month
+        else:
+            first_date = matched_transactions[0].datum_zauctovani
+            rok = first_date.year
+            mesic = first_date.month
 
         uow = self._uow_factory()
         with uow:
@@ -107,33 +114,50 @@ class ImportVypisuCommand:
                     success=False, error="Účet nenalezen",
                 )
 
-            # Check for duplicate
+            # Check for duplicate — use cislo_vypisu if available
             vypis_repo = SqliteBankovniVypisRepository(uow)
-            existing = vypis_repo.get_by_ucet_mesic(ucet_id, rok, mesic)
-            if existing is not None:
-                return ImportResult(
-                    success=False,
-                    error=f"Výpis {rok}/{mesic:02d} pro tento účet již existuje",
-                )
+            if cislo_vypisu:
+                existing = vypis_repo.get_by_cislo(ucet_id, cislo_vypisu)
+                if existing is not None:
+                    return ImportResult(
+                        success=False,
+                        error=f"Výpis {cislo_vypisu} pro tento účet již existuje",
+                    )
+            else:
+                existing = vypis_repo.get_by_ucet_mesic(ucet_id, rok, mesic)
+                if existing is not None:
+                    return ImportResult(
+                        success=False,
+                        error=f"Výpis {rok}/{mesic:02d} pro tento účet již existuje",
+                    )
 
             # Store PDF
             self._upload_dir.mkdir(parents=True, exist_ok=True)
+            suffix = cislo_vypisu.replace("/", "_") if cislo_vypisu else f"{mesic:02d}"
             pdf_dest = (
                 self._upload_dir
-                / f"{ucet.ucet_kod}_{rok}_{mesic:02d}.pdf"
+                / f"{ucet.ucet_kod}_{rok}_{suffix}.pdf"
             )
             shutil.copy2(pdf_path, pdf_dest)
 
-            # Store CSV (optional audit)
+            # Store CSV
             csv_dest = (
                 self._upload_dir
-                / f"{ucet.ucet_kod}_{rok}_{mesic:02d}.csv"
+                / f"{ucet.ucet_kod}_{rok}_{suffix}.csv"
             )
             shutil.copy2(csv_path, csv_dest)
 
             # Create BV doklad
             doklady_repo = SqliteDokladyRepository(uow)
-            cislo = f"BV-{rok}-{mesic:02d}"
+            if cislo_vypisu:
+                # e.g. "2025/2" → cislo_label = "2", popis_label = "2025/2"
+                parts = cislo_vypisu.split("/")
+                cislo_label = parts[-1] if len(parts) > 1 else cislo_vypisu
+                popis_label = cislo_vypisu
+            else:
+                cislo_label = f"{mesic:02d}"
+                popis_label = f"{mesic:02d}"
+            cislo = f"BV-{rok}-{cislo_label}"
 
             # Sum up amounts
             celkem = Money(0)
@@ -146,9 +170,9 @@ class ImportVypisuCommand:
             doklad = Doklad(
                 cislo=cislo,
                 typ=TypDokladu.BANKOVNI_VYPIS,
-                datum_vystaveni=date(rok, mesic, 1),
+                datum_vystaveni=datum_do or date(rok, mesic, 1),
                 castka_celkem=celkem,
-                popis=f"Bankovní výpis {ucet.nazev} {mesic:02d}/{rok}",
+                popis=f"Bankovní výpis {ucet.nazev} {popis_label}/{rok}",
             )
             doklad = doklady_repo.add(doklad)
 
@@ -162,6 +186,9 @@ class ImportVypisuCommand:
                 pdf_path=str(pdf_dest),
                 csv_path=str(csv_dest),
                 bv_doklad_id=doklad.id,
+                cislo_vypisu=cislo_vypisu,
+                datum_od=datum_od,
+                datum_do=datum_do,
             )
             vypis_repo.add(vypis)
 

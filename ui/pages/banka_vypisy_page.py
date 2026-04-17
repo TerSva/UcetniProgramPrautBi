@@ -217,6 +217,13 @@ class BankaVypisyPage(QWidget):
         self._auto_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._auto_btn.setEnabled(False)
         tx_header.addWidget(self._auto_btn)
+
+        self._delete_btn = QPushButton("Smazat výpis", tx_card)
+        self._delete_btn.setProperty("class", "secondary-sm")
+        self._delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._delete_btn.setEnabled(False)
+        tx_header.addWidget(self._delete_btn)
+
         tx_header.addStretch()
         tx_layout.addLayout(tx_header)
 
@@ -253,6 +260,7 @@ class BankaVypisyPage(QWidget):
         self._stav_combo.current_value_changed.connect(self._on_stav_changed)
         self._vypisy_table.currentCellChanged.connect(self._on_vypis_selected)
         self._auto_btn.clicked.connect(self._on_auto_zauctovani)
+        self._delete_btn.clicked.connect(self._on_smazat_vypis)
         self._vs_input.text_changed.connect(self._on_vs_changed)
         self._protiucet_input.text_changed.connect(self._on_protiucet_changed)
         self._castka_od_input.line_widget.editingFinished.connect(
@@ -309,15 +317,25 @@ class BankaVypisyPage(QWidget):
         if row < 0 or row >= len(self._vm.vypisy):
             self._vm.select_vypis(None)
             self._auto_btn.setEnabled(False)
+            self._delete_btn.setEnabled(False)
             self._refresh_transakce()
             return
 
         vypis = self._vm.vypisy[row]
         self._vm.select_vypis(vypis.id)
         self._auto_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
+        if vypis.cislo_vypisu:
+            label = f"Výpis č. {vypis.cislo_vypisu}"
+            if vypis.datum_od and vypis.datum_do:
+                label += (
+                    f" ({vypis.datum_od.strftime('%d.%m.')}"
+                    f"–{vypis.datum_do.strftime('%d.%m.%Y')})"
+                )
+        else:
+            label = f"Výpis {_MESICE_CZ[vypis.mesic - 1]} {vypis.rok}"
         self._info_label.setText(
-            f"Výpis {_MESICE_CZ[vypis.mesic - 1]} {vypis.rok} — "
-            f"{vypis.ucet_nazev} | "
+            f"{label} — {vypis.ucet_nazev} | "
             f"Nespárováno: {vypis.pocet_nesparovanych}/{vypis.pocet_transakci}",
         )
         self._refresh_transakce()
@@ -346,6 +364,62 @@ class BankaVypisyPage(QWidget):
         self._refresh_transakce()
         self._load()
 
+    def _on_smazat_vypis(self) -> None:
+        vypis_id = self._vm.selected_vypis_id
+        if vypis_id is None:
+            return
+
+        # Find the label for the confirmation dialog
+        vypisy = self._vm.vypisy
+        label = f"ID {vypis_id}"
+        for v in vypisy:
+            if v.id == vypis_id:
+                if v.cislo_vypisu:
+                    label = f"č. {v.cislo_vypisu}"
+                else:
+                    mesic_name = _MESICE_CZ[v.mesic - 1] if 1 <= v.mesic <= 12 else str(v.mesic)
+                    label = f"{mesic_name} {v.rok}"
+                break
+
+        reply = QMessageBox.warning(
+            self,
+            "Smazat výpis",
+            f"Opravdu chcete smazat výpis {label}?\n\n"
+            "Budou smazány všechny transakce, účetní záznamy,\n"
+            "BV doklad a soubory (PDF, CSV).\n\n"
+            "Tuto akci nelze vrátit zpět.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        result = self._vm.smazat_vypis(vypis_id)
+        if result is None:
+            QMessageBox.warning(
+                self, "Chyba", self._vm.error or "Neznámá chyba",
+            )
+            return
+
+        if not result.success:
+            QMessageBox.warning(
+                self, "Chyba", result.error or "Nepodařilo se smazat výpis.",
+            )
+            return
+
+        QMessageBox.information(
+            self,
+            "Výpis smazán",
+            f"Výpis {label} byl úspěšně smazán.\n\n"
+            f"Smazáno transakcí: {result.smazano_transakci}\n"
+            f"Smazáno účetních zápisů: {result.smazano_ucetnich_zapisu}",
+        )
+        self._info_label.setText("Vyberte výpis v tabulce nahoře.")
+        self._auto_btn.setEnabled(False)
+        self._delete_btn.setEnabled(False)
+        self._refresh_vypisy()
+        self._refresh_transakce()
+
     def _on_ignorovat(self, tx_id: int) -> None:
         ok = self._vm.ignoruj_transakci(tx_id)
         if not ok:
@@ -364,9 +438,13 @@ class BankaVypisyPage(QWidget):
         vypisy = self._vm.vypisy
         self._vypisy_table.setRowCount(len(vypisy))
         for i, v in enumerate(vypisy):
-            mesic_name = _MESICE_CZ[v.mesic - 1] if 1 <= v.mesic <= 12 else str(v.mesic)
+            if v.cislo_vypisu:
+                obdobi_text = v.cislo_vypisu
+            else:
+                mesic_name = _MESICE_CZ[v.mesic - 1] if 1 <= v.mesic <= 12 else str(v.mesic)
+                obdobi_text = f"{mesic_name} {v.rok}"
             self._vypisy_table.setItem(
-                i, 0, QTableWidgetItem(f"{mesic_name} {v.rok}"),
+                i, 0, QTableWidgetItem(obdobi_text),
             )
             self._vypisy_table.setItem(
                 i, 1, QTableWidgetItem(v.ucet_kod),

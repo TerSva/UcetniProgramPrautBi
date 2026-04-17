@@ -173,6 +173,12 @@ class BankaImportPage(QWidget):
         btn_row.addStretch()
         step2_layout.addLayout(btn_row)
 
+        self._warning_label = QLabel("", step2)
+        self._warning_label.setWordWrap(True)
+        self._warning_label.setStyleSheet("color: #cc0000; font-weight: bold;")
+        self._warning_label.setVisible(False)
+        step2_layout.addWidget(self._warning_label)
+
         root.addWidget(step2, stretch=1)
 
     def _wire_signals(self) -> None:
@@ -301,7 +307,33 @@ class BankaImportPage(QWidget):
             + (f"\nVarování: {', '.join(result.varovani)}" if result.varovani else ""),
         )
 
-        self._import_btn.setEnabled(result.is_valid)
+        # Block import when discrepancies exist
+        has_discrepancy = (
+            len(result.pouze_v_csv) > 0
+            or len(result.pouze_v_pdf) > 0
+        )
+        can_import = result.is_valid and not has_discrepancy
+
+        if has_discrepancy:
+            parts: list[str] = []
+            if result.pouze_v_csv:
+                parts.append(
+                    f"{len(result.pouze_v_csv)} transakcí pouze v CSV"
+                )
+            if result.pouze_v_pdf:
+                parts.append(
+                    f"{len(result.pouze_v_pdf)} transakcí pouze v PDF"
+                )
+            self._warning_label.setText(
+                "Import blokován — neshoda CSV vs PDF: "
+                + ", ".join(parts)
+                + ". Zkontrolujte soubory."
+            )
+            self._warning_label.setVisible(True)
+        else:
+            self._warning_label.setVisible(False)
+
+        self._import_btn.setEnabled(can_import)
 
     def _on_import(self) -> None:
         result = self._vm.execute_import()
@@ -348,3 +380,4 @@ class BankaImportPage(QWidget):
         self._status_label.setText("Čeká na validaci...")
         self._report_table.setRowCount(0)
         self._import_btn.setEnabled(False)
+        self._warning_label.setVisible(False)

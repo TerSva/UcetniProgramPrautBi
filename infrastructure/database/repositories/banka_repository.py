@@ -74,14 +74,17 @@ class SqliteBankovniVypisRepository:
         cur = self._uow.connection.execute(
             """INSERT INTO bankovni_vypisy
                (bankovni_ucet_id, rok, mesic, pocatecni_stav, konecny_stav,
-                pdf_path, csv_path, bv_doklad_id)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                pdf_path, csv_path, bv_doklad_id, cislo_vypisu, datum_od, datum_do)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 vypis.bankovni_ucet_id, vypis.rok, vypis.mesic,
                 vypis.pocatecni_stav.to_halire(),
                 vypis.konecny_stav.to_halire(),
                 vypis.pdf_path, vypis.csv_path,
                 vypis.bv_doklad_id,
+                vypis.cislo_vypisu,
+                vypis.datum_od.isoformat() if vypis.datum_od else None,
+                vypis.datum_do.isoformat() if vypis.datum_do else None,
             ),
         )
         vypis.id = cur.lastrowid
@@ -103,6 +106,17 @@ class SqliteBankovniVypisRepository:
         ).fetchone()
         return self._map(row) if row else None
 
+    def get_by_cislo(
+        self, ucet_id: int, cislo_vypisu: str,
+    ) -> BankovniVypis | None:
+        """Najde výpis podle čísla výpisu (např. '2025/2')."""
+        row = self._uow.connection.execute(
+            """SELECT * FROM bankovni_vypisy
+               WHERE bankovni_ucet_id = ? AND cislo_vypisu = ?""",
+            (ucet_id, cislo_vypisu),
+        ).fetchone()
+        return self._map(row) if row else None
+
     def list_by_ucet(self, ucet_id: int) -> list[BankovniVypis]:
         rows = self._uow.connection.execute(
             """SELECT * FROM bankovni_vypisy
@@ -112,8 +126,15 @@ class SqliteBankovniVypisRepository:
         ).fetchall()
         return [self._map(r) for r in rows]
 
+    def delete(self, vypis_id: int) -> None:
+        """Smaže výpis (bez kaskádního mazání — to řeší command)."""
+        self._uow.connection.execute(
+            "DELETE FROM bankovni_vypisy WHERE id = ?", (vypis_id,),
+        )
+
     @staticmethod
     def _map(row) -> BankovniVypis:
+        keys = row.keys() if hasattr(row, "keys") else []
         return BankovniVypis(
             id=row["id"],
             bankovni_ucet_id=row["bankovni_ucet_id"],
@@ -124,6 +145,17 @@ class SqliteBankovniVypisRepository:
             pdf_path=row["pdf_path"],
             csv_path=row["csv_path"],
             bv_doklad_id=row["bv_doklad_id"],
+            cislo_vypisu=(
+                row["cislo_vypisu"] if "cislo_vypisu" in keys else None
+            ),
+            datum_od=(
+                date.fromisoformat(row["datum_od"])
+                if "datum_od" in keys and row["datum_od"] else None
+            ),
+            datum_do=(
+                date.fromisoformat(row["datum_do"])
+                if "datum_do" in keys and row["datum_do"] else None
+            ),
         )
 
 
@@ -212,6 +244,14 @@ class SqliteBankovniTransakceRepository:
             (row_hash,),
         ).fetchone()
         return row is not None
+
+    def delete_by_vypis(self, vypis_id: int) -> int:
+        """Smaže všechny transakce výpisu. Vrátí počet smazaných."""
+        cur = self._uow.connection.execute(
+            "DELETE FROM bankovni_transakce WHERE bankovni_vypis_id = ?",
+            (vypis_id,),
+        )
+        return cur.rowcount
 
     @staticmethod
     def _map(row) -> BankovniTransakce:

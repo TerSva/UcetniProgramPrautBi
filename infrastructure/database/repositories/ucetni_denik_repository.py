@@ -117,6 +117,14 @@ class SqliteUcetniDenikRepository(UcetniDenikRepository):
             )
         return self._row_to_zaznam(row)
 
+    def delete_by_doklad(self, doklad_id: int) -> int:
+        """Smaže všechny účetní záznamy pro daný doklad. Vrátí počet smazaných."""
+        cur = self._conn.execute(
+            "DELETE FROM ucetni_zaznamy WHERE doklad_id = ?",
+            (doklad_id,),
+        )
+        return cur.rowcount
+
     def list_by_doklad(self, doklad_id: int) -> tuple[UcetniZaznam, ...]:
         rows = self._conn.execute(
             "SELECT * FROM ucetni_zaznamy WHERE doklad_id = ? ORDER BY id",

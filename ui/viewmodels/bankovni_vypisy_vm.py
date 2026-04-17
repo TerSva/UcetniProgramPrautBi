@@ -13,6 +13,7 @@ from infrastructure.database.repositories.banka_repository import (
 )
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand, AutoUctovaniResult
+from services.banka.smazat_vypis import SmazatVypisCommand, SmazatVypisResult
 from services.queries.banka import (
     BankovniTransakceQuery,
     BankovniUctyQuery,
@@ -31,12 +32,14 @@ class BankovniVypisyViewModel:
         vypisy_query: BankovniVypisyQuery,
         transakce_query: BankovniTransakceQuery,
         auto_uctovani_cmd: AutoUctovaniBankyCommand,
+        smazat_cmd: SmazatVypisCommand | None = None,
         uow_factory: Callable[[], SqliteUnitOfWork] | None = None,
     ) -> None:
         self._ucty_query = ucty_query
         self._vypisy_query = vypisy_query
         self._transakce_query = transakce_query
         self._auto_uctovani_cmd = auto_uctovani_cmd
+        self._smazat_cmd = smazat_cmd
         self._uow_factory = uow_factory
 
         self._ucty: list[BankovniUcet] = []
@@ -170,6 +173,23 @@ class BankovniVypisyViewModel:
         try:
             result = self._auto_uctovani_cmd.execute(vypis_id)
             self.select_vypis(vypis_id)
+            self._error = None
+            return result
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return None
+
+    def smazat_vypis(self, vypis_id: int) -> SmazatVypisResult | None:
+        """Kaskádní smazání výpisu."""
+        if self._smazat_cmd is None:
+            self._error = "Příkaz pro mazání není nakonfigurován"
+            return None
+        try:
+            result = self._smazat_cmd.execute(vypis_id)
+            if result.success:
+                self._selected_vypis_id = None
+                self._transakce = []
+                self.load()
             self._error = None
             return result
         except Exception as exc:  # noqa: BLE001

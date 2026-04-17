@@ -51,6 +51,7 @@ from services.commands.vklad_zk import VkladZKCommand
 from services.queries.ocr_inbox import OcrInboxQuery
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand
 from services.banka.import_vypisu import ImportVypisuCommand
+from services.banka.smazat_vypis import SmazatVypisCommand
 from services.queries.banka import (
     BankovniTransakceQuery,
     BankovniUctyQuery,
@@ -304,11 +305,13 @@ def _build_bankovni_vypisy_vm(
     vypisy_query = BankovniVypisyQuery(uow_factory=uow_factory)
     transakce_query = BankovniTransakceQuery(uow_factory=uow_factory)
     auto_cmd = AutoUctovaniBankyCommand(uow_factory=uow_factory)
+    smazat_cmd = SmazatVypisCommand(uow_factory=uow_factory)
     return BankovniVypisyViewModel(
         ucty_query=ucty_query,
         vypisy_query=vypisy_query,
         transakce_query=transakce_query,
         auto_uctovani_cmd=auto_cmd,
+        smazat_cmd=smazat_cmd,
         uow_factory=uow_factory,
     )
 

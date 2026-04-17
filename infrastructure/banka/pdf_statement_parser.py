@@ -41,6 +41,9 @@ class ParsedStatement:
 
     pocatecni_stav: Money | None
     konecny_stav: Money | None
+    cislo_vypisu: str | None = None
+    datum_od: date | None = None
+    datum_do: date | None = None
     transakce: list[ParsedPdfTransaction] = field(default_factory=list)
     chyby: list[str] = field(default_factory=list)
 
@@ -63,7 +66,10 @@ _CASTKA_CZ_RE = re.compile(
 )
 
 # Kreditní částka (bez znaménka)
+# Nesmí navazovat na delší číslo (VS, kód transakce) —
+# lookbehind: před první cifrou nesmí být cifra ani digit+separator
 _CASTKA_KREDIT_RE = re.compile(
+    r"(?<!\d)"                          # nesmí předcházet cifra (jinak je to VS)
     r"(?<!\d[.,])"                      # nesmí předcházet digit+separator
     r"(\d{1,3}(?:[\s\u00A0]\d{3})*"     # celá část
     r",\d{2})"                          # čárka + 2 desetinná místa
@@ -80,25 +86,29 @@ _CURRENCY_LINE_RE = re.compile(
 )
 
 # PS/KS — různé formáty bankovních výpisů
+# Čárka (Moneta): 127 315,91 | -51,48
+# Tečka (ČS):     127315.91  | -51.48
+_AMOUNT_CZ_PAT = r"[-+]?\s*[\d\s\u00A0]+,\d{2}"
+_AMOUNT_DOT_PAT = r"-?\d[\d\s\u00A0]*\.\d{2}"
+_PS_LABEL = (
+    r"(?:Počáteční\s+zůstatek|Počáteční\s+stav|PS|"
+    r"Zůstatek\s+na\s+počátku|Stav\s+na\s+počátku|"
+    r"Předchozí\s+zůstatek|Počáteční\s+bilance)"
+)
+_KS_LABEL = (
+    r"(?:Konečný\s+zůstatek|Konečný\s+stav|KS|"
+    r"Zůstatek\s+na\s+konci|Stav\s+na\s+konci|"
+    r"Nový\s+zůstatek|Konečná\s+bilance)"
+)
 _PS_PATTERNS = [
-    re.compile(
-        r"(?:Počáteční\s+zůstatek|Počáteční\s+stav|PS|"
-        r"Zůstatek\s+na\s+počátku|Stav\s+na\s+počátku|"
-        r"Předchozí\s+zůstatek|Počáteční\s+bilance)"
-        r"\s*:?\s*([-+]?\s*[\d\s\u00A0]+,\d{2})",
-        re.IGNORECASE,
-    ),
+    re.compile(rf"{_PS_LABEL}\s*:?\s*({_AMOUNT_CZ_PAT})", re.IGNORECASE),
+    re.compile(rf"{_PS_LABEL}\s*:?\s*({_AMOUNT_DOT_PAT})", re.IGNORECASE),
     re.compile(r"PS\s*:?\s*([-+]?\s*[\d\s\u00A0]+,\d{2})(?:\s*Kč|\s*CZK|\s*$)", re.IGNORECASE),
 ]
 
 _KS_PATTERNS = [
-    re.compile(
-        r"(?:Konečný\s+zůstatek|Konečný\s+stav|KS|"
-        r"Zůstatek\s+na\s+konci|Stav\s+na\s+konci|"
-        r"Nový\s+zůstatek|Konečná\s+bilance)"
-        r"\s*:?\s*([-+]?\s*[\d\s\u00A0]+,\d{2})",
-        re.IGNORECASE,
-    ),
+    re.compile(rf"{_KS_LABEL}\s*:?\s*({_AMOUNT_CZ_PAT})", re.IGNORECASE),
+    re.compile(rf"{_KS_LABEL}\s*:?\s*({_AMOUNT_DOT_PAT})", re.IGNORECASE),
     re.compile(r"KS\s*:?\s*([-+]?\s*[\d\s\u00A0]+,\d{2})(?:\s*Kč|\s*CZK|\s*$)", re.IGNORECASE),
 ]
 
@@ -109,6 +119,26 @@ _CELKOVY_POCET_RE = re.compile(
     r"Celkový\s+počet\s+transakcí\s*:\s*(\d+)", re.IGNORECASE,
 )
 
+# Metadata výpisu
+# Moneta: "Číslo výpisu: 2025/3", ČS: "Číslo výpisu: 001"
+_CISLO_VYPISU_RE = re.compile(
+    r"Číslo\s+výpisu\s*:\s*(\d{4}/\d+|\d{1,4})", re.IGNORECASE,
+)
+# Moneta: "Výpis ze dne: 30.04.2025"
+_VYPIS_ZE_DNE_RE = re.compile(
+    r"Výpis\s+ze\s+dne\s*:\s*(\d{1,2})\.(\d{1,2})\.(\d{4})", re.IGNORECASE,
+)
+# Moneta: "Předchozí výpis ze dne: 31.03.2025"
+_PREDCHOZI_VYPIS_RE = re.compile(
+    r"Předchozí\s+výpis\s+ze\s+dne\s*:\s*(\d{1,2})\.(\d{1,2})\.(\d{4})",
+    re.IGNORECASE,
+)
+# ČS: "Období: 28.05.2025 - 31.05.2025"
+_OBDOBI_RE = re.compile(
+    r"Období\s*:\s*(\d{1,2})\.(\d{1,2})\.(\d{4})\s*-\s*(\d{1,2})\.(\d{1,2})\.(\d{4})",
+    re.IGNORECASE,
+)
+
 
 class PdfStatementParser:
     """Extrahuje transakce a PS/KS z PDF bankovního výpisu."""
@@ -116,6 +146,11 @@ class PdfStatementParser:
     def parse(
         self, pdf_path: Path, format_banky: FormatCsv,
     ) -> ParsedStatement:
+        # ČS má vlastní parser (tabulkový layout)
+        if format_banky == FormatCsv.CESKA_SPORITELNA:
+            from infrastructure.banka.pdf.cs_parser import CeskaSporitelnaParser
+            return CeskaSporitelnaParser().parse(pdf_path)
+
         if not pdf_path.exists():
             return ParsedStatement(
                 pocatecni_stav=None,
@@ -155,6 +190,10 @@ class PdfStatementParser:
 
         logger.debug("PS: %s, KS: %s", ps, ks)
 
+        # Metadata výpisu
+        cislo_vypisu = self._extract_cislo_vypisu(text)
+        datum_od, datum_do = self._extract_obdobi(text)
+
         transakce = self._extract_transakce(text)
 
         # Validační kontrola — porovnání s celkovým počtem
@@ -181,6 +220,9 @@ class PdfStatementParser:
         return ParsedStatement(
             pocatecni_stav=ps,
             konecny_stav=ks,
+            cislo_vypisu=cislo_vypisu,
+            datum_od=datum_od,
+            datum_do=datum_do,
             transakce=transakce,
             chyby=chyby,
         )
@@ -219,6 +261,60 @@ class PdfStatementParser:
             except (InvalidOperation, ValueError):
                 continue
         return None
+
+    @staticmethod
+    def _extract_cislo_vypisu(text: str) -> str | None:
+        m = _CISLO_VYPISU_RE.search(text)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _extract_obdobi(text: str) -> tuple[date | None, date | None]:
+        """Extrahuje datum_od a datum_do z PDF hlavičky.
+
+        Moneta: datum_do = "Výpis ze dne", datum_od = den po "Předchozí výpis ze dne"
+        ČS:     "Období: DD.MM.YYYY - DD.MM.YYYY"
+        """
+        datum_do: date | None = None
+        datum_od: date | None = None
+
+        # ČS formát: "Období: 28.05.2025 - 31.05.2025"
+        m_obdobi = _OBDOBI_RE.search(text)
+        if m_obdobi:
+            try:
+                datum_od = date(
+                    int(m_obdobi.group(3)), int(m_obdobi.group(2)),
+                    int(m_obdobi.group(1)),
+                )
+                datum_do = date(
+                    int(m_obdobi.group(6)), int(m_obdobi.group(5)),
+                    int(m_obdobi.group(4)),
+                )
+                return datum_od, datum_do
+            except ValueError:
+                pass
+
+        # Moneta formát
+        m_do = _VYPIS_ZE_DNE_RE.search(text)
+        if m_do:
+            try:
+                datum_do = date(
+                    int(m_do.group(3)), int(m_do.group(2)), int(m_do.group(1)),
+                )
+            except ValueError:
+                pass
+
+        m_od = _PREDCHOZI_VYPIS_RE.search(text)
+        if m_od:
+            try:
+                pred = date(
+                    int(m_od.group(3)), int(m_od.group(2)), int(m_od.group(1)),
+                )
+                from datetime import timedelta
+                datum_od = pred + timedelta(days=1)
+            except ValueError:
+                pass
+
+        return datum_od, datum_do
 
     def _extract_transakce(self, text: str) -> list[ParsedPdfTransaction]:
         """Extrahuje transakce z textu PDF.

@@ -32,6 +32,9 @@ class VypisListItem:
     pocet_transakci: int
     pocet_nesparovanych: int
     pdf_path: str
+    cislo_vypisu: str | None = None
+    datum_od: date | None = None
+    datum_do: date | None = None
 
 
 @dataclass(frozen=True)
@@ -110,6 +113,9 @@ class BankovniVypisyQuery:
                     pocet_transakci=len(all_tx),
                     pocet_nesparovanych=nesparovane,
                     pdf_path=v.pdf_path,
+                    cislo_vypisu=v.cislo_vypisu,
+                    datum_od=v.datum_od,
+                    datum_do=v.datum_do,
                 ))
 
             return items
@@ -140,6 +146,9 @@ class BankovniVypisyQuery:
                         pocet_transakci=len(all_tx),
                         pocet_nesparovanych=nesparovane,
                         pdf_path=v.pdf_path,
+                        cislo_vypisu=v.cislo_vypisu,
+                        datum_od=v.datum_od,
+                        datum_do=v.datum_do,
                     ))
             return all_items
 

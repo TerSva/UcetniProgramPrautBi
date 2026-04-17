@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 from domain.shared.money import Money
 from infrastructure.banka.csv_parser import ParsedTransaction
@@ -30,6 +31,9 @@ class ValidationResult:
     pouze_v_pdf: list[ParsedPdfTransaction] = field(default_factory=list)
     ps_pdf: Money | None = None
     ks_pdf: Money | None = None
+    cislo_vypisu: str | None = None
+    datum_od: date | None = None
+    datum_do: date | None = None
     varovani: list[str] = field(default_factory=list)
 
 
@@ -50,12 +54,7 @@ class CsvPdfValidator:
             )
 
         if pdf_statement.chyby:
-            return ValidationResult(
-                is_valid=False,
-                varovani=pdf_statement.chyby + varovani_base,
-                ps_pdf=pdf_statement.pocatecni_stav,
-                ks_pdf=pdf_statement.konecny_stav,
-            )
+            varovani_base.extend(pdf_statement.chyby)
 
         matched: list[MatchedTransaction] = []
         pouze_csv: list[ParsedTransaction] = []
@@ -100,6 +99,9 @@ class CsvPdfValidator:
             pouze_v_pdf=pouze_pdf,
             ps_pdf=pdf_statement.pocatecni_stav,
             ks_pdf=pdf_statement.konecny_stav,
+            cislo_vypisu=pdf_statement.cislo_vypisu,
+            datum_od=pdf_statement.datum_od,
+            datum_do=pdf_statement.datum_do,
             varovani=varovani,
         )
 

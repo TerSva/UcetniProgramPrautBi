@@ -5,8 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from typing import Callable
-
 from domain.banka.bankovni_ucet import BankovniUcet
 from domain.shared.money import Money
 from domain.ucetnictvi.ucet import Ucet
@@ -124,7 +122,11 @@ class ImportVypisuViewModel:
             self._error = "Chybí vstupní data"
             return None
 
+        # Matched transakce z CSV+PDF páru, nebo všechny CSV pokud PDF
+        # nemá transakce (např. ČS výpis — jiný layout)
         matched_txs = [m.csv for m in self._validation_result.transakce_shoduji]
+        if not matched_txs:
+            matched_txs = list(self._validation_result.pouze_v_csv)
         ps = self._validation_result.ps_pdf or Money(0)
         ks = self._validation_result.ks_pdf or Money(0)
 
@@ -136,6 +138,9 @@ class ImportVypisuViewModel:
                 matched_transactions=matched_txs,
                 ps=ps,
                 ks=ks,
+                cislo_vypisu=self._validation_result.cislo_vypisu,
+                datum_od=self._validation_result.datum_od,
+                datum_do=self._validation_result.datum_do,
             )
             self._error = None
             return self._import_result

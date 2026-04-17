@@ -443,6 +443,10 @@ class CsvBankParser:
             if tx is not None:
                 results.append(tx)
 
+        # Fallback: pokud specifický parser nenašel nic, zkus obecný
+        if not results:
+            results = self._generic.parse(csv_path)
+
         return results
 
     def parse_text(
