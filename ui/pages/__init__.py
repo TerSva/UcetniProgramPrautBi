@@ -1,5 +1,7 @@
 """Pages package — stránky aplikace."""
 
+from ui.pages.banka_import_page import BankaImportPage
+from ui.pages.banka_vypisy_page import BankaVypisyPage
 from ui.pages.chart_of_accounts_page import ChartOfAccountsPage
 from ui.pages.dashboard_page import DashboardPage
 from ui.pages.doklady_page import DokladyPage
@@ -11,6 +13,8 @@ from ui.pages.placeholder_page import PlaceholderPage
 from ui.pages.pocatecni_stavy_page import PocatecniStavyPage
 
 __all__ = [
+    "BankaImportPage",
+    "BankaVypisyPage",
     "ChartOfAccountsPage",
     "DashboardPage",
     "DokladyPage",

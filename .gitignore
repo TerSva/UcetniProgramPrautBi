@@ -33,6 +33,10 @@ pyproject.toml.backup
 .env
 .env.local
 
+# Uploads (user data — bank statements, invoices)
+uploads/banka/*.csv
+uploads/banka/*.pdf
+
 # OS
 .DS_Store
 Thumbs.db

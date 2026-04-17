@@ -18,7 +18,7 @@ class TestSeedOsnovy:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
-            assert len(ucty) == 9
+            assert len(ucty) == 16  # 9 base + 7 from banka migration (221.001, 221.002, 221.003, 568, 591, 662, 261)
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -37,16 +37,16 @@ class TestListByTyp:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             naklady = repo.list_by_typ(TypUctu.NAKLADY)
-            assert len(naklady) == 2
+            assert len(naklady) == 4  # 501, 518, 568, 591
             cisla = {u.cislo for u in naklady}
-            assert cisla == {"501", "518"}
+            assert {"501", "518", "568", "591"} == cisla
 
     def test_vynosy(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             vynosy = repo.list_by_typ(TypUctu.VYNOSY)
-            assert len(vynosy) == 2
+            assert len(vynosy) == 3  # 601, 602, 662
 
     def test_serazeno_podle_cisla(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)

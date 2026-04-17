@@ -54,8 +54,8 @@ class TestUctovaOsnovaQuery:
     def test_vrati_seed_ucty(self, db_factory):
         q = _build_query(db_factory)
         items = q.execute()
-        # Seed migrace = 9 aktivních účtů.
-        assert len(items) == 9
+        # Seed migrace = 16 aktivních účtů (9 base + 7 banka).
+        assert len(items) == 16
         cisla = {i.cislo for i in items}
         assert "211" in cisla
         assert "311" in cisla
@@ -76,13 +76,13 @@ class TestUctovaOsnovaQuery:
         items = q.execute()
         cisla = {i.cislo for i in items}
         assert "602" not in cisla
-        assert len(items) == 8
+        assert len(items) == 15  # 16 - 1 deaktivovaný
 
     def test_jen_aktivni_false_vrati_i_neaktivni(self, db_factory):
         _deaktivuj(db_factory, "602")
         q = _build_query(db_factory)
         items = q.execute(jen_aktivni=False)
-        assert len(items) == 9
+        assert len(items) == 16
 
     def test_display_u_jednoho_uctu(self, db_factory):
         q = _build_query(db_factory)

@@ -66,7 +66,13 @@ SIDEBAR_STRUCTURE: tuple[SidebarSection, ...] = (
                     SidebarItem("doklady_od", "Opravné doklady (OD)", "refresh-ccw", "Účetnictví"),
                 ),
             ),
-            SidebarItem("banka", "Banka", "landmark", "Účetnictví"),
+            SidebarItem(
+                "banka", "Banka", "landmark", "Účetnictví",
+                sub_items=(
+                    SidebarItem("banka_import", "Import výpisu", "upload", "Účetnictví"),
+                    SidebarItem("banka_vypisy", "Bankovní výpisy", "credit-card", "Účetnictví"),
+                ),
+            ),
             SidebarItem("ucetni_denik", "Účetní deník", "book-open", "Účetnictví"),
         ),
     ),

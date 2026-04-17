@@ -196,6 +196,39 @@ class SqliteDokladyRepository(DokladyRepository):
         ).fetchall()
         return [self._row_to_doklad(r) for r in rows]
 
+    def find_by_vs(self, vs: str) -> Doklad | None:
+        """Najde doklad podle variabilního symbolu (hledá v čísle dokladu).
+
+        VS matching: hledáme FP/FV kde číslo dokladu obsahuje VS.
+        Např. VS "2025042" najde "FP-2025-042" nebo "FV-2025-042".
+        """
+        # Try exact match on cislo first
+        row = self._conn.execute(
+            "SELECT * FROM doklady WHERE cislo = ? AND typ IN ('FV', 'FP')",
+            (vs,),
+        ).fetchone()
+        if row:
+            return self._row_to_doklad(row)
+
+        # Try matching VS as part of cislo (strip dashes/zeros)
+        vs_clean = vs.lstrip("0")
+        rows = self._conn.execute(
+            "SELECT * FROM doklady WHERE typ IN ('FV', 'FP') "
+            "ORDER BY datum_vystaveni DESC",
+        ).fetchall()
+        for r in rows:
+            cislo = r["cislo"]
+            # Extract number parts from cislo like "FP-2025-042"
+            cislo_digits = "".join(c for c in cislo if c.isdigit())
+            if cislo_digits and (
+                cislo_digits == vs
+                or cislo_digits.lstrip("0") == vs_clean
+                or vs in cislo_digits
+            ):
+                return self._row_to_doklad(r)
+
+        return None
+
     def delete(self, doklad_id: int) -> None:
         # 1. Doklad existuje? + načíst stav
         row = self._conn.execute(

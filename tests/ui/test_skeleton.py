@@ -2,8 +2,8 @@
 
 Ověřuje:
   * Fonty se načtou (Space Grotesk + DM Sans)
-  * MainWindow má 18 stránek v stacku (Fáze 8)
-  * Sidebar má 5 sekcí s celkem 17 navigovatelnými položkami
+  * MainWindow má 20 stránek v stacku (Fáze 13)
+  * Sidebar má 5 sekcí s celkem 19 navigovatelnými položkami
   * Klik na aktivní položku emituje signál a přepne stack
   * load_icon() vrací QIcon
   * load_icon() hází FileNotFoundError pro neexistující ikonu
@@ -37,8 +37,8 @@ def test_fonts_register(qtbot):
 # ──────────────────────────────────────────────
 
 
-def test_main_window_has_nineteen_pages(main_window):
-    assert main_window.stack.count() == 19
+def test_main_window_has_twenty_pages(main_window):
+    assert main_window.stack.count() == 20
 
 
 def test_main_window_starts_on_dashboard(main_window):
@@ -58,7 +58,7 @@ def test_sidebar_has_five_sections(main_window):
 
 def test_sidebar_has_navigable_items(main_window):
     """Všechny navigovatelné klíče jsou v ACTIVE_KEYS."""
-    assert len(ACTIVE_KEYS) == 18
+    assert len(ACTIVE_KEYS) == 19
 
 
 def test_doklady_has_sub_items(main_window):

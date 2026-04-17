@@ -24,6 +24,8 @@ from PyQt6.QtWidgets import (
 from domain.doklady.typy import TypDokladu
 from services.queries.doklady_list import DokladyListItem
 from ui.pages import (
+    BankaImportPage,
+    BankaVypisyPage,
     ChartOfAccountsPage,
     DashboardPage,
     DokladyPage,
@@ -44,6 +46,8 @@ from ui.viewmodels.dph_vm import DphViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.nastaveni_vm import NastaveniViewModel
+from ui.viewmodels.bankovni_vypisy_vm import BankovniVypisyViewModel
+from ui.viewmodels.import_vypisu_vm import ImportVypisuViewModel
 from ui.viewmodels.ocr_inbox_vm import OcrInboxViewModel
 from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
@@ -62,12 +66,7 @@ _DOKLADY_TYP_PAGES: tuple[tuple[str, TypDokladu, str], ...] = (
 
 #: Definice placeholder stránek (key, title, subtitle, phase, phase_name).
 _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
-    # nahrat_doklady — replaced by real NahratDokladyPage in Fáze 12
-    (
-        "banka", "Banka",
-        "CSV import bankovních výpisů a párování plateb.",
-        13, "Banka + CSV Import + Párování",
-    ),
+    # banka — replaced by BankaImportPage + BankaVypisyPage in Fáze 13
     (
         "ucetni_denik", "Účetní deník",
         "Seznam všech účetních zápisů.",
@@ -116,6 +115,8 @@ class MainWindow(QMainWindow):
         nastaveni_vm: NastaveniViewModel | None = None,
         pocatecni_stavy_vm: PocatecniStavyViewModel | None = None,
         ocr_inbox_vm: OcrInboxViewModel | None = None,
+        import_vypisu_vm: ImportVypisuViewModel | None = None,
+        bankovni_vypisy_vm: BankovniVypisyViewModel | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -132,6 +133,8 @@ class MainWindow(QMainWindow):
         self._nastaveni_vm = nastaveni_vm
         self._pocatecni_stavy_vm = pocatecni_stavy_vm
         self._ocr_inbox_vm = ocr_inbox_vm
+        self._import_vypisu_vm = import_vypisu_vm
+        self._bankovni_vypisy_vm = bankovni_vypisy_vm
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -278,7 +281,36 @@ class MainWindow(QMainWindow):
             )
         self._add_page("nahrat_doklady", nahrat_page)
 
-        # 9. Placeholder pages
+        # 9. Banka pages (Fáze 13)
+        if self._import_vypisu_vm is not None:
+            banka_import_page: QWidget = BankaImportPage(
+                self._import_vypisu_vm, parent=self._stack,
+            )
+        else:
+            banka_import_page = PlaceholderPage(
+                title="Import výpisu",
+                subtitle="CSV import bankovních výpisů.",
+                phase_number=13,
+                phase_name="Banka + CSV Import",
+                parent=self._stack,
+            )
+        self._add_page("banka_import", banka_import_page)
+
+        if self._bankovni_vypisy_vm is not None:
+            banka_vypisy_page: QWidget = BankaVypisyPage(
+                self._bankovni_vypisy_vm, parent=self._stack,
+            )
+        else:
+            banka_vypisy_page = PlaceholderPage(
+                title="Bankovní výpisy",
+                subtitle="Přehled výpisů a párování transakcí.",
+                phase_number=13,
+                phase_name="Banka + Párování",
+                parent=self._stack,
+            )
+        self._add_page("banka_vypisy", banka_vypisy_page)
+
+        # 10. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:
             page = PlaceholderPage(
                 title=title,

@@ -87,6 +87,26 @@ class SqliteUcetniDenikRepository(UcetniDenikRepository):
 
         return tuple(ulozene)
 
+    def add(self, zaznam: UcetniZaznam) -> int:
+        """Ulož jeden účetní záznam. Vrátí id."""
+        cursor = self._conn.execute(
+            """INSERT INTO ucetni_zaznamy
+               (doklad_id, datum, md_ucet, dal_ucet, castka, popis,
+                je_storno, stornuje_zaznam_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                zaznam.doklad_id,
+                zaznam.datum.isoformat(),
+                zaznam.md_ucet,
+                zaznam.dal_ucet,
+                zaznam.castka.to_halire(),
+                zaznam.popis,
+                1 if zaznam.je_storno else 0,
+                zaznam.stornuje_zaznam_id,
+            ),
+        )
+        return cursor.lastrowid
+
     def get_by_id(self, zaznam_id: int) -> UcetniZaznam:
         row = self._conn.execute(
             "SELECT * FROM ucetni_zaznamy WHERE id = ?", (zaznam_id,)

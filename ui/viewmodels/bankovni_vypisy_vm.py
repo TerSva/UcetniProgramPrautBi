@@ -1,0 +1,201 @@
+"""BankovniVypisyViewModel — ViewModel pro stránku bankovních výpisů."""
+
+from __future__ import annotations
+
+from datetime import date
+from typing import Callable
+
+from domain.banka.bankovni_transakce import StavTransakce
+from domain.banka.bankovni_ucet import BankovniUcet
+from domain.shared.money import Money
+from infrastructure.database.repositories.banka_repository import (
+    SqliteBankovniTransakceRepository,
+)
+from infrastructure.database.unit_of_work import SqliteUnitOfWork
+from services.banka.auto_uctovani import AutoUctovaniBankyCommand, AutoUctovaniResult
+from services.queries.banka import (
+    BankovniTransakceQuery,
+    BankovniUctyQuery,
+    BankovniVypisyQuery,
+    TransakceListItem,
+    VypisListItem,
+)
+
+
+class BankovniVypisyViewModel:
+    """ViewModel pro stránku Bankovní výpisy."""
+
+    def __init__(
+        self,
+        ucty_query: BankovniUctyQuery,
+        vypisy_query: BankovniVypisyQuery,
+        transakce_query: BankovniTransakceQuery,
+        auto_uctovani_cmd: AutoUctovaniBankyCommand,
+        uow_factory: Callable[[], SqliteUnitOfWork] | None = None,
+    ) -> None:
+        self._ucty_query = ucty_query
+        self._vypisy_query = vypisy_query
+        self._transakce_query = transakce_query
+        self._auto_uctovani_cmd = auto_uctovani_cmd
+        self._uow_factory = uow_factory
+
+        self._ucty: list[BankovniUcet] = []
+        self._vypisy: list[VypisListItem] = []
+        self._transakce: list[TransakceListItem] = []
+        self._selected_ucet_id: int | None = None
+        self._selected_vypis_id: int | None = None
+        self._stav_filter: StavTransakce | None = None
+        self._vs_filter: str = ""
+        self._protiucet_filter: str = ""
+        self._castka_od: Money | None = None
+        self._castka_do: Money | None = None
+        self._den_filter: int | None = None
+        self._error: str | None = None
+
+    # ── Properties ──
+
+    @property
+    def ucty(self) -> list[BankovniUcet]:
+        return self._ucty
+
+    @property
+    def vypisy(self) -> list[VypisListItem]:
+        return self._vypisy
+
+    @property
+    def transakce(self) -> list[TransakceListItem]:
+        return self._filtered_transakce()
+
+    @property
+    def selected_ucet_id(self) -> int | None:
+        return self._selected_ucet_id
+
+    @property
+    def selected_vypis_id(self) -> int | None:
+        return self._selected_vypis_id
+
+    @property
+    def error(self) -> str | None:
+        return self._error
+
+    # ── Filtering ──
+
+    def _filtered_transakce(self) -> list[TransakceListItem]:
+        """Aplikuje klientské filtry (VS, protiúčet, částka, den)."""
+        result = self._transakce
+        if self._vs_filter:
+            needle = self._vs_filter.lower()
+            result = [
+                tx for tx in result
+                if tx.variabilni_symbol and needle in tx.variabilni_symbol.lower()
+            ]
+        if self._protiucet_filter:
+            needle = self._protiucet_filter.lower()
+            result = [
+                tx for tx in result
+                if tx.protiucet and needle in tx.protiucet.lower()
+            ]
+        if self._castka_od is not None:
+            limit = self._castka_od.to_halire()
+            result = [tx for tx in result if abs(tx.castka.to_halire()) >= abs(limit)]
+        if self._castka_do is not None:
+            limit = self._castka_do.to_halire()
+            result = [tx for tx in result if abs(tx.castka.to_halire()) <= abs(limit)]
+        if self._den_filter is not None:
+            result = [
+                tx for tx in result if tx.datum_zauctovani.day == self._den_filter
+            ]
+        return result
+
+    # ── Actions ──
+
+    def load(self) -> None:
+        """Načte účty a výpisy."""
+        try:
+            self._ucty = self._ucty_query.list_aktivni()
+            self._vypisy = self._vypisy_query.list_all()
+            self._error = None
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+
+    def select_ucet(self, ucet_id: int | None) -> None:
+        """Filtruj výpisy podle účtu."""
+        self._selected_ucet_id = ucet_id
+        try:
+            if ucet_id is not None:
+                self._vypisy = self._vypisy_query.list_by_ucet(ucet_id)
+            else:
+                self._vypisy = self._vypisy_query.list_all()
+            self._error = None
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+
+    def select_vypis(self, vypis_id: int | None) -> None:
+        """Načte transakce pro vybraný výpis."""
+        self._selected_vypis_id = vypis_id
+        if vypis_id is None:
+            self._transakce = []
+            return
+        try:
+            self._transakce = self._transakce_query.list_by_vypis(
+                vypis_id, stav=self._stav_filter,
+            )
+            self._error = None
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+
+    def set_stav_filter(self, stav: StavTransakce | None) -> None:
+        """Nastav filtr stavu transakcí a obnov seznam."""
+        self._stav_filter = stav
+        if self._selected_vypis_id is not None:
+            self.select_vypis(self._selected_vypis_id)
+
+    def set_vs_filter(self, vs: str) -> None:
+        self._vs_filter = vs.strip()
+
+    def set_protiucet_filter(self, protiucet: str) -> None:
+        self._protiucet_filter = protiucet.strip()
+
+    def set_castka_od(self, castka: Money | None) -> None:
+        self._castka_od = castka
+
+    def set_castka_do(self, castka: Money | None) -> None:
+        self._castka_do = castka
+
+    def set_den_filter(self, den: int | None) -> None:
+        self._den_filter = den
+
+    def auto_zauctuj(self, vypis_id: int) -> AutoUctovaniResult | None:
+        """Spusť automatické zaúčtování pro výpis."""
+        try:
+            result = self._auto_uctovani_cmd.execute(vypis_id)
+            self.select_vypis(vypis_id)
+            self._error = None
+            return result
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return None
+
+    def ignoruj_transakci(self, tx_id: int) -> bool:
+        """Označ transakci jako ignorovanou."""
+        if self._uow_factory is None:
+            self._error = "uow_factory není k dispozici"
+            return False
+        try:
+            uow = self._uow_factory()
+            with uow:
+                repo = SqliteBankovniTransakceRepository(uow)
+                tx = repo.get(tx_id)
+                if tx is None:
+                    self._error = f"Transakce {tx_id} nenalezena"
+                    return False
+                tx.ignoruj()
+                repo.update(tx)
+                uow.commit()
+            if self._selected_vypis_id is not None:
+                self.select_vypis(self._selected_vypis_id)
+            self._error = None
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return False

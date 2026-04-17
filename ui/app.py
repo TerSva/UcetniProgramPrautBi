@@ -49,6 +49,13 @@ from services.commands.ocr_upload import OcrUploadCommand
 from services.commands.pocatecni_stavy import PocatecniStavyCommand
 from services.commands.vklad_zk import VkladZKCommand
 from services.queries.ocr_inbox import OcrInboxQuery
+from services.banka.auto_uctovani import AutoUctovaniBankyCommand
+from services.banka.import_vypisu import ImportVypisuCommand
+from services.queries.banka import (
+    BankovniTransakceQuery,
+    BankovniUctyQuery,
+    BankovniVypisyQuery,
+)
 from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
@@ -58,8 +65,10 @@ from ui.viewmodels import (
     DokladyListViewModel,
     PartneriViewModel,
 )
+from ui.viewmodels.bankovni_vypisy_vm import BankovniVypisyViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
+from ui.viewmodels.import_vypisu_vm import ImportVypisuViewModel
 from ui.viewmodels.nastaveni_vm import NastaveniViewModel
 from ui.viewmodels.ocr_inbox_vm import OcrInboxViewModel
 from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
@@ -270,6 +279,40 @@ def _build_pocatecni_stavy_vm(
     )
 
 
+def _build_import_vypisu_vm(factory: ConnectionFactory) -> ImportVypisuViewModel:
+    """Sestaví ImportVypisuViewModel."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    ucty_query = BankovniUctyQuery(uow_factory=uow_factory)
+    upload_dir = Path(__file__).resolve().parent.parent / "uploads" / "banka"
+    import_cmd = ImportVypisuCommand(
+        uow_factory=uow_factory,
+        upload_dir=upload_dir,
+    )
+    return ImportVypisuViewModel(
+        ucty_query=ucty_query,
+        import_cmd=import_cmd,
+        uow_factory=uow_factory,
+    )
+
+
+def _build_bankovni_vypisy_vm(
+    factory: ConnectionFactory,
+) -> BankovniVypisyViewModel:
+    """Sestaví BankovniVypisyViewModel."""
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    ucty_query = BankovniUctyQuery(uow_factory=uow_factory)
+    vypisy_query = BankovniVypisyQuery(uow_factory=uow_factory)
+    transakce_query = BankovniTransakceQuery(uow_factory=uow_factory)
+    auto_cmd = AutoUctovaniBankyCommand(uow_factory=uow_factory)
+    return BankovniVypisyViewModel(
+        ucty_query=ucty_query,
+        vypisy_query=vypisy_query,
+        transakce_query=transakce_query,
+        auto_uctovani_cmd=auto_cmd,
+        uow_factory=uow_factory,
+    )
+
+
 def run(db_path: Path | None = None) -> int:
     """Spusť aplikaci. Vrací exit code z QApplication.exec().
 
@@ -292,6 +335,8 @@ def run(db_path: Path | None = None) -> int:
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
         _build_factories(factory)
     )
+    import_vypisu_vm = _build_import_vypisu_vm(factory)
+    bankovni_vypisy_vm = _build_bankovni_vypisy_vm(factory)
 
     window = MainWindow(
         dashboard_vm=dashboard_vm,
@@ -304,6 +349,8 @@ def run(db_path: Path | None = None) -> int:
         nastaveni_vm=nastaveni_vm,
         pocatecni_stavy_vm=pocatecni_stavy_vm,
         ocr_inbox_vm=ocr_inbox_vm,
+        import_vypisu_vm=import_vypisu_vm,
+        bankovni_vypisy_vm=bankovni_vypisy_vm,
     )
     window.show()
 
