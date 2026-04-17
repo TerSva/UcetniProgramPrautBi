@@ -27,6 +27,7 @@ from ui.pages import (
     ChartOfAccountsPage,
     DashboardPage,
     DokladyPage,
+    DphPage,
     PartneriPage,
     PlaceholderPage,
 )
@@ -36,6 +37,7 @@ from ui.viewmodels import (
     DokladyListViewModel,
     PartneriViewModel,
 )
+from ui.viewmodels.dph_vm import DphViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
@@ -74,11 +76,7 @@ _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
         "Rozvaha, výkaz zisku a ztráty — PDF export.",
         15, "Výkazy + PDF export",
     ),
-    (
-        "dph", "DPH",
-        "Reverse charge výpočet a výkaz DPH.",
-        11, "DPH + Reverse charge",
-    ),
+    # DPH page — replaced by real DphPage in Fáze 11
     (
         "saldokonto", "Saldokonto",
         "Pohledávky a závazky podle partnerů.",
@@ -116,6 +114,7 @@ class MainWindow(QMainWindow):
         ] | None = None,
         chart_of_accounts_vm: ChartOfAccountsViewModel | None = None,
         partneri_vm: PartneriViewModel | None = None,
+        dph_vm: DphViewModel | None = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -128,6 +127,7 @@ class MainWindow(QMainWindow):
         self._zauctovani_vm_factory = zauctovani_vm_factory
         self._chart_of_accounts_vm = chart_of_accounts_vm
         self._partneri_vm = partneri_vm
+        self._dph_vm = dph_vm
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -206,7 +206,20 @@ class MainWindow(QMainWindow):
             partneri_page = QWidget(self._stack)
         self._add_page("partneri", partneri_page)
 
-        # 5. Placeholder pages
+        # 5. DPH page (Fáze 11)
+        if self._dph_vm is not None:
+            dph_page: QWidget = DphPage(self._dph_vm, parent=self._stack)
+        else:
+            dph_page = PlaceholderPage(
+                title="DPH",
+                subtitle="Reverse charge výpočet a výkaz DPH.",
+                phase_number=11,
+                phase_name="DPH + Reverse charge",
+                parent=self._stack,
+            )
+        self._add_page("dph", dph_page)
+
+        # 6. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:
             page = PlaceholderPage(
                 title=title,

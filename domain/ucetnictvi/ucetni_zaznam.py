@@ -17,7 +17,7 @@ from datetime import date
 from domain.shared.errors import ValidationError
 from domain.shared.money import Money
 
-_UCET_RE = re.compile(r"^\d{3,6}$")
+_UCET_RE = re.compile(r"^\d{3}(\.\w{1,3}|\d{0,3})$")
 
 
 @dataclass(frozen=True)

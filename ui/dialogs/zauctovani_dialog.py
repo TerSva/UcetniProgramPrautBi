@@ -23,8 +23,11 @@ from __future__ import annotations
 from datetime import date
 from typing import cast
 
+from decimal import Decimal
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -38,7 +41,7 @@ from domain.shared.money import Money
 from services.queries.doklady_list import DokladyListItem
 from services.queries.uctova_osnova import UcetItem
 from ui.design_tokens import Spacing
-from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
+from ui.viewmodels.zauctovani_vm import DPH_SAZBY, ZauctovaniViewModel
 from ui.widgets.labeled_inputs import (
     LabeledComboBox,
     LabeledDateEdit,
@@ -131,6 +134,9 @@ class ZauctovaniDialog(QDialog):
 
         self._title_label: QLabel
         self._summary_label: QLabel
+        self._rc_section: QWidget
+        self._rc_check: QCheckBox
+        self._dph_sazba_combo: LabeledComboBox
         self._datum_edit: LabeledDateEdit
         self._rows_container: QWidget
         self._rows_layout: QVBoxLayout
@@ -172,6 +178,18 @@ class ZauctovaniDialog(QDialog):
     def _rows_list(self) -> list[_RadekRow]:
         return self._rows
 
+    @property
+    def _rc_check_widget(self) -> QCheckBox:
+        return self._rc_check
+
+    @property
+    def _rc_section_widget(self) -> QWidget:
+        return self._rc_section
+
+    @property
+    def _dph_sazba_combo_widget(self) -> LabeledComboBox:
+        return self._dph_sazba_combo
+
     # ─── Build ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -195,6 +213,33 @@ class ZauctovaniDialog(QDialog):
         )
         self._summary_label.setProperty("class", "dialog-subtitle")
         root.addWidget(self._summary_label)
+
+        # ── Reverse charge section ──
+        self._rc_section = QWidget(self)
+        rc_layout = QVBoxLayout(self._rc_section)
+        rc_layout.setContentsMargins(0, 0, 0, 0)
+        rc_layout.setSpacing(Spacing.S2)
+
+        self._rc_check = QCheckBox(
+            "Reverse charge \u2014 služba z EU "
+            "(přenesení daňové povinnosti dle čl. 196 směrnice 2006/112/EC)",
+            self._rc_section,
+        )
+        self._rc_check.setProperty("class", "form-check")
+        self._rc_check.setCursor(Qt.CursorShape.PointingHandCursor)
+        rc_layout.addWidget(self._rc_check)
+
+        self._dph_sazba_combo = LabeledComboBox(
+            "Sazba DPH", self._rc_section,
+        )
+        for s in DPH_SAZBY:
+            self._dph_sazba_combo.add_item(f"{s} %", s)
+        self._dph_sazba_combo.set_value(self._vm.dph_sazba)
+        self._dph_sazba_combo.setVisible(False)
+        rc_layout.addWidget(self._dph_sazba_combo)
+
+        self._rc_section.setVisible(self._vm.show_reverse_charge)
+        root.addWidget(self._rc_section)
 
         # Datum
         self._datum_edit = LabeledDateEdit(
@@ -268,6 +313,10 @@ class ZauctovaniDialog(QDialog):
         root.addLayout(footer)
 
     def _wire_signals(self) -> None:
+        self._rc_check.toggled.connect(self._on_rc_toggled)
+        self._dph_sazba_combo.current_value_changed.connect(
+            self._on_dph_sazba_changed,
+        )
         self._add_row_button.clicked.connect(self._on_add_row)
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
@@ -345,6 +394,20 @@ class ZauctovaniDialog(QDialog):
     def _on_row_popis_changed(self, index: int, text: str) -> None:
         self._vm.update_row(index, popis=text)
 
+    # ─── Reverse charge ─────────────────────────────────────────
+
+    def _on_rc_toggled(self, checked: bool) -> None:
+        self._dph_sazba_combo.setVisible(checked)
+        self._vm.set_reverse_charge(checked)
+        self._rebuild_rows()
+        self._sync_ui()
+
+    def _on_dph_sazba_changed(self, value: object) -> None:
+        if isinstance(value, Decimal):
+            self._vm.set_dph_sazba(value)
+            self._rebuild_rows()
+            self._sync_ui()
+
     # ─── Submit ──────────────────────────────────────────────────
 
     def _on_submit(self) -> None:
@@ -373,7 +436,7 @@ class ZauctovaniDialog(QDialog):
     def _sync_ui(self) -> None:
         soucet = self._vm.soucet_radku
         rozdil = self._vm.rozdil
-        self._sum_label.setText(f"Součet řádků: {soucet.format_cz()}")
+        self._sum_label.setText(f"Součet: {soucet.format_cz()}")
         self._rozdil_label.setText(f"Rozdíl: {rozdil.format_cz()}")
 
         if self._vm.je_podvojne:
