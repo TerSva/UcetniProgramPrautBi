@@ -106,6 +106,15 @@ class SqliteOcrUploadRepository:
             ).fetchall()
         return [self._row_to_upload(r) for r in rows]
 
+    def list_with_created_doklad(self) -> list[OcrUpload]:
+        """Vrátí uploady, které mají vytvořený doklad (vytvoreny_doklad_id IS NOT NULL)."""
+        rows = self._conn.execute(
+            "SELECT * FROM ocr_uploads "
+            "WHERE vytvoreny_doklad_id IS NOT NULL "
+            "ORDER BY id",
+        ).fetchall()
+        return [self._row_to_upload(r) for r in rows]
+
     def count_by_stav(self, stav: StavUploadu) -> int:
         row = self._conn.execute(
             "SELECT COUNT(*) FROM ocr_uploads WHERE stav = ?",
