@@ -45,6 +45,7 @@ class CreateDokladInput:
     mena: Mena = Mena.CZK
     castka_mena: Money | None = None
     kurz: Decimal | None = None
+    variabilni_symbol: str | None = None
 
 
 class CreateDokladCommand:
@@ -77,6 +78,7 @@ class CreateDokladCommand:
             mena=data.mena,
             castka_mena=data.castka_mena,
             kurz=data.kurz,
+            variabilni_symbol=data.variabilni_symbol,
         )
 
         uow = self._uow_factory()

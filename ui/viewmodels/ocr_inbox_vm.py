@@ -82,6 +82,7 @@ class OcrInboxViewModel:
         castka_mena: Money | None = None,
         kurz: Decimal | None = None,
         k_doreseni: bool = False,
+        variabilni_symbol: str | None = None,
     ) -> int | None:
         """Schválí upload a vytvoří doklad."""
         try:
@@ -98,6 +99,7 @@ class OcrInboxViewModel:
                 castka_mena=castka_mena,
                 kurz=kurz,
                 k_doreseni=k_doreseni,
+                variabilni_symbol=variabilni_symbol,
             )
             self._error = None
             self.load()

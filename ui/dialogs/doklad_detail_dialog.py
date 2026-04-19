@@ -226,6 +226,11 @@ class DokladDetailDialog(QDialog):
             self._form_label("Partner:"),
             self._form_value(item.partner_nazev or "—"),
         )
+        self._vs_display = self._form_value(item.variabilni_symbol or "—")
+        form.addRow(
+            self._form_label("Variabilní symbol:"),
+            self._vs_display,
+        )
         castka = self._form_value(item.castka_celkem.format_cz())
         castka.setProperty("class", "dialog-value-strong")
         form.addRow(self._form_label("Částka celkem:"), castka)
@@ -578,6 +583,7 @@ class DokladDetailDialog(QDialog):
         )
         self._splatnost_display.setText(splatnost_text)
         self._popis_display.setText(item.popis or "—")
+        self._vs_display.setText(item.variabilni_symbol or "—")
 
         # Datum storna — jen pro STORNOVANY
         je_stornovany = item.stav == StavDokladu.STORNOVANY

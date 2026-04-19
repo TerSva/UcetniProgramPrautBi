@@ -138,6 +138,7 @@ class OcrUploadCommand:
         castka_mena: Money | None = None,
         kurz: Decimal | None = None,
         k_doreseni: bool = False,
+        variabilni_symbol: str | None = None,
     ) -> int:
         """Vytvoří doklad z uploadu. Vrátí doklad_id."""
         uow = self._uow_factory()
@@ -161,6 +162,7 @@ class OcrUploadCommand:
                 castka_mena=castka_mena,
                 kurz=kurz,
                 k_doreseni=k_doreseni,
+                variabilni_symbol=variabilni_symbol,
             )
             drepo.add(doklad)
             loaded = drepo.get_by_cislo(cislo)
@@ -207,12 +209,14 @@ class OcrUploadCommand:
                 # Částka z parsed_data
                 castka = Money(100)  # default
                 popis = popis_prefix
+                vs: str | None = None
                 if upload.parsed_data:
                     parsed = ParsedInvoice.from_dict(upload.parsed_data)
                     if parsed.castka_celkem:
                         castka = parsed.castka_celkem
                     if parsed.cislo_dokladu:
                         popis = f"{popis_prefix} {parsed.cislo_dokladu}".strip()
+                    vs = parsed.variabilni_symbol
 
                 cislo = f"{cislo_prefix}-{i:03d}"
                 if drepo.existuje_cislo(cislo):
@@ -226,6 +230,7 @@ class OcrUploadCommand:
                     partner_id=partner_id,
                     popis=popis or None,
                     k_doreseni=k_doreseni,
+                    variabilni_symbol=vs,
                 )
                 drepo.add(doklad)
                 loaded = drepo.get_by_cislo(cislo)

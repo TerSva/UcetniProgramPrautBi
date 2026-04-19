@@ -37,8 +37,9 @@ class SqliteDokladyRepository(DokladyRepository):
                 """INSERT INTO doklady
                    (cislo, typ, datum_vystaveni, datum_zdanitelneho_plneni,
                     datum_splatnosti, partner_id, castka_celkem, mena, stav, popis,
-                    k_doreseni, poznamka_doreseni, castka_mena, kurz)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    k_doreseni, poznamka_doreseni, castka_mena, kurz,
+                    variabilni_symbol)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doklad.cislo,
                     doklad.typ.value,
@@ -60,6 +61,7 @@ class SqliteDokladyRepository(DokladyRepository):
                     if doklad.castka_mena is not None
                     else None,
                     str(doklad.kurz) if doklad.kurz is not None else None,
+                    doklad.variabilni_symbol,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -84,6 +86,7 @@ class SqliteDokladyRepository(DokladyRepository):
             mena=doklad.mena,
             castka_mena=doklad.castka_mena,
             kurz=doklad.kurz,
+            variabilni_symbol=doklad.variabilni_symbol,
             id=cursor.lastrowid,
         )
 
@@ -98,7 +101,7 @@ class SqliteDokladyRepository(DokladyRepository):
                datum_zdanitelneho_plneni = ?, datum_splatnosti = ?,
                partner_id = ?, castka_celkem = ?, mena = ?, stav = ?, popis = ?,
                k_doreseni = ?, poznamka_doreseni = ?,
-               castka_mena = ?, kurz = ?,
+               castka_mena = ?, kurz = ?, variabilni_symbol = ?,
                upraveno = strftime('%Y-%m-%d %H:%M:%S', 'now')
                WHERE id = ?""",
             (
@@ -122,6 +125,7 @@ class SqliteDokladyRepository(DokladyRepository):
                 if doklad.castka_mena is not None
                 else None,
                 str(doklad.kurz) if doklad.kurz is not None else None,
+                doklad.variabilni_symbol,
                 doklad.id,
             ),
         )
@@ -196,38 +200,18 @@ class SqliteDokladyRepository(DokladyRepository):
         ).fetchall()
         return [self._row_to_doklad(r) for r in rows]
 
-    def find_by_vs(self, vs: str) -> Doklad | None:
-        """Najde doklad podle variabilního symbolu (hledá v čísle dokladu).
+    def find_by_vs(self, vs: str) -> list[Doklad]:
+        """Najde doklady podle variabilního symbolu.
 
-        VS matching: hledáme FP/FV kde číslo dokladu obsahuje VS.
-        Např. VS "2025042" najde "FP-2025-042" nebo "FV-2025-042".
+        Hledá přímou shodu v sloupci variabilni_symbol.
+        Vrací seznam seřazený sestupně podle datum_vystaveni.
         """
-        # Try exact match on cislo first
-        row = self._conn.execute(
-            "SELECT * FROM doklady WHERE cislo = ? AND typ IN ('FV', 'FP')",
-            (vs,),
-        ).fetchone()
-        if row:
-            return self._row_to_doklad(row)
-
-        # Try matching VS as part of cislo (strip dashes/zeros)
-        vs_clean = vs.lstrip("0")
         rows = self._conn.execute(
-            "SELECT * FROM doklady WHERE typ IN ('FV', 'FP') "
+            "SELECT * FROM doklady WHERE variabilni_symbol = ? "
             "ORDER BY datum_vystaveni DESC",
+            (vs,),
         ).fetchall()
-        for r in rows:
-            cislo = r["cislo"]
-            # Extract number parts from cislo like "FP-2025-042"
-            cislo_digits = "".join(c for c in cislo if c.isdigit())
-            if cislo_digits and (
-                cislo_digits == vs
-                or cislo_digits.lstrip("0") == vs_clean
-                or vs in cislo_digits
-            ):
-                return self._row_to_doklad(r)
-
-        return None
+        return [self._row_to_doklad(r) for r in rows]
 
     def delete(self, doklad_id: int) -> None:
         # 1. Doklad existuje? + načíst stav
@@ -295,4 +279,5 @@ class SqliteDokladyRepository(DokladyRepository):
                 if row["kurz"] is not None
                 else None
             ),
+            variabilni_symbol=row["variabilni_symbol"],
         )

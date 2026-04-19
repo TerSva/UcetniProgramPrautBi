@@ -96,6 +96,14 @@ class DokladyRepository(ABC):
         """
 
     @abstractmethod
+    def find_by_vs(self, vs: str) -> list[Doklad]:
+        """Najde doklady podle variabilního symbolu.
+
+        Vrací seznam dokladů s daným VS, seřazený sestupně podle
+        datum_vystaveni. Prázdný seznam pokud žádný neexistuje.
+        """
+
+    @abstractmethod
     def delete(self, doklad_id: int) -> None:
         """Fyzicky smaže doklad z DB.
 

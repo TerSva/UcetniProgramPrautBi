@@ -20,6 +20,10 @@ _CISLO_PATTERN = re.compile(r"^[A-Za-z0-9\-/_]+$")
 _CISLO_MAX = 50
 _POPIS_MAX = 500
 _POZNAMKA_DORESENI_MAX = 500
+_VS_MAX = 10
+
+# Variabilní symbol: jen číslice
+_VS_PATTERN = re.compile(r"^\d+$")
 
 # Sanity check: DUZP nesmí být víc než rok po vystavení
 _MAX_ZP_OFFSET = timedelta(days=366)
@@ -48,6 +52,7 @@ class Doklad:
         mena: Mena = Mena.CZK,
         castka_mena: Money | None = None,
         kurz: Decimal | None = None,
+        variabilni_symbol: str | None = None,
         id: int | None = None,
     ) -> None:
         # Validace cislo
@@ -144,6 +149,19 @@ class Doklad:
                     "Pro CZK nelze zadávat kurz ani částku v cizí měně."
                 )
 
+        # Validace variabilni_symbol
+        if variabilni_symbol is not None:
+            if not _VS_PATTERN.match(variabilni_symbol):
+                raise ValidationError(
+                    f"Variabilní symbol smí obsahovat pouze číslice, "
+                    f"dostal {variabilni_symbol!r}."
+                )
+            if len(variabilni_symbol) > _VS_MAX:
+                raise ValidationError(
+                    f"Variabilní symbol max {_VS_MAX} znaků, "
+                    f"dostal {len(variabilni_symbol)}."
+                )
+
         self._id = id
         self._cislo = cislo
         self._typ = typ
@@ -159,6 +177,7 @@ class Doklad:
         self._mena = mena
         self._castka_mena = castka_mena
         self._kurz = kurz
+        self._variabilni_symbol = variabilni_symbol
 
     # --- Properties ---
 
@@ -221,6 +240,10 @@ class Doklad:
     @property
     def kurz(self) -> Decimal | None:
         return self._kurz
+
+    @property
+    def variabilni_symbol(self) -> str | None:
+        return self._variabilni_symbol
 
     # --- Stavový stroj ---
 

@@ -295,6 +295,7 @@ class NahratDokladyPage(QWidget):
             castka_celkem=castka,
             popis=f"OCR: {item.file_name}",
             k_doreseni=True,
+            variabilni_symbol=item.parsed_vs,
         )
         if self._vm.error:
             self._show_error(self._vm.error)
@@ -423,6 +424,7 @@ class NahratDokladyPage(QWidget):
                 castka_celkem=dlg.castka_celkem,
                 popis=dlg.popis,
                 k_doreseni=True,
+                variabilni_symbol=dlg.variabilni_symbol,
             )
             if self._vm.error:
                 self._show_error(self._vm.error)

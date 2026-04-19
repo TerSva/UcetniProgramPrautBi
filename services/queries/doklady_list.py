@@ -91,6 +91,7 @@ class DokladyListItem:
     mena: Mena = Mena.CZK
     castka_mena: Money | None = None
     kurz: Decimal | None = None
+    variabilni_symbol: str | None = None
     datum_storna: date | None = None
 
     @classmethod
@@ -127,6 +128,7 @@ class DokladyListItem:
             mena=doklad.mena,
             castka_mena=doklad.castka_mena,
             kurz=doklad.kurz,
+            variabilni_symbol=doklad.variabilni_symbol,
             datum_storna=datum_storna,
         )
 

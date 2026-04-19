@@ -37,6 +37,7 @@ class ParsedInvoice:
     mena: Mena = Mena.CZK
     castka_mena: Money | None = None
     kurz: Decimal | None = None
+    variabilni_symbol: str | None = None
     is_reverse_charge: bool = False
     is_pytlovani: bool = False
     pytlovani_jmeno: str | None = None
@@ -78,6 +79,8 @@ class ParsedInvoice:
             d["castka_mena"] = self.castka_mena.to_halire()
         if self.kurz is not None:
             d["kurz"] = str(self.kurz)
+        if self.variabilni_symbol:
+            d["variabilni_symbol"] = self.variabilni_symbol
         d["is_reverse_charge"] = self.is_reverse_charge
         d["is_pytlovani"] = self.is_pytlovani
         if self.pytlovani_jmeno:
@@ -159,6 +162,7 @@ class ParsedInvoice:
             mena=mena,
             castka_mena=castka_mena,
             kurz=kurz,
+            variabilni_symbol=d.get("variabilni_symbol"),
             is_reverse_charge=d.get("is_reverse_charge", False),
             is_pytlovani=d.get("is_pytlovani", False),
             pytlovani_jmeno=d.get("pytlovani_jmeno"),
@@ -282,7 +286,8 @@ class InvoiceParser:
         ico = "27583368"
         dic = self._extract_dic(text) or "CZ27583368"
         cislo_m = _CISLO_FV_RE.search(text)
-        cislo = cislo_m.group(1) if cislo_m else self._extract_vs(text)
+        cislo = cislo_m.group(1) if cislo_m else None
+        vs = self._extract_vs(text)
 
         datum = self._extract_first_date(text)
         castka = self._extract_castka(text)
@@ -295,6 +300,7 @@ class InvoiceParser:
             dodavatel_ico=ico,
             dodavatel_dic=dic,
             cislo_dokladu=cislo,
+            variabilni_symbol=vs,
             datum_vystaveni=datum,
             castka_celkem=castka,
             is_pytlovani=is_pytlovani,
@@ -306,7 +312,8 @@ class InvoiceParser:
         """Obecný parser pro české faktury."""
         ico = self._extract_ico(text)
         dic = self._extract_dic(text)
-        cislo = self._extract_cislo_faktury(text) or self._extract_vs(text)
+        cislo = self._extract_cislo_faktury(text)
+        vs = self._extract_vs(text)
         datum = self._extract_first_date(text)
         castka = self._extract_castka(text)
 
@@ -327,6 +334,7 @@ class InvoiceParser:
             dodavatel_ico=ico,
             dodavatel_dic=dic,
             cislo_dokladu=cislo,
+            variabilni_symbol=vs,
             datum_vystaveni=datum,
             castka_celkem=castka,
             is_pytlovani=is_pytlovani,

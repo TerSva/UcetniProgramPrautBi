@@ -91,6 +91,11 @@ class OcrUploadDetailDialog(QDialog):
     def popis(self) -> str:
         return self._popis_input.value().strip()
 
+    @property
+    def variabilni_symbol(self) -> str | None:
+        val = self._vs_input.value().strip()
+        return val if val else None
+
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(
@@ -161,6 +166,11 @@ class OcrUploadDetailDialog(QDialog):
 
         self._castka_input = LabeledMoneyEdit("Částka celkem (Kč)")
         right_layout.addWidget(self._castka_input)
+
+        self._vs_input = LabeledLineEdit(
+            "Variabilní symbol", max_length=10,
+        )
+        right_layout.addWidget(self._vs_input)
 
         self._popis_input = LabeledTextEdit("Poznámka", rows=3)
         right_layout.addWidget(self._popis_input)
@@ -246,6 +256,10 @@ class OcrUploadDetailDialog(QDialog):
         # Castka
         if item.parsed_castka:
             self._castka_input.set_value(item.parsed_castka)
+
+        # Variabilní symbol
+        if item.parsed_vs:
+            self._vs_input.set_value(item.parsed_vs)
 
         # Popis
         self._popis_input.set_value(f"OCR: {item.file_name}")

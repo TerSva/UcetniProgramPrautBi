@@ -200,6 +200,15 @@ class DokladFormDialog(QDialog):
         self._partner_selector.set_items(self._partner_items)
         root.addWidget(self._partner_selector)
 
+        # Variabilní symbol
+        self._vs_input = LabeledLineEdit(
+            "Variabilní symbol (nepovinné)",
+            placeholder="např. 20250044",
+            max_length=10,
+            parent=self,
+        )
+        root.addWidget(self._vs_input)
+
         # Číslo — prefilled, editovatelné
         self._cislo_input = LabeledLineEdit(
             "Číslo dokladu",
@@ -483,6 +492,7 @@ class DokladFormDialog(QDialog):
             if has_error:
                 return
 
+        vs_raw = self._vs_input.value().strip() or None
         data = CreateDokladInput(
             cislo=cislo,
             typ=typ,
@@ -494,6 +504,7 @@ class DokladFormDialog(QDialog):
             mena=mena,
             castka_mena=castka_mena_val,
             kurz=kurz_val,
+            variabilni_symbol=vs_raw,
         )
 
         k_doreseni = self._k_doreseni_check.isChecked()

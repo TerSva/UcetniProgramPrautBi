@@ -172,8 +172,26 @@ class AutoUctovaniBankyCommand:
 
         # 4. VS matching — hledej FP/FV
         if tx.variabilni_symbol:
-            doklad = doklady_repo.find_by_vs(tx.variabilni_symbol)
-            if doklad is not None and doklad.stav == StavDokladu.ZAUCTOVANY:
+            matches = doklady_repo.find_by_vs(tx.variabilni_symbol)
+            # Filtruj jen zaúčtované FP/FV
+            matches = [
+                d for d in matches
+                if d.stav in (StavDokladu.ZAUCTOVANY, StavDokladu.CASTECNE_UHRAZENY)
+                and d.typ in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.FAKTURA_VYDANA)
+            ]
+
+            doklad = None
+            if not matches:
+                doklad = None
+            elif len(matches) == 1:
+                doklad = matches[0]
+            else:
+                # Tie-breaker: preferuj shodu částky
+                tx_abs = tx.castka if tx.castka.is_positive else Money(-tx.castka.to_halire())
+                exact = [d for d in matches if d.castka_celkem == tx_abs]
+                doklad = exact[0] if exact else matches[0]
+
+            if doklad is not None:
                 castka = tx.castka if tx.castka.is_positive else Money(-tx.castka.to_halire())
                 if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
                     # FP úhrada: MD 321 / Dal 221
