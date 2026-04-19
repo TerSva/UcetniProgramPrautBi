@@ -34,13 +34,14 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.doklady.typy import Mena, StavDokladu
+from domain.doklady.typy import DphRezim, Mena, StavDokladu
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors, Spacing
 from ui.dialogs.confirm_dialog import ConfirmDialog
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.widgets.badge import (
     Badge,
+    BadgeVariant,
     badge_variant_for_stav,
     badge_variant_for_typ,
     stav_display_text,
@@ -231,6 +232,29 @@ class DokladDetailDialog(QDialog):
             self._form_label("Variabilní symbol:"),
             self._vs_display,
         )
+
+        # DPH režim — zobrazení jen pro non-default hodnoty
+        _DPH_REZIM_LABELS = {
+            DphRezim.REVERSE_CHARGE: "Reverse Charge",
+            DphRezim.OSVOBOZENO: "Osvobozeno",
+            DphRezim.MIMO_DPH: "Mimo předmět DPH",
+        }
+        dph_label_text = _DPH_REZIM_LABELS.get(item.dph_rezim)
+        self._dph_rezim_label = self._form_label("DPH režim:")
+        if dph_label_text:
+            self._dph_rezim_value = Badge(
+                dph_label_text, variant=BadgeVariant.WARNING, parent=self,
+            )
+        else:
+            self._dph_rezim_value = self._form_value("Tuzemsko")
+        self._dph_rezim_label.setVisible(
+            item.dph_rezim != DphRezim.TUZEMSKO,
+        )
+        self._dph_rezim_value.setVisible(
+            item.dph_rezim != DphRezim.TUZEMSKO,
+        )
+        form.addRow(self._dph_rezim_label, self._dph_rezim_value)
+
         castka = self._form_value(item.castka_celkem.format_cz())
         castka.setProperty("class", "dialog-value-strong")
         form.addRow(self._form_label("Částka celkem:"), castka)

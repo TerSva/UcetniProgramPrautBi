@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.doklady.typy import DphRezim, StavDokladu, TypDokladu
 from domain.shared.money import Money
 from domain.ucetnictvi.typy import TypUctu
 from services.queries.doklady_list import DokladyListItem
@@ -106,3 +106,62 @@ class TestReverseCharge:
         assert vm.je_podvojne is True
         assert vm.soucet_radku == Money(4400 + 924)
         assert vm.soucet_zakladnich == Money(4400)
+
+
+class TestRCAutoPrefill:
+    """Auto-prefill pro doklady s dph_rezim=REVERSE_CHARGE."""
+
+    def test_rc_doklad_prefills_4_rows(self):
+        """RC doklad → load() vytvoří 2 řádky: základ + DPH."""
+        item = _make_item()
+        # Replace with RC version
+        item = DokladyListItem(
+            id=1, cislo="FP-001", typ=TypDokladu.FAKTURA_PRIJATA,
+            datum_vystaveni=date(2025, 4, 23), datum_splatnosti=None,
+            partner_id=None, partner_nazev=None,
+            castka_celkem=Money(4400), stav=StavDokladu.NOVY,
+            k_doreseni=False, poznamka_doreseni=None, popis=None,
+            dph_rezim=DphRezim.REVERSE_CHARGE,
+        )
+        osnova = MagicMock()
+        osnova.execute.return_value = _make_ucty()
+        cmd = MagicMock()
+        vm = ZauctovaniViewModel(item, osnova, cmd)
+        vm.load()
+
+        assert len(vm.radky) == 2
+        # Základ: MD 518.200 / Dal 321.002
+        assert vm.radky[0].md_ucet == "518.200"
+        assert vm.radky[0].dal_ucet == "321.002"
+        assert vm.radky[0].castka == Money(4400)
+        # DPH: MD 343.100 / Dal 343.200
+        assert vm.radky[1].md_ucet == RC_MD_UCET
+        assert vm.radky[1].dal_ucet == RC_DAL_UCET
+        assert vm.radky[1].castka == Money(924)  # 21% z 4400
+        # RC flag je zapnutý
+        assert vm.reverse_charge is True
+
+    def test_tuzemsko_doklad_no_prefill(self):
+        """TUZEMSKO doklad → standardní 1 řádek."""
+        item = _make_item()
+        vm = _make_vm(item)
+        assert len(vm.radky) == 1
+        assert vm.reverse_charge is False
+
+    def test_rc_prefill_je_podvojne(self):
+        """RC prefill splňuje podvojnost (základ = castka_celkem)."""
+        item = DokladyListItem(
+            id=1, cislo="FP-001", typ=TypDokladu.FAKTURA_PRIJATA,
+            datum_vystaveni=date(2025, 4, 23), datum_splatnosti=None,
+            partner_id=None, partner_nazev=None,
+            castka_celkem=Money(4400), stav=StavDokladu.NOVY,
+            k_doreseni=False, poznamka_doreseni=None, popis=None,
+            dph_rezim=DphRezim.REVERSE_CHARGE,
+        )
+        osnova = MagicMock()
+        osnova.execute.return_value = _make_ucty()
+        cmd = MagicMock()
+        vm = ZauctovaniViewModel(item, osnova, cmd)
+        vm.load()
+        vm.update_row(0, md_ucet="518.200", dal_ucet="321.002")
+        assert vm.je_podvojne is True

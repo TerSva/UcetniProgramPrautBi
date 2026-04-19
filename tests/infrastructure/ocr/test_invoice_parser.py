@@ -45,6 +45,7 @@ def test_parse_meta(parser):
     assert result.datum_vystaveni == date(2025, 4, 23)
     assert result.castka_celkem == Money(4400)
     assert result.is_reverse_charge is True
+    assert result.variabilni_symbol == "12345"
 
 
 def test_parse_meta_detects_pytlovani(parser):
@@ -158,3 +159,93 @@ def test_from_dict_empty():
     restored = ParsedInvoice.from_dict({})
     assert restored.typ_dokladu is None
     assert restored.mena == Mena.CZK
+
+
+# ── Meta VS extraction ──
+
+
+class TestMetaVSExtraction:
+    """VS z FBADS čísla — poslední číselný blok, max 10 číslic."""
+
+    def test_standard_fbads(self, parser):
+        text = "Meta Platforms\nFBADS-404-104441208\nTotal: 50,00 CZK"
+        result = parser.parse(text)
+        assert result.variabilni_symbol == "104441208"
+
+    def test_long_last_block_truncated(self, parser):
+        text = "Meta Platforms\nFBADS-001-99999999999\nTotal: 10,00 CZK"
+        result = parser.parse(text)
+        assert result.variabilni_symbol == "9999999999"
+
+    def test_single_block(self, parser):
+        """FBADS s jedním blokem (NNN-NNNNN) — VS = poslední blok."""
+        text = "Meta Platforms\nFBADS-001-12345\nTotal: 10,00 CZK"
+        result = parser.parse(text)
+        assert result.variabilni_symbol == "12345"
+
+    def test_no_fbads_no_vs(self, parser):
+        text = "Meta Platforms\nInvoice something\nTotal: 10,00 CZK"
+        result = parser.parse(text)
+        assert result.variabilni_symbol is None
+
+
+# ── Meta castka fallback ──
+
+
+class TestMetaCastkaFallback:
+    """Meta faktury s „Zaplaceno" / „ve výši" vzorem."""
+
+    def test_ve_vysi_pattern(self, parser):
+        text = (
+            "Meta Platforms\nFBADS-404-123\n"
+            "dosáhli jste limitu ve výši 44,00 Kč.\n"
+        )
+        result = parser.parse(text)
+        assert result.castka_celkem == Money(4400)
+
+    def test_bare_kc_pattern(self, parser):
+        text = (
+            "Meta Platforms\nFBADS-404-123\n"
+            "Kampaň reklama\n44,00 Kč\n"
+        )
+        result = parser.parse(text)
+        assert result.castka_celkem == Money(4400)
+
+
+# ── Meta real PDF ──
+
+
+class TestMetaRealPDF:
+    """Test s reálným Meta PDF z OCR inboxu."""
+
+    @pytest.fixture
+    def meta_parsed(self, parser):
+        from pathlib import Path
+        from infrastructure.ocr.ocr_engine import OcrEngine
+        pdf = Path(__file__).resolve().parent.parent.parent / "fixtures" / "ocr" / "meta_sample.pdf"
+        if not pdf.exists():
+            pytest.skip("Meta sample PDF not found")
+        engine = OcrEngine()
+        result = engine.extract_text(pdf)
+        return parser.parse(result.text)
+
+    def test_dodavatel(self, meta_parsed):
+        assert meta_parsed.dodavatel_nazev == "Meta Platforms Ireland Limited"
+
+    def test_cislo(self, meta_parsed):
+        assert meta_parsed.cislo_dokladu == "FBADS-404-104441208"
+
+    def test_castka(self, meta_parsed):
+        assert meta_parsed.castka_celkem == Money(4400)
+
+    def test_mena(self, meta_parsed):
+        assert meta_parsed.mena == Mena.CZK
+
+    def test_datum(self, meta_parsed):
+        assert meta_parsed.datum_vystaveni == date(2025, 4, 23)
+
+    def test_vs(self, meta_parsed):
+        assert meta_parsed.variabilni_symbol == "104441208"
+
+    def test_reverse_charge(self, meta_parsed):
+        assert meta_parsed.is_reverse_charge is True

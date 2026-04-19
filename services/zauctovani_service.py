@@ -11,8 +11,9 @@ from typing import Callable, Tuple
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import StavDokladu
+from domain.doklady.typy import DphRezim, StavDokladu
 from domain.shared.errors import PodvojnostError, ValidationError
+from domain.shared.money import Money
 from domain.ucetnictvi.repository import UcetniDenikRepository
 from domain.ucetnictvi.ucetni_zaznam import UcetniZaznam
 from domain.ucetnictvi.uctovy_predpis import UctovyPredpis
@@ -57,7 +58,19 @@ class ZauctovaniDokladuService:
 
             doklad = doklady_repo.get_by_id(doklad_id)
 
-            if doklad.castka_celkem != predpis.celkova_castka:
+            # U reverse charge: DPH řádky (343/343) jsou průtokové —
+            # porovnáváme jen základ (ne-DPH řádky) s částkou dokladu.
+            if doklad.dph_rezim == DphRezim.REVERSE_CHARGE:
+                zaklad = Money.zero()
+                for z in predpis.zaznamy:
+                    if not (z.md_ucet.startswith("343") and z.dal_ucet.startswith("343")):
+                        zaklad = zaklad + z.castka
+                if doklad.castka_celkem != zaklad:
+                    raise PodvojnostError(
+                        f"Základ předpisu ({zaklad}) nesouhlasí "
+                        f"s celkovou částkou dokladu ({doklad.castka_celkem})"
+                    )
+            elif doklad.castka_celkem != predpis.celkova_castka:
                 raise PodvojnostError(
                     f"Předpis ({predpis.celkova_castka}) nesouhlasí "
                     f"s celkovou částkou dokladu ({doklad.castka_celkem})"

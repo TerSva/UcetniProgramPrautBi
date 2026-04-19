@@ -27,6 +27,16 @@ from ui.dialogs.ocr_upload_detail_dialog import OcrUploadDetailDialog
 from ui.viewmodels.ocr_inbox_vm import OcrInboxViewModel
 
 
+def _smart_popis(
+    dodavatel: str | None, cislo: str | None, file_name: str,
+) -> str:
+    """Sestaví popis dokladu: dodavatel + číslo, fallback na filename."""
+    parts = [p for p in (dodavatel, cislo) if p]
+    if parts:
+        return " \u2013 ".join(parts)
+    return f"OCR: {file_name}"
+
+
 class DropZone(QWidget):
     """Drop zone pro přetažení souborů."""
 
@@ -250,10 +260,12 @@ class NahratDokladyPage(QWidget):
             return
 
         ids = [i.id for i in items]
+        # Rok z date.today() jako fallback — batch_approve přepíše
+        # na parsed datum pro jednotlivé doklady
         self._vm.batch_approve(
             upload_ids=ids,
             typ=TypDokladu.FAKTURA_PRIJATA,
-            cislo_prefix=f"FP-{date.today().year}-OCR",
+            cislo_prefix=f"FP-{date.today().year}",
             datum_vystaveni=date.today(),
             k_doreseni=True,
         )
@@ -287,15 +299,19 @@ class NahratDokladyPage(QWidget):
         datum = item.parsed_datum or date.today()
         cislo = f"FP-{datum.year}-{upload_id:04d}"
 
+        # Smart popis: dodavatel + cislo, fallback na filename
+        popis = _smart_popis(item.parsed_dodavatel, item.parsed_cislo, item.file_name)
+
         self._vm.approve(
             upload_id=upload_id,
             typ=typ,
             cislo=cislo,
             datum_vystaveni=datum,
             castka_celkem=castka,
-            popis=f"OCR: {item.file_name}",
+            popis=popis,
             k_doreseni=True,
             variabilni_symbol=item.parsed_vs,
+            is_reverse_charge=item.parsed_is_reverse_charge,
         )
         if self._vm.error:
             self._show_error(self._vm.error)
@@ -425,6 +441,7 @@ class NahratDokladyPage(QWidget):
                 popis=dlg.popis,
                 k_doreseni=True,
                 variabilni_symbol=dlg.variabilni_symbol,
+                is_reverse_charge=item.parsed_is_reverse_charge,
             )
             if self._vm.error:
                 self._show_error(self._vm.error)

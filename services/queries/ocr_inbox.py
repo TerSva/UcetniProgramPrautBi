@@ -32,6 +32,7 @@ class OcrInboxItem:
     is_pytlovani: bool
     pytlovani_jmeno: str | None
     parsed_vs: str | None
+    parsed_is_reverse_charge: bool
     ocr_method: str | None
     ocr_confidence: int | None
     file_path: str | None = None
@@ -62,6 +63,7 @@ class OcrInboxQuery:
             parsed_datum = None
             parsed_cislo = None
             parsed_vs = None
+            parsed_is_rc = False
             is_pytlovani = False
             pytlovani_jmeno = None
 
@@ -74,6 +76,7 @@ class OcrInboxQuery:
                 parsed_datum = parsed.datum_vystaveni
                 parsed_cislo = parsed.cislo_dokladu
                 parsed_vs = parsed.variabilni_symbol
+                parsed_is_rc = parsed.is_reverse_charge
                 is_pytlovani = parsed.is_pytlovani
                 pytlovani_jmeno = parsed.pytlovani_jmeno
 
@@ -91,6 +94,7 @@ class OcrInboxQuery:
                 is_pytlovani=is_pytlovani,
                 pytlovani_jmeno=pytlovani_jmeno,
                 parsed_vs=parsed_vs,
+                parsed_is_reverse_charge=parsed_is_rc,
                 ocr_method=u.ocr_method,
                 ocr_confidence=u.ocr_confidence,
                 file_path=u.file_path,

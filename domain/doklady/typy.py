@@ -25,3 +25,10 @@ class Mena(str, Enum):
     CZK = "CZK"
     EUR = "EUR"
     USD = "USD"
+
+
+class DphRezim(str, Enum):
+    TUZEMSKO = "TUZEMSKO"
+    REVERSE_CHARGE = "REVERSE_CHARGE"
+    OSVOBOZENO = "OSVOBOZENO"
+    MIMO_DPH = "MIMO_DPH"

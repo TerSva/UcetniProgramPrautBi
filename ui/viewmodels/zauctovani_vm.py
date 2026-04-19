@@ -24,7 +24,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Protocol
 
-from domain.doklady.typy import TypDokladu
+from domain.doklady.typy import DphRezim, TypDokladu
 from domain.shared.money import Money
 from services.commands.zauctovat_doklad import (
     ZauctovatDokladInput,
@@ -204,11 +204,28 @@ class ZauctovaniViewModel:
             self._error = str(exc) or exc.__class__.__name__
         # Pre-fill: jeden prázdný řádek s celkovou částkou (Q4 rozhodnutí).
         if not self._radky:
-            self._radky.append(PredpisRadek(
-                castka=self._doklad.castka_celkem,
-                dal_ucet=self._prefill_dal_ucet or "",
-            ))
+            if self._doklad.dph_rezim == DphRezim.REVERSE_CHARGE:
+                self._prefill_reverse_charge()
+            else:
+                self._radky.append(PredpisRadek(
+                    castka=self._doklad.castka_celkem,
+                    dal_ucet=self._prefill_dal_ucet or "",
+                ))
         self._loaded = True
+
+    def _prefill_reverse_charge(self) -> None:
+        """Pre-fill 4 řádky pro reverse charge doklad (FP z EU)."""
+        castka = self._doklad.castka_celkem
+        # MD 518.200 (IT služby) / Dal 321.002 (závazky EUR)
+        self._radky.append(PredpisRadek(
+            md_ucet="518.200",
+            dal_ucet="321.002",
+            castka=castka,
+            popis="Služby z EU (reverse charge)",
+        ))
+        # Zapnout RC → přidá DPH řádek 343.100/343.200
+        self._reverse_charge = True
+        self._add_dph_row()
 
     def set_datum(self, datum: date) -> None:
         self._datum = datum

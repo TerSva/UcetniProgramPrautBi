@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Callable
 
 from domain.doklady.doklad import Doklad
-from domain.doklady.typy import Mena, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, TypDokladu
 from domain.ocr.ocr_upload import OcrUpload, StavUploadu
 from domain.shared.money import Money
 from infrastructure.database.repositories.doklady_repository import (
@@ -139,6 +139,7 @@ class OcrUploadCommand:
         kurz: Decimal | None = None,
         k_doreseni: bool = False,
         variabilni_symbol: str | None = None,
+        dph_rezim: DphRezim = DphRezim.TUZEMSKO,
     ) -> int:
         """Vytvoří doklad z uploadu. Vrátí doklad_id."""
         uow = self._uow_factory()
@@ -163,6 +164,7 @@ class OcrUploadCommand:
                 kurz=kurz,
                 k_doreseni=k_doreseni,
                 variabilni_symbol=variabilni_symbol,
+                dph_rezim=dph_rezim,
             )
             drepo.add(doklad)
             loaded = drepo.get_by_cislo(cislo)
@@ -206,31 +208,41 @@ class OcrUploadCommand:
                 if upload is None or upload.stav != StavUploadu.ZPRACOVANY:
                     continue
 
-                # Částka z parsed_data
+                # Částka, datum, popis z parsed_data
                 castka = Money(100)  # default
+                parsed_datum = datum_vystaveni
                 popis = popis_prefix
                 vs: str | None = None
+                dph_r = DphRezim.TUZEMSKO
                 if upload.parsed_data:
                     parsed = ParsedInvoice.from_dict(upload.parsed_data)
                     if parsed.castka_celkem:
                         castka = parsed.castka_celkem
-                    if parsed.cislo_dokladu:
+                    if parsed.datum_vystaveni:
+                        parsed_datum = parsed.datum_vystaveni
+                    if parsed.dodavatel_nazev and parsed.cislo_dokladu:
+                        popis = f"{parsed.dodavatel_nazev} \u2013 {parsed.cislo_dokladu}"
+                    elif parsed.cislo_dokladu:
                         popis = f"{popis_prefix} {parsed.cislo_dokladu}".strip()
                     vs = parsed.variabilni_symbol
+                    if parsed.is_reverse_charge:
+                        dph_r = DphRezim.REVERSE_CHARGE
 
-                cislo = f"{cislo_prefix}-{i:03d}"
+                rok = parsed_datum.year
+                cislo = f"{cislo_prefix.replace(str(datum_vystaveni.year), str(rok))}-{i:03d}"
                 if drepo.existuje_cislo(cislo):
                     continue
 
                 doklad = Doklad(
                     cislo=cislo,
                     typ=typ,
-                    datum_vystaveni=datum_vystaveni,
+                    datum_vystaveni=parsed_datum,
                     castka_celkem=castka,
                     partner_id=partner_id,
                     popis=popis or None,
                     k_doreseni=k_doreseni,
                     variabilni_symbol=vs,
+                    dph_rezim=dph_r,
                 )
                 drepo.add(doklad)
                 loaded = drepo.get_by_cislo(cislo)

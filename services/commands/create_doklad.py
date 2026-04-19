@@ -20,7 +20,7 @@ from decimal import Decimal
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import Mena, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, TypDokladu
 from domain.shared.errors import ConflictError
 from domain.shared.money import Money
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
@@ -46,6 +46,7 @@ class CreateDokladInput:
     castka_mena: Money | None = None
     kurz: Decimal | None = None
     variabilni_symbol: str | None = None
+    dph_rezim: DphRezim = DphRezim.TUZEMSKO
 
 
 class CreateDokladCommand:
@@ -79,6 +80,7 @@ class CreateDokladCommand:
             castka_mena=data.castka_mena,
             kurz=data.kurz,
             variabilni_symbol=data.variabilni_symbol,
+            dph_rezim=data.dph_rezim,
         )
 
         uow = self._uow_factory()

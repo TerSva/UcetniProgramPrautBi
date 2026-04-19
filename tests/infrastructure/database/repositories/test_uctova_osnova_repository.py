@@ -18,7 +18,7 @@ class TestSeedOsnovy:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
-            assert len(ucty) == 16  # 9 base + 7 from banka migration (221.001, 221.002, 221.003, 568, 591, 662, 261)
+            assert len(ucty) == 20  # 9 base + 7 banka (221.001-003, 568, 591, 662, 261) + 4 RC (518.200, 321.002, 343.100, 343.200)
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -37,9 +37,9 @@ class TestListByTyp:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             naklady = repo.list_by_typ(TypUctu.NAKLADY)
-            assert len(naklady) == 4  # 501, 518, 568, 591
+            assert len(naklady) == 5  # 501, 518, 518.200, 568, 591
             cisla = {u.cislo for u in naklady}
-            assert {"501", "518", "568", "591"} == cisla
+            assert {"501", "518", "518.200", "568", "591"} == cisla
 
     def test_vynosy(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -188,7 +188,7 @@ class TestAnalytikaRoundTrip:
             assert {a.cislo for a in analytiky_501} == {"501.100", "501.200"}
 
             analytiky_518 = repo2.get_analytiky("518")
-            assert len(analytiky_518) == 1
+            assert len(analytiky_518) == 2  # 518.100 (seed) + 518.200 (RC migration)
 
             analytiky_311 = repo2.get_analytiky("311")
             assert len(analytiky_311) == 0

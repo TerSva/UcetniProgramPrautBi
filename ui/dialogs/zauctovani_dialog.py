@@ -151,6 +151,10 @@ class ZauctovaniDialog(QDialog):
         self._vm.load()
         self._build_ui()
         self._wire_signals()
+        # Sync RC checkbox from VM (e.g. auto-prefill for RC doklady)
+        if self._vm.reverse_charge:
+            self._rc_check.setChecked(True)
+            self._dph_sazba_combo.setVisible(True)
         self._rebuild_rows()
         self._sync_ui()
 

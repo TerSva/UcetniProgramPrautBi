@@ -11,7 +11,7 @@ from decimal import Decimal
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import Mena, StavDokladu, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, StavDokladu, TypDokladu
 from domain.shared.errors import ConflictError, NotFoundError, ValidationError
 from domain.shared.money import Money
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
@@ -38,8 +38,8 @@ class SqliteDokladyRepository(DokladyRepository):
                    (cislo, typ, datum_vystaveni, datum_zdanitelneho_plneni,
                     datum_splatnosti, partner_id, castka_celkem, mena, stav, popis,
                     k_doreseni, poznamka_doreseni, castka_mena, kurz,
-                    variabilni_symbol)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    variabilni_symbol, dph_rezim)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doklad.cislo,
                     doklad.typ.value,
@@ -62,6 +62,7 @@ class SqliteDokladyRepository(DokladyRepository):
                     else None,
                     str(doklad.kurz) if doklad.kurz is not None else None,
                     doklad.variabilni_symbol,
+                    doklad.dph_rezim.value,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -87,6 +88,7 @@ class SqliteDokladyRepository(DokladyRepository):
             castka_mena=doklad.castka_mena,
             kurz=doklad.kurz,
             variabilni_symbol=doklad.variabilni_symbol,
+            dph_rezim=doklad.dph_rezim,
             id=cursor.lastrowid,
         )
 
@@ -102,6 +104,7 @@ class SqliteDokladyRepository(DokladyRepository):
                partner_id = ?, castka_celkem = ?, mena = ?, stav = ?, popis = ?,
                k_doreseni = ?, poznamka_doreseni = ?,
                castka_mena = ?, kurz = ?, variabilni_symbol = ?,
+               dph_rezim = ?,
                upraveno = strftime('%Y-%m-%d %H:%M:%S', 'now')
                WHERE id = ?""",
             (
@@ -126,6 +129,7 @@ class SqliteDokladyRepository(DokladyRepository):
                 else None,
                 str(doklad.kurz) if doklad.kurz is not None else None,
                 doklad.variabilni_symbol,
+                doklad.dph_rezim.value,
                 doklad.id,
             ),
         )
@@ -241,7 +245,14 @@ class SqliteDokladyRepository(DokladyRepository):
                 f"Nelze smazat, použij storno."
             )
 
-        # 4. Delete
+        # 4. Odpoj OCR upload (FK bez CASCADE → musíme ručně)
+        self._conn.execute(
+            "UPDATE ocr_uploads SET vytvoreny_doklad_id = NULL, stav = 'zpracovany' "
+            "WHERE vytvoreny_doklad_id = ?",
+            (doklad_id,),
+        )
+
+        # 5. Delete
         self._conn.execute("DELETE FROM doklady WHERE id = ?", (doklad_id,))
 
     def _row_to_doklad(self, row: sqlite3.Row) -> Doklad:
@@ -280,4 +291,5 @@ class SqliteDokladyRepository(DokladyRepository):
                 else None
             ),
             variabilni_symbol=row["variabilni_symbol"],
+            dph_rezim=DphRezim(row["dph_rezim"]) if row["dph_rezim"] else DphRezim.TUZEMSKO,
         )

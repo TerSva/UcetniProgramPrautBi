@@ -7,7 +7,7 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Callable
 
-from domain.doklady.typy import Mena, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, TypDokladu
 from domain.ocr.ocr_upload import StavUploadu
 from domain.shared.money import Money
 from services.commands.ocr_upload import OcrUploadCommand
@@ -83,8 +83,13 @@ class OcrInboxViewModel:
         kurz: Decimal | None = None,
         k_doreseni: bool = False,
         variabilni_symbol: str | None = None,
+        is_reverse_charge: bool = False,
     ) -> int | None:
         """Schválí upload a vytvoří doklad."""
+        dph_rezim = (
+            DphRezim.REVERSE_CHARGE if is_reverse_charge
+            else DphRezim.TUZEMSKO
+        )
         try:
             doklad_id = self._upload_cmd.approve(
                 upload_id=upload_id,
@@ -100,6 +105,7 @@ class OcrInboxViewModel:
                 kurz=kurz,
                 k_doreseni=k_doreseni,
                 variabilni_symbol=variabilni_symbol,
+                dph_rezim=dph_rezim,
             )
             self._error = None
             self.load()

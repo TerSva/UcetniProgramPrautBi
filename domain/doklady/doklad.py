@@ -9,7 +9,7 @@ import re
 from datetime import date, timedelta
 from decimal import Decimal
 
-from domain.doklady.typy import Mena, StavDokladu, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, StavDokladu, TypDokladu
 from domain.shared.errors import ValidationError
 from domain.shared.money import Money
 
@@ -53,6 +53,7 @@ class Doklad:
         castka_mena: Money | None = None,
         kurz: Decimal | None = None,
         variabilni_symbol: str | None = None,
+        dph_rezim: DphRezim = DphRezim.TUZEMSKO,
         id: int | None = None,
     ) -> None:
         # Validace cislo
@@ -178,6 +179,7 @@ class Doklad:
         self._castka_mena = castka_mena
         self._kurz = kurz
         self._variabilni_symbol = variabilni_symbol
+        self._dph_rezim = dph_rezim
 
     # --- Properties ---
 
@@ -244,6 +246,10 @@ class Doklad:
     @property
     def variabilni_symbol(self) -> str | None:
         return self._variabilni_symbol
+
+    @property
+    def dph_rezim(self) -> DphRezim:
+        return self._dph_rezim
 
     # --- Stavový stroj ---
 

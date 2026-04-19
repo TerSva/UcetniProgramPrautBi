@@ -21,7 +21,7 @@ from typing import Callable
 
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import Mena, StavDokladu, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, StavDokladu, TypDokladu
 from domain.partneri.repository import PartneriRepository
 from domain.shared.money import Money
 from domain.ucetnictvi.repository import UcetniDenikRepository
@@ -92,6 +92,7 @@ class DokladyListItem:
     castka_mena: Money | None = None
     kurz: Decimal | None = None
     variabilni_symbol: str | None = None
+    dph_rezim: DphRezim = DphRezim.TUZEMSKO
     datum_storna: date | None = None
 
     @classmethod
@@ -129,6 +130,7 @@ class DokladyListItem:
             castka_mena=doklad.castka_mena,
             kurz=doklad.kurz,
             variabilni_symbol=doklad.variabilni_symbol,
+            dph_rezim=doklad.dph_rezim,
             datum_storna=datum_storna,
         )
 

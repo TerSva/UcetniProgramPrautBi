@@ -183,7 +183,7 @@ _FBADS_RE = re.compile(r"FBADS-\d{3}-\d{5,}", re.IGNORECASE)
 _DATE_CZ_RE = re.compile(r"(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})")
 _DATE_ISO_RE = re.compile(r"(\d{4})-(\d{2})-(\d{2})")
 _CASTKA_CZ_RE = re.compile(
-    r"(?:Celkem|Total|K úhradě|Amount due|Částka)\s*:?\s*"
+    r"(?:Celkem|Total|K úhradě|Amount due|Částka|Zaplaceno|Cena celkem|Celková cena|Amount paid)\s*:?\s*"
     r"([\d\s,.]+)\s*(?:Kč|CZK|EUR|USD)?",
     re.IGNORECASE,
 )
@@ -219,12 +219,28 @@ class InvoiceParser:
     def _parse_meta(self, text: str) -> ParsedInvoice:
         """Meta/Facebook Ads invoices."""
         cislo = None
+        vs = None
         m = _FBADS_RE.search(text)
         if m:
             cislo = m.group(0)
+            # VS = poslední číselný blok z FBADS čísla (max 10 číslic)
+            numbers = re.findall(r"\d+", cislo)
+            if numbers:
+                vs = numbers[-1][:10]
 
         datum = self._extract_first_date(text)
         castka = self._extract_castka(text)
+
+        # Meta: fallback — hledej "ve výši XX,XX Kč" nebo "N,NN Kč" vzor
+        if castka is None:
+            m_vysi = re.search(r"ve výši\s+([\d,.]+)\s*Kč", text)
+            if m_vysi:
+                castka = self._parse_money(m_vysi.group(1).strip())
+            else:
+                # Tight pattern: digit(s),digit(s) Kč (no spaces in number)
+                m_kc = re.search(r"(?<!\d)([\d]+[,.][\d]+)\s*Kč", text)
+                if m_kc:
+                    castka = self._parse_money(m_kc.group(1).strip())
 
         # Meta faktury z EU jsou reverse charge
         dic = self._extract_dic(text)
@@ -247,6 +263,7 @@ class InvoiceParser:
             dodavatel_nazev="Meta Platforms Ireland Limited",
             dodavatel_dic=dic or "IE9692928F",
             cislo_dokladu=cislo,
+            variabilni_symbol=vs,
             datum_vystaveni=datum,
             castka_celkem=castka,
             mena=mena,

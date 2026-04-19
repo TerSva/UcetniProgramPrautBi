@@ -5,7 +5,7 @@ from datetime import date
 import pytest
 
 from domain.doklady.doklad import Doklad
-from domain.doklady.typy import StavDokladu, TypDokladu
+from domain.doklady.typy import DphRezim, StavDokladu, TypDokladu
 from domain.shared.errors import NotFoundError, PodvojnostError, ValidationError
 from domain.shared.money import Money
 from domain.ucetnictvi.ucetni_zaznam import UcetniZaznam
@@ -366,3 +366,84 @@ class TestStornujDoklad:
                 start=0,
             )
             assert md_311 == dal_311  # anulace
+
+
+class TestReverseChargeValidation:
+    """RC doklady: DPH řádky (343/343) neblokují validaci částky."""
+
+    @pytest.fixture
+    def rc_doklad(self, service_factories):
+        """FP 44 Kč s dph_rezim=REVERSE_CHARGE."""
+        uow = service_factories["uow"]()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            d = repo.add(Doklad(
+                cislo="FP-RC-001",
+                typ=TypDokladu.FAKTURA_PRIJATA,
+                datum_vystaveni=date(2025, 4, 23),
+                castka_celkem=Money(4400),
+                dph_rezim=DphRezim.REVERSE_CHARGE,
+            ))
+            uow.commit()
+        return d.id
+
+    def test_rc_zauctovani_projde(self, service, rc_doklad):
+        """RC doklad 44 Kč + DPH 9,24 Kč → součet 53,24 → projde."""
+        predpis = UctovyPredpis(
+            doklad_id=rc_doklad,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=rc_doklad, datum=date(2025, 4, 23),
+                    md_ucet="518.200", dal_ucet="321.002",
+                    castka=Money(4400),
+                ),
+                UcetniZaznam(
+                    doklad_id=rc_doklad, datum=date(2025, 4, 23),
+                    md_ucet="343.100", dal_ucet="343.200",
+                    castka=Money(924),
+                ),
+            ),
+        )
+        doklad, zapisy = service.zauctuj_doklad(rc_doklad, predpis)
+        assert doklad.stav == StavDokladu.ZAUCTOVANY
+        assert len(zapisy) == 2
+
+    def test_rc_zaklad_nesouhlasi_selze(self, service, rc_doklad):
+        """RC doklad 44 Kč, základ 40 Kč → selže (základ != castka_celkem)."""
+        predpis = UctovyPredpis(
+            doklad_id=rc_doklad,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=rc_doklad, datum=date(2025, 4, 23),
+                    md_ucet="518.200", dal_ucet="321.002",
+                    castka=Money(4000),  # 40 Kč, ne 44
+                ),
+                UcetniZaznam(
+                    doklad_id=rc_doklad, datum=date(2025, 4, 23),
+                    md_ucet="343.100", dal_ucet="343.200",
+                    castka=Money(840),
+                ),
+            ),
+        )
+        with pytest.raises(PodvojnostError, match="nesouhlasí"):
+            service.zauctuj_doklad(rc_doklad, predpis)
+
+    def test_tuzemsky_doklad_s_vyssi_castkou_selze(self, service, fv_v_db):
+        """Tuzemský doklad — součet > castka_celkem → stále selže."""
+        predpis = UctovyPredpis(
+            doklad_id=fv_v_db,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=fv_v_db, datum=date(2026, 4, 11),
+                    md_ucet="311", dal_ucet="601",
+                    castka=Money.from_koruny("12100"),
+                ),
+                UcetniZaznam(
+                    doklad_id=fv_v_db, datum=date(2026, 4, 11),
+                    md_ucet="343.100", dal_ucet="343.200",
+                    castka=Money.from_koruny("2541"),
+                ),
+            ),
+        )
+        with pytest.raises(PodvojnostError, match="nesouhlasí"):
+            service.zauctuj_doklad(fv_v_db, predpis)

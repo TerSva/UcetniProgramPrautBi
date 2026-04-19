@@ -261,8 +261,10 @@ class OcrUploadDetailDialog(QDialog):
         if item.parsed_vs:
             self._vs_input.set_value(item.parsed_vs)
 
-        # Popis
-        self._popis_input.set_value(f"OCR: {item.file_name}")
+        # Popis — smart: dodavatel + číslo, fallback na filename
+        parts = [p for p in (item.parsed_dodavatel, item.parsed_cislo) if p]
+        popis = " \u2013 ".join(parts) if parts else f"OCR: {item.file_name}"
+        self._popis_input.set_value(popis)
 
         # Preview
         self._load_preview()
