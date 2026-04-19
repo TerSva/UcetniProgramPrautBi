@@ -2,8 +2,8 @@
 
 Ověřuje:
   * Fonty se načtou (Space Grotesk + DM Sans)
-  * MainWindow má 20 stránek v stacku (Fáze 13)
-  * Sidebar má 5 sekcí s celkem 19 navigovatelnými položkami
+  * MainWindow má 19 stránek v stacku (BV removed from sub-pages)
+  * Sidebar má 5 sekcí s celkem 18 navigovatelnými položkami
   * Klik na aktivní položku emituje signál a přepne stack
   * load_icon() vrací QIcon
   * load_icon() hází FileNotFoundError pro neexistující ikonu
@@ -38,7 +38,7 @@ def test_fonts_register(qtbot):
 
 
 def test_main_window_has_twenty_pages(main_window):
-    assert main_window.stack.count() == 20
+    assert main_window.stack.count() == 19
 
 
 def test_main_window_starts_on_dashboard(main_window):
@@ -58,15 +58,15 @@ def test_sidebar_has_five_sections(main_window):
 
 def test_sidebar_has_navigable_items(main_window):
     """Všechny navigovatelné klíče jsou v ACTIVE_KEYS."""
-    assert len(ACTIVE_KEYS) == 19
+    assert len(ACTIVE_KEYS) == 18
 
 
 def test_doklady_has_sub_items(main_window):
-    """Doklady parent má 6 sub-items."""
+    """Doklady parent má 5 sub-items (BV removed)."""
     for section in SIDEBAR_STRUCTURE:
         for item in section.items:
             if item.key == "doklady":
-                assert len(item.sub_items) == 6
+                assert len(item.sub_items) == 5
                 sub_keys = [s.key for s in item.sub_items]
                 assert "doklady_fv" in sub_keys
                 assert "doklady_fp" in sub_keys

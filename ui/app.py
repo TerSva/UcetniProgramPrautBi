@@ -182,7 +182,7 @@ def _build_partneri_vm(factory: ConnectionFactory) -> PartneriViewModel:
     return PartneriViewModel(query, command)
 
 
-def _build_factories(factory: ConnectionFactory):
+def _build_factories(factory: ConnectionFactory, nastaveni_vm: NastaveniViewModel | None = None):
     """Postaví queries + commands → VM factories pro Doklady page."""
     uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
     doklady_repo_factory = lambda uow: SqliteDokladyRepository(uow)  # noqa: E731
@@ -219,10 +219,16 @@ def _build_factories(factory: ConnectionFactory):
     )
 
     def form_vm_factory() -> DokladFormViewModel:
+        ucetni_rok = None
+        if nastaveni_vm is not None:
+            nastaveni_vm.load()
+            if nastaveni_vm.firma is not None:
+                ucetni_rok = nastaveni_vm.firma.rok_zacatku_uctovani
         return DokladFormViewModel(
             next_number_query=next_number_query,
             create_command=create_cmd,
             actions_command=actions_cmd,
+            ucetni_rok=ucetni_rok,
         )
 
     def detail_vm_factory(item: DokladyListItem) -> DokladDetailViewModel:
@@ -336,7 +342,7 @@ def run(db_path: Path | None = None) -> int:
     pocatecni_stavy_vm = _build_pocatecni_stavy_vm(factory, nastaveni_vm)
     ocr_inbox_vm = _build_ocr_inbox_vm(factory)
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
-        _build_factories(factory)
+        _build_factories(factory, nastaveni_vm)
     )
     import_vypisu_vm = _build_import_vypisu_vm(factory)
     bankovni_vypisy_vm = _build_bankovni_vypisy_vm(factory)

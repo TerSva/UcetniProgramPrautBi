@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -124,7 +125,7 @@ class NastaveniPage(QWidget):
 
         row3 = QHBoxLayout()
         row3.setSpacing(Spacing.S3)
-        self._rok_combo = LabeledComboBox("Rok začátku účtování", self)
+        self._rok_combo = LabeledComboBox("Účetní období (rok)", self)
         for r in range(2020, 2031):
             self._rok_combo.add_item(str(r), r)
         row3.addWidget(self._rok_combo)
@@ -187,24 +188,42 @@ class NastaveniPage(QWidget):
     def _on_save(self) -> None:
         if self._vm is None:
             return
-        firma = Firma(
-            nazev=self._nazev_input.value() or "",
-            ico=self._ico_input.value() or None,
-            dic=self._dic_input.value() or None,
-            sidlo=self._sidlo_input.value() or None,
-            pravni_forma=self._pravni_forma_combo.value() or "s.r.o.",
-            datum_zalozeni=self._datum_zalozeni.value(),
-            rok_zacatku_uctovani=self._rok_combo.value() or 2025,
-            kategorie_uj=self._kategorie_combo.value() or "mikro",
-            je_identifikovana_osoba_dph=self._io_dph_check.isChecked(),
-            je_platce_dph=self._platce_dph_check.isChecked(),
-        )
+
+        # Validate date format if entered
+        date_text = ""
+        if hasattr(self._datum_zalozeni, '_line_edit') and self._datum_zalozeni._line_edit:
+            date_text = self._datum_zalozeni._line_edit.text().strip()
+        datum_val = self._datum_zalozeni.value()
+        if date_text and datum_val is None:
+            QMessageBox.warning(
+                self, "Chyba",
+                f"Neplatný formát data: '{date_text}'\n"
+                "Zadejte datum ve formátu d.M.yyyy (např. 28.5.2025).",
+            )
+            return
+
+        try:
+            firma = Firma(
+                nazev=self._nazev_input.value() or "",
+                ico=self._ico_input.value() or None,
+                dic=self._dic_input.value() or None,
+                sidlo=self._sidlo_input.value() or None,
+                pravni_forma=self._pravni_forma_combo.value() or "s.r.o.",
+                datum_zalozeni=datum_val,
+                rok_zacatku_uctovani=self._rok_combo.value() or 2025,
+                kategorie_uj=self._kategorie_combo.value() or "mikro",
+                je_identifikovana_osoba_dph=self._io_dph_check.isChecked(),
+                je_platce_dph=self._platce_dph_check.isChecked(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Chyba validace", str(exc))
+            return
+
         self._vm.save(firma)
         if self._vm.error:
-            self._error_label.setText(self._vm.error)
-            self._error_label.setVisible(True)
+            QMessageBox.warning(self, "Chyba uložení", self._vm.error)
         else:
-            self._error_label.setVisible(False)
+            QMessageBox.information(self, "Uloženo", "Nastavení firmy bylo uloženo.")
 
     # ─── Test-only accessors ─────────────────────────────────────
 

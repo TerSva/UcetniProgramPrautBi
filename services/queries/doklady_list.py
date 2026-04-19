@@ -51,7 +51,7 @@ class DokladyFilter:
     rok: int | None = None
     typ: TypDokladu | None = None
     stav: StavDokladu | None = None
-    k_doreseni: KDoreseniFilter = KDoreseniFilter.SKRYT
+    k_doreseni: KDoreseniFilter = KDoreseniFilter.VSE
 
     @property
     def je_vychozi(self) -> bool:
@@ -63,7 +63,7 @@ class DokladyFilter:
             self.rok is None
             and self.typ is None
             and self.stav is None
-            and self.k_doreseni == KDoreseniFilter.SKRYT
+            and self.k_doreseni == KDoreseniFilter.VSE
         )
 
 
@@ -189,8 +189,12 @@ class DokladyListQuery:
             doklady = repo.list_by_obdobi(start, end, limit=_LIMIT)
 
             # Python-side filter
+            # BV are managed in Banka section, never shown in Doklady
+            _EXCLUDED_TYPY = {TypDokladu.BANKOVNI_VYPIS}
             filtered: list[Doklad] = []
             for d in doklady:
+                if d.typ in _EXCLUDED_TYPY:
+                    continue
                 if f.typ is not None and d.typ != f.typ:
                     continue
                 if f.stav is not None and d.stav != f.stav:

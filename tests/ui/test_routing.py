@@ -17,7 +17,7 @@ class TestRouting:
         expected_keys = [
             "dashboard",
             "doklady_fv", "doklady_fp", "doklady_pd",
-            "doklady_bv", "doklady_id", "doklady_od",
+            "doklady_id", "doklady_od",
             "osnova",
             "nahrat_doklady", "banka_import", "banka_vypisy",
             "ucetni_denik",

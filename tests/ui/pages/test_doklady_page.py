@@ -185,7 +185,7 @@ class TestApplyTypFilter:
         # Pak drill
         page.apply_typ_filter(TypDokladu.FAKTURA_VYDANA)
         assert vm.filter.rok is None
-        assert vm.filter.k_doreseni == KDoreseniFilter.SKRYT
+        assert vm.filter.k_doreseni == KDoreseniFilter.VSE
         assert vm.filter.typ == TypDokladu.FAKTURA_VYDANA
 
 
@@ -315,7 +315,7 @@ class TestPresetTyp:
         qtbot.addWidget(page)
         assert page._title_widget.text() == "Přijaté faktury"
 
-    def test_typ_dropdown_disabled_when_preset(self, qtbot):
+    def test_typ_dropdown_hidden_when_preset(self, qtbot):
         query = _StubQuery([])
         vm = DokladyListViewModel(query)
         page = DokladyPage(
@@ -324,7 +324,7 @@ class TestPresetTyp:
             preset_title="Vydané faktury",
         )
         qtbot.addWidget(page)
-        assert not page._filter_bar_widget._combo_typ_widget.isEnabled()
+        assert page._filter_bar_widget._typ_hidden is True
 
     def test_default_title_without_preset(self, qtbot):
         query = _StubQuery([])

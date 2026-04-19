@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -41,6 +42,15 @@ from ui.viewmodels.zauctovani_vm import ZauctovaniViewModel
 from ui.widgets.doklady_table import DokladyTable
 from ui.widgets.filter_bar import FilterBar
 
+
+#: Per-type subtitles
+_SUBTITLE_BY_TYP: dict[TypDokladu, str] = {
+    TypDokladu.FAKTURA_VYDANA: "Faktury vydané klientům.",
+    TypDokladu.FAKTURA_PRIJATA: "Faktury přijaté od dodavatelů.",
+    TypDokladu.POKLADNI_DOKLAD: "Pokladní doklady — příjmové a výdajové.",
+    TypDokladu.INTERNI_DOKLAD: "Interní doklady — vklady kapitálu, přeúčtování, opravné položky.",
+    TypDokladu.OPRAVNY_DOKLAD: "Opravné doklady ke stávajícím fakturám.",
+}
 
 #: Index stránek v interním QStackedWidget pro přepínání obsah vs. empty state.
 _STACK_CONTENT = 0
@@ -91,6 +101,9 @@ class DokladyPage(QWidget):
         self._zauctovani_vm_factory = zauctovani_vm_factory
         self._preset_typ = preset_typ
         self._preset_title = preset_title or "Doklady"
+        self._preset_subtitle = _SUBTITLE_BY_TYP.get(
+            preset_typ, "Přijaté a vydané faktury, příjmové a výdajové doklady.",
+        ) if preset_typ else "Přijaté a vydané faktury, příjmové a výdajové doklady."
 
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -102,9 +115,25 @@ class DokladyPage(QWidget):
         if self._preset_typ is not None:
             self._vm.set_typ_filter(self._preset_typ)
             self._filter_bar.set_filter(self._vm.filter)
-            self._filter_bar._combo_typ_widget.setEnabled(False)
+            self._filter_bar.hide_typ_combo()
 
         self.refresh()
+
+    # ────────────────────────────────────────────────
+    # Event overrides
+    # ────────────────────────────────────────────────
+
+    def showEvent(self, event: QShowEvent) -> None:  # noqa: N802
+        """Re-apply preset typ filter every time the page becomes visible.
+
+        Multiple DokladyPage instances share one VM — without this,
+        switching pages shows stale data from the previously active page.
+        """
+        super().showEvent(event)
+        if self._preset_typ is not None:
+            self._vm.set_typ_filter(self._preset_typ)
+            self._filter_bar.set_filter(self._vm.filter)
+            self._sync_ui_with_vm()
 
     # ────────────────────────────────────────────────
     # Public API
@@ -182,9 +211,7 @@ class DokladyPage(QWidget):
         self._title = QLabel(self._preset_title, self)
         self._title.setProperty("class", "page-title")
 
-        subtitle = QLabel(
-            "Přijaté a vydané faktury, příjmové a výdajové doklady.", self
-        )
+        subtitle = QLabel(self._preset_subtitle, self)
         subtitle.setProperty("class", "page-subtitle")
 
         title_box = QVBoxLayout()
@@ -284,9 +311,11 @@ class DokladyPage(QWidget):
         stav: object,
         k_doreseni: object,
     ) -> None:
+        # Preset typ takes priority — ignore user's typ selection
+        effective_typ = self._preset_typ if self._preset_typ is not None else typ
         new_filter = DokladyFilter(
             rok=rok,
-            typ=typ,
+            typ=effective_typ,
             stav=stav,
             k_doreseni=k_doreseni,
         )
@@ -294,7 +323,11 @@ class DokladyPage(QWidget):
         self._sync_ui_with_vm()
 
     def _on_clear_filters(self) -> None:
-        self._vm.clear_filters()
+        if self._preset_typ is not None:
+            # Keep preset typ, clear everything else
+            self._vm.set_typ_filter(self._preset_typ)
+        else:
+            self._vm.clear_filters()
         self._filter_bar.set_filter(self._vm.filter)
         self._sync_ui_with_vm()
 
@@ -333,7 +366,7 @@ class DokladyPage(QWidget):
         if self._form_vm_factory is None:
             return
         vm = self._form_vm_factory()
-        dialog = DokladFormDialog(vm, parent=self)
+        dialog = DokladFormDialog(vm, preset_typ=self._preset_typ, parent=self)
         if dialog.exec() and dialog.created_item is not None:
             self.refresh()
             # Otevři detail pro nově vytvořený doklad → umožní okamžitě

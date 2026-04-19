@@ -50,12 +50,22 @@ class DokladFormViewModel:
         next_number_query: _NextNumberQuery,
         create_command: _CreateCommand,
         actions_command: _ActionsCommand | None = None,
+        ucetni_rok: int | None = None,
     ) -> None:
         self._next_number_query = next_number_query
         self._create_command = create_command
         self._actions_command = actions_command
+        self._ucetni_rok = ucetni_rok
         self._created_item: DokladyListItem | None = None
         self._error: str | None = None
+
+    @property
+    def ucetni_rok(self) -> int:
+        """Aktivní účetní rok (z Nastavení firmy)."""
+        if self._ucetni_rok is not None:
+            return self._ucetni_rok
+        from datetime import date
+        return date.today().year
 
     # ─── Read-only state ──────────────────────────────────────────────
 

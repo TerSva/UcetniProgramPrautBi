@@ -61,7 +61,6 @@ SIDEBAR_STRUCTURE: tuple[SidebarSection, ...] = (
                     SidebarItem("doklady_fv", "Vydané faktury (FV)", "file-text", "Účetnictví"),
                     SidebarItem("doklady_fp", "Přijaté faktury (FP)", "file-input", "Účetnictví"),
                     SidebarItem("doklady_pd", "Pokladní doklady (PD)", "wallet", "Účetnictví"),
-                    SidebarItem("doklady_bv", "Bankovní výpisy (BV)", "credit-card", "Účetnictví"),
                     SidebarItem("doklady_id", "Interní doklady (ID)", "file-edit", "Účetnictví"),
                     SidebarItem("doklady_od", "Opravné doklady (OD)", "refresh-ccw", "Účetnictví"),
                 ),

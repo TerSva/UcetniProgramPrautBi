@@ -80,7 +80,7 @@ class TestDokladyFilter:
         assert f.rok is None
         assert f.typ is None
         assert f.stav is None
-        assert f.k_doreseni == KDoreseniFilter.SKRYT
+        assert f.k_doreseni == KDoreseniFilter.VSE
 
     def test_je_vychozi_true_pri_defaultech(self):
         assert DokladyFilter().je_vychozi is True
@@ -95,8 +95,8 @@ class TestDokladyFilter:
         f = DokladyFilter(k_doreseni=KDoreseniFilter.POUZE)
         assert f.je_vychozi is False
 
-    def test_je_vychozi_false_kdyz_k_doreseni_vse(self):
-        f = DokladyFilter(k_doreseni=KDoreseniFilter.VSE)
+    def test_je_vychozi_false_kdyz_k_doreseni_skryt(self):
+        f = DokladyFilter(k_doreseni=KDoreseniFilter.SKRYT)
         assert f.je_vychozi is False
 
     def test_je_frozen(self):
@@ -164,7 +164,8 @@ class TestQueryPrazdnaDb:
 
 class TestQueryFiltrovani:
 
-    def test_defaultni_filter_vraci_vsechno_bez_flagnutych(self, db_factory):
+    def test_defaultni_filter_vraci_vsechno_vcetne_flagnutych(self, db_factory):
+        """Default (VSE) vrací i flagnuté doklady."""
         _add(db_factory, "A-1", TypDokladu.FAKTURA_VYDANA,
              date(2026, 2, 1), "100")
         _add(db_factory, "A-2", TypDokladu.FAKTURA_PRIJATA,
@@ -172,8 +173,7 @@ class TestQueryFiltrovani:
 
         q = _build_query(db_factory)
         items = q.execute(DokladyFilter())
-        assert len(items) == 1
-        assert items[0].cislo == "A-1"
+        assert len(items) == 2
 
     def test_k_doreseni_vse_vraci_i_flagnute(self, db_factory):
         _add(db_factory, "A-1", TypDokladu.FAKTURA_VYDANA,

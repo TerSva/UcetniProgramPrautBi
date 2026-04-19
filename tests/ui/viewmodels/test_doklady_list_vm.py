@@ -245,7 +245,7 @@ class TestSetTypFilter:
         vm.set_typ_filter(TypDokladu.FAKTURA_VYDANA)
         assert vm.filter.typ == TypDokladu.FAKTURA_VYDANA
         assert vm.filter.rok is None
-        assert vm.filter.k_doreseni == KDoreseniFilter.SKRYT
+        assert vm.filter.k_doreseni == KDoreseniFilter.VSE
 
     def test_set_typ_filter_resetuje_jine(self):
         q = _StubQuery([])
@@ -256,7 +256,7 @@ class TestSetTypFilter:
         vm.set_typ_filter(TypDokladu.FAKTURA_PRIJATA)
         assert vm.filter.typ == TypDokladu.FAKTURA_PRIJATA
         assert vm.filter.rok is None
-        assert vm.filter.k_doreseni == KDoreseniFilter.SKRYT
+        assert vm.filter.k_doreseni == KDoreseniFilter.VSE
 
     def test_set_typ_filter_zavola_load(self):
         q = _StubQuery([_item("A")])

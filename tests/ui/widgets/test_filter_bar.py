@@ -33,8 +33,8 @@ class TestFilterBarDefault:
         bar = FilterBar()
         qtbot.addWidget(bar)
         combo = bar._combo_typ_widget
-        # +1 za "Všechny typy"
-        assert combo.count() == len(list(TypDokladu)) + 1
+        # +1 za "Všechny typy", -1 za BV (excluded)
+        assert combo.count() == len(list(TypDokladu)) + 1 - 1
         assert combo.itemData(0) is None
 
     def test_stav_combo_ma_vsechny_stavy_plus_prazdny(self, qtbot):
@@ -49,8 +49,8 @@ class TestFilterBarDefault:
         qtbot.addWidget(bar)
         combo = bar._combo_doreseni_widget
         assert combo.count() == 3
-        assert combo.itemData(0) == KDoreseniFilter.SKRYT
-        assert combo.itemData(1) == KDoreseniFilter.VSE
+        assert combo.itemData(0) == KDoreseniFilter.VSE
+        assert combo.itemData(1) == KDoreseniFilter.SKRYT
         assert combo.itemData(2) == KDoreseniFilter.POUZE
 
 
@@ -98,7 +98,7 @@ class TestFilterBarSignaly:
         rok, typ, stav, k = received[0]
         assert typ == TypDokladu.FAKTURA_VYDANA
         assert stav is None
-        assert k == KDoreseniFilter.SKRYT
+        assert k == KDoreseniFilter.VSE
 
     def test_clear_button_emituje_clear_requested(self, qtbot):
         bar = FilterBar()
@@ -147,6 +147,7 @@ class TestFilterBarActiveIndicator:
             stav=StavDokladu.ZAUCTOVANY,
             k_doreseni=KDoreseniFilter.POUZE,
         ))
+        # rok + typ + stav + k_doreseni (typ visible = counts)
         assert bar.active_filters_count() == 4
 
     def test_reset_skryje_indikator(self, qtbot):

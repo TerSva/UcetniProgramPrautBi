@@ -165,7 +165,12 @@ class LabeledTextEdit(_LabeledBase):
 
 
 class LabeledDateEdit(_LabeledBase):
-    """QDateEdit s calendar popupem. ``clearable`` povolí None (= prázdno)."""
+    """Datum input — QDateEdit s kalendářem, nebo QLineEdit pro clearable.
+
+    clearable=False: QDateEdit s calendar popup (vždy má hodnotu).
+    clearable=True: QLineEdit s placeholderem — uživatel píše d.M.yyyy,
+        pole může být prázdné (→ None).
+    """
 
     def __init__(
         self,
@@ -173,39 +178,71 @@ class LabeledDateEdit(_LabeledBase):
         clearable: bool = False,
         parent: QWidget | None = None,
     ) -> None:
-        self._date = QDateEdit()
-        self._date.setCalendarPopup(True)
-        self._date.setDisplayFormat("d. M. yyyy")
-        self._date.setDate(QDate.currentDate())
         self._clearable = clearable
-        self._is_empty = False
+        self._date_edit: QDateEdit | None = None
+        self._line_edit: QLineEdit | None = None
+
         if clearable:
-            # Qt nemá native "empty" stav; simulujeme placeholderem přes
-            # speciální datum + flag. Uživatelka dostane prázdnou lineEdit.
-            self._date.setSpecialValueText(" ")
-            self._date.setMinimumDate(QDate(1900, 1, 1))
-        super().__init__(label_text, self._date, parent)
+            self._line_edit = QLineEdit()
+            self._line_edit.setPlaceholderText("d.M.yyyy")
+            widget = self._line_edit
+        else:
+            self._date_edit = QDateEdit()
+            self._date_edit.setCalendarPopup(True)
+            self._date_edit.setDisplayFormat("d.M.yyyy")
+            self._date_edit.setDate(QDate.currentDate())
+            widget = self._date_edit
+
+        super().__init__(label_text, widget, parent)
 
     def value(self) -> date | None:
-        if self._clearable and self._is_empty:
-            return None
-        qd = self._date.date()
+        if self._clearable:
+            assert self._line_edit is not None
+            text = self._line_edit.text().strip()
+            if not text:
+                return None
+            return self._parse_date(text)
+        assert self._date_edit is not None
+        qd = self._date_edit.date()
         return date(qd.year(), qd.month(), qd.day())
 
     def set_value(self, d: date | None) -> None:
-        if d is None:
-            if self._clearable:
-                self._is_empty = True
-                self._date.setDate(self._date.minimumDate())
+        if self._clearable:
+            assert self._line_edit is not None
+            if d is None:
+                self._line_edit.clear()
             else:
-                self._date.setDate(QDate.currentDate())
-            return
-        self._is_empty = False
-        self._date.setDate(QDate(d.year, d.month, d.day))
+                self._line_edit.setText(f"{d.day}.{d.month}.{d.year}")
+        else:
+            assert self._date_edit is not None
+            if d is None:
+                self._date_edit.setDate(QDate.currentDate())
+            else:
+                self._date_edit.setDate(QDate(d.year, d.month, d.day))
 
     @property
-    def date_widget(self) -> QDateEdit:
-        return self._date
+    def date_widget(self) -> QDateEdit | QLineEdit:
+        if self._date_edit is not None:
+            return self._date_edit
+        assert self._line_edit is not None
+        return self._line_edit
+
+    @staticmethod
+    def _parse_date(text: str) -> date | None:
+        """Parse d.M.yyyy or d.M.yy or d/M/yyyy."""
+        text = text.strip().replace("/", ".")
+        parts = text.split(".")
+        if len(parts) != 3:
+            return None
+        try:
+            day = int(parts[0])
+            month = int(parts[1])
+            year = int(parts[2])
+            if year < 100:
+                year += 2000
+            return date(year, month, day)
+        except (ValueError, OverflowError):
+            return None
 
 
 class LabeledMoneyEdit(_LabeledBase):

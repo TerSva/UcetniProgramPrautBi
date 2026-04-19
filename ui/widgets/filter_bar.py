@@ -57,6 +57,7 @@ class FilterBar(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
         self._suppress_signals = False
+        self._typ_hidden = False  # True when typ combo is hidden by preset
         self._build_ui()
         self._wire_signals()
         self._refresh_active_indicator()
@@ -106,29 +107,40 @@ class FilterBar(QWidget):
             self._combo_doreseni.currentData(),
         )
 
+    def hide_typ_combo(self) -> None:
+        """Skryj Typ combo (preset stránka). Typ se nepočítá do aktivních filtrů."""
+        self._typ_hidden = True
+        self._combo_typ.setVisible(False)
+
     def reset(self) -> None:
-        """Vrať všechny dropdowny do default stavu a emitni clear_requested."""
-        self.set_filter(DokladyFilter())
+        """Vrať všechny dropdowny do default stavu a emitni clear_requested.
+
+        Hidden combo (preset typ) zůstává beze změny.
+        """
+        # Preserve hidden typ combo value
+        preserved_typ = self._combo_typ.currentData() if self._typ_hidden else None
+        self.set_filter(DokladyFilter(typ=preserved_typ))
         self.clear_requested.emit()
 
     def has_active_filters(self) -> bool:
-        """True pokud je nějaký filtr na jiné než výchozí hodnotě."""
-        return not self.current_filter().je_vychozi
+        """True pokud je nějaký uživatelský filtr na jiné než výchozí hodnotě."""
+        return self.active_filters_count() > 0
 
     def active_filters_count(self) -> int:
-        """Počet filtrů s non-default hodnotou (0–4).
+        """Počet filtrů s non-default hodnotou (0–3).
 
         Používá se pro status bar „N filtrů aktivní".
+        Hidden typ combo (preset stránky) se nepočítá.
         """
         f = self.current_filter()
         count = 0
         if f.rok is not None:
             count += 1
-        if f.typ is not None:
+        if f.typ is not None and not self._typ_hidden:
             count += 1
         if f.stav is not None:
             count += 1
-        if f.k_doreseni != KDoreseniFilter.SKRYT:
+        if f.k_doreseni != KDoreseniFilter.VSE:
             count += 1
         return count
 
@@ -183,6 +195,8 @@ class FilterBar(QWidget):
         self._combo_typ = QComboBox(self)
         self._combo_typ.addItem("Všechny typy", None)
         for typ in TypDokladu:
+            if typ == TypDokladu.BANKOVNI_VYPIS:
+                continue  # BV managed in Banka section
             self._combo_typ.addItem(typ_display_text(typ), typ)
         row.addLayout(_labeled("Typ", self._combo_typ))
 
@@ -195,8 +209,8 @@ class FilterBar(QWidget):
 
         # K dořešení
         self._combo_doreseni = QComboBox(self)
-        self._combo_doreseni.addItem("Skrýt k dořešení", KDoreseniFilter.SKRYT)
         self._combo_doreseni.addItem("Zobrazit vše", KDoreseniFilter.VSE)
+        self._combo_doreseni.addItem("Skrýt k dořešení", KDoreseniFilter.SKRYT)
         self._combo_doreseni.addItem("Pouze k dořešení", KDoreseniFilter.POUZE)
         row.addLayout(_labeled("K dořešení", self._combo_doreseni))
 

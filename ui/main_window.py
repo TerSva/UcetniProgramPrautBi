@@ -59,7 +59,6 @@ _DOKLADY_TYP_PAGES: tuple[tuple[str, TypDokladu, str], ...] = (
     ("doklady_fv", TypDokladu.FAKTURA_VYDANA, "Vydané faktury"),
     ("doklady_fp", TypDokladu.FAKTURA_PRIJATA, "Přijaté faktury"),
     ("doklady_pd", TypDokladu.POKLADNI_DOKLAD, "Pokladní doklady"),
-    ("doklady_bv", TypDokladu.BANKOVNI_VYPIS, "Bankovní výpisy"),
     ("doklady_id", TypDokladu.INTERNI_DOKLAD, "Interní doklady"),
     ("doklady_od", TypDokladu.OPRAVNY_DOKLAD, "Opravné doklady"),
 )

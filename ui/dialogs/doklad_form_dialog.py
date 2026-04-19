@@ -52,6 +52,7 @@ class DokladFormDialog(QDialog):
         view_model: DokladFormViewModel,
         partner_items: list[PartneriListItem] | None = None,
         on_partner_created: object = None,
+        preset_typ: TypDokladu | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -64,6 +65,7 @@ class DokladFormDialog(QDialog):
         self._vm = view_model
         self._partner_items = partner_items or []
         self._on_partner_created = on_partner_created
+        self._preset_typ = preset_typ
         self._created_item: DokladyListItem | None = None
 
         self._spolecnici_items = [
@@ -181,9 +183,16 @@ class DokladFormDialog(QDialog):
 
         # Typ
         self._typ_combo = LabeledComboBox("Typ dokladu", self)
+        # BV se vytváří importem, ne ručně
         for t in TypDokladu:
+            if t == TypDokladu.BANKOVNI_VYPIS:
+                continue
             self._typ_combo.add_item(typ_display_text(t), t)
-        self._typ_combo.set_value(TypDokladu.FAKTURA_VYDANA)
+        if self._preset_typ is not None:
+            self._typ_combo.set_value(self._preset_typ)
+            self._typ_combo.setVisible(False)
+        else:
+            self._typ_combo.set_value(TypDokladu.FAKTURA_VYDANA)
         root.addWidget(self._typ_combo)
 
         # Partner selector
@@ -365,7 +374,7 @@ class DokladFormDialog(QDialog):
         typ = cast(TypDokladu | None, self._typ_combo.value())
         if typ is None:
             return
-        cislo = self._vm.suggest_cislo(typ, date.today().year)
+        cislo = self._vm.suggest_cislo(typ, self._vm.ucetni_rok)
         self._cislo_input.set_value(cislo)
 
     def _on_new_partner(self) -> None:
@@ -413,7 +422,7 @@ class DokladFormDialog(QDialog):
     def _on_typ_changed(self, value: object) -> None:
         if not isinstance(value, TypDokladu):
             return
-        cislo = self._vm.suggest_cislo(value, date.today().year)
+        cislo = self._vm.suggest_cislo(value, self._vm.ucetni_rok)
         self._cislo_input.set_value(cislo)
         # Show společník section only for FP and PD
         self._spolecnik_section.setVisible(
