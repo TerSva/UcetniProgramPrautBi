@@ -85,6 +85,8 @@ class DokladDetailDialog(QDialog):
 
     #: Emitovano kdyz uzivatelka klikne na Zauctovat.
     zauctovat_requested = pyqtSignal(object)   # DokladyListItem
+    #: Emitováno když uživatelka klikne na Duplikovat.
+    duplikat_requested = pyqtSignal(object)    # DokladyListItem
 
     def __init__(
         self,
@@ -122,6 +124,7 @@ class DokladDetailDialog(QDialog):
         self._zbyva_label: QLabel
 
         self._edit_button: QPushButton
+        self._duplikat_button: QPushButton
         self._zauctovat_button: QPushButton
         self._flag_button: QPushButton
         self._storno_button: QPushButton
@@ -481,6 +484,15 @@ class DokladDetailDialog(QDialog):
         self._edit_button.setCursor(Qt.CursorShape.PointingHandCursor)
         row.addWidget(self._edit_button)
 
+        self._duplikat_button = QPushButton("Duplikovat", container)
+        self._duplikat_button.setProperty("class", "secondary")
+        self._duplikat_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._duplikat_button.setToolTip(
+            "Vytvoří kopii dokladu s dnešním datem, "
+            "bez VS a PDF. Ideální pro opakující se faktury."
+        )
+        row.addWidget(self._duplikat_button)
+
         self._zauctovat_button = QPushButton("Zaúčtovat", container)
         self._zauctovat_button.setProperty("class", "primary")
         self._zauctovat_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -538,6 +550,7 @@ class DokladDetailDialog(QDialog):
 
     def _wire_signals(self) -> None:
         self._edit_button.clicked.connect(self._on_edit)
+        self._duplikat_button.clicked.connect(self._on_duplikat)
         self._zauctovat_button.clicked.connect(self._on_zauctovat)
         self._flag_button.clicked.connect(self._on_toggle_flag)
         self._storno_button.clicked.connect(self._on_storno)
@@ -640,8 +653,25 @@ class DokladDetailDialog(QDialog):
             return
         self._sync_ui()
 
+    def _on_duplikat(self) -> None:
+        self.duplikat_requested.emit(self._vm.doklad)
+        self.accept()
+
     def _on_zauctovat(self) -> None:
-        self.zauctovat_requested.emit(self._vm.doklad)
+        item = self._vm.doklad
+        if item.k_doreseni and "Duplikát" in (item.poznamka_doreseni or ""):
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self,
+                "Zaúčtovat duplikát?",
+                "Doklad je duplikát. Zkontroloval/a jsi datum, VS, "
+                "částku a PDF?\n\nPokračovat?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self.zauctovat_requested.emit(item)
 
     def _on_toggle_flag(self) -> None:
         if self._vm.doklad.k_doreseni:

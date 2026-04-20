@@ -45,6 +45,7 @@ from services.queries.doklady_list import DokladyListItem, DokladyListQuery
 from services.queries.partneri_list import PartneriListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
 from services.queries.uctova_osnova import UctovaOsnovaQuery
+from services.commands.duplikovat_doklad import DuplikovatDokladCommand
 from services.commands.ocr_upload import OcrUploadCommand
 from services.commands.priloha_commands import PrilohaCommands
 from infrastructure.database.repositories.priloha_repository import (
@@ -222,6 +223,11 @@ def _build_factories(factory: ConnectionFactory, nastaveni_vm: NastaveniViewMode
         doklady_repo_factory=doklady_repo_factory,
         denik_repo_factory=denik_repo_factory,
     )
+    duplikat_cmd = DuplikovatDokladCommand(
+        uow_factory=uow_factory,
+        doklady_repo_factory=doklady_repo_factory,
+        next_number_query=next_number_query,
+    )
 
     def form_vm_factory() -> DokladFormViewModel:
         ucetni_rok = None
@@ -249,7 +255,7 @@ def _build_factories(factory: ConnectionFactory, nastaveni_vm: NastaveniViewMode
             zauctovat_command=zauctovat_cmd,
         )
 
-    return form_vm_factory, detail_vm_factory, zauctovani_vm_factory
+    return form_vm_factory, detail_vm_factory, zauctovani_vm_factory, duplikat_cmd
 
 
 def _build_ocr_inbox_vm(
@@ -356,7 +362,7 @@ def run(db_path: Path | None = None) -> int:
     priloha_cmd = PrilohaCommands(uow_factory=uow_factory, storage=priloha_storage)
 
     ocr_inbox_vm = _build_ocr_inbox_vm(factory, priloha_commands=priloha_cmd)
-    form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
+    form_vm_factory, detail_vm_factory, zauctovani_vm_factory, duplikat_cmd = (
         _build_factories(factory, nastaveni_vm)
     )
     import_vypisu_vm = _build_import_vypisu_vm(factory)
@@ -439,6 +445,7 @@ def run(db_path: Path | None = None) -> int:
         uhrazeno_query=_uhrazeno_query,
         pdf_parser=_pdf_parser,
         form_priloha_uploader=_form_priloha_uploader,
+        duplikat_command=duplikat_cmd,
     )
     window.show()
 

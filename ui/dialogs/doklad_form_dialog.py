@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 
 from typing import Protocol, runtime_checkable
 
-from domain.doklady.typy import Mena, TypDokladu
+from domain.doklady.typy import DphRezim, Mena, TypDokladu
 from domain.partneri.partner import KategoriePartnera
 from domain.shared.money import Money
 from infrastructure.ocr.invoice_parser import ParsedInvoice
@@ -61,6 +61,42 @@ class PrilohaUploaderCallback(Protocol):
     def __call__(self, doklad_id: int, path: str) -> None: ...
 
 
+class DuplikatPrefill:
+    """Data pro předvyplnění formuláře při duplikování dokladu."""
+
+    __slots__ = (
+        "zdrojove_cislo", "typ", "datum_vystaveni", "partner_id",
+        "castka_celkem", "mena", "castka_mena", "kurz", "dph_rezim",
+        "popis", "nove_cislo",
+    )
+
+    def __init__(
+        self,
+        zdrojove_cislo: str,
+        typ: TypDokladu,
+        nove_cislo: str,
+        datum_vystaveni: "date | None" = None,
+        partner_id: int | None = None,
+        castka_celkem: Money | None = None,
+        mena: Mena = Mena.CZK,
+        castka_mena: Money | None = None,
+        kurz: "Decimal | None" = None,
+        dph_rezim: "DphRezim" = DphRezim.TUZEMSKO,
+        popis: str | None = None,
+    ) -> None:
+        self.zdrojove_cislo = zdrojove_cislo
+        self.typ = typ
+        self.nove_cislo = nove_cislo
+        self.datum_vystaveni = datum_vystaveni
+        self.partner_id = partner_id
+        self.castka_celkem = castka_celkem
+        self.mena = mena
+        self.castka_mena = castka_mena
+        self.kurz = kurz
+        self.dph_rezim = dph_rezim
+        self.popis = popis
+
+
 class DokladFormDialog(QDialog):
     """Modální dialog pro vytvoření nového dokladu."""
 
@@ -72,6 +108,7 @@ class DokladFormDialog(QDialog):
         preset_typ: TypDokladu | None = None,
         pdf_parser: PdfParserCallback | None = None,
         priloha_uploader: PrilohaUploaderCallback | None = None,
+        duplikat_prefill: DuplikatPrefill | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -87,6 +124,7 @@ class DokladFormDialog(QDialog):
         self._preset_typ = preset_typ
         self._pdf_parser = pdf_parser
         self._priloha_uploader = priloha_uploader
+        self._duplikat_prefill = duplikat_prefill
         self._created_item: DokladyListItem | None = None
         self._selected_pdf_path: str | None = None
 
@@ -119,7 +157,10 @@ class DokladFormDialog(QDialog):
 
         self._build_ui()
         self._wire_signals()
-        self._initial_suggest_cislo()
+        if self._duplikat_prefill is not None:
+            self._apply_duplikat_prefill()
+        else:
+            self._initial_suggest_cislo()
 
     # ─── Public API ──────────────────────────────────────────────
 
@@ -202,6 +243,16 @@ class DokladFormDialog(QDialog):
         title = QLabel("Nový doklad", self)
         title.setProperty("class", "dialog-title")
         root.addWidget(title)
+
+        # Duplikát banner (viditelný jen při duplikování)
+        self._duplikat_banner = QLabel("", self)
+        self._duplikat_banner.setProperty("class", "doreseni-box")
+        self._duplikat_banner.setWordWrap(True)
+        self._duplikat_banner.setContentsMargins(
+            Spacing.S3, Spacing.S2, Spacing.S3, Spacing.S2,
+        )
+        self._duplikat_banner.setVisible(False)
+        root.addWidget(self._duplikat_banner)
 
         # PDF upload zona
         self._pdf_upload = PdfUploadZone(
@@ -469,6 +520,65 @@ class DokladFormDialog(QDialog):
         )
 
     # ─── Slots ────────────────────────────────────────────────────
+
+    def _apply_duplikat_prefill(self) -> None:
+        """Předvyplní formulář daty z duplikovaného dokladu."""
+        pf = self._duplikat_prefill
+        if pf is None:
+            return
+
+        # Banner
+        self._duplikat_banner.setText(
+            f"\u26A0 Duplikát dokladu {pf.zdrojove_cislo} — "
+            "zkontroluj datum, VS, částku a PDF před uložením"
+        )
+        self._duplikat_banner.setVisible(True)
+
+        # Typ
+        self._typ_combo.set_value(pf.typ)
+        if self._preset_typ is not None:
+            self._typ_combo.setVisible(False)
+
+        # Číslo
+        self._cislo_input.set_value(pf.nove_cislo)
+
+        # Partner
+        if pf.partner_id is not None:
+            self._partner_selector.set_selected_id(pf.partner_id)
+
+        # Částka
+        if pf.castka_celkem is not None:
+            self._castka_input.set_value(pf.castka_celkem)
+
+        # Měna
+        if pf.mena != Mena.CZK:
+            self._mena_combo.set_value(pf.mena)
+            if pf.castka_mena is not None:
+                self._castka_mena_input.set_value(pf.castka_mena)
+            if pf.kurz is not None:
+                self._kurz_input.set_value(str(pf.kurz).replace(".", ","))
+
+        # Popis
+        if pf.popis:
+            self._popis_input.set_value(pf.popis)
+
+        # K dořešení — zaškrtnuto s poznámkou
+        self._k_doreseni_check.setChecked(True)
+        self._poznamka_doreseni_input.set_value(
+            f"Duplikát dokladu {pf.zdrojove_cislo}. "
+            "Zkontroluj: datum, VS, částku, PDF."
+        )
+
+        # VS: prázdné s placeholder "Doplň VS!"
+        self._vs_input.set_value("")
+        self._vs_input.line_widget.setPlaceholderText("Doplň VS!")
+
+        # Datum vystavení: z zdrojového dokladu (editovatelné), žlutý border
+        if pf.datum_vystaveni is not None:
+            self._datum_vystaveni.set_value(pf.datum_vystaveni)
+        self._datum_vystaveni.inner_widget.setStyleSheet(
+            "border: 2px solid #D97706;"  # warning-600
+        )
 
     def _initial_suggest_cislo(self) -> None:
         typ = cast(TypDokladu | None, self._typ_combo.value())

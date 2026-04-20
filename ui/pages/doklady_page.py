@@ -36,7 +36,7 @@ from domain.shared.money import Money
 from services.queries.doklady_list import DokladyFilter, DokladyListItem
 from ui.design_tokens import Spacing
 from ui.dialogs.doklad_detail_dialog import DokladDetailDialog
-from ui.dialogs.doklad_form_dialog import DokladFormDialog
+from ui.dialogs.doklad_form_dialog import DokladFormDialog, DuplikatPrefill
 from ui.dialogs.zauctovani_dialog import ZauctovaniDialog
 from ui.viewmodels import DokladyListViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
@@ -101,6 +101,7 @@ class DokladyPage(QWidget):
         uhrazeno_query: Callable[[int], Money] | None = None,
         pdf_parser: object = None,
         form_priloha_uploader: object = None,
+        duplikat_command: object = None,
         preset_typ: TypDokladu | None = None,
         preset_title: str | None = None,
         parent: QWidget | None = None,
@@ -116,6 +117,7 @@ class DokladyPage(QWidget):
         self._uhrazeno_query = uhrazeno_query
         self._pdf_parser = pdf_parser
         self._form_priloha_uploader = form_priloha_uploader
+        self._duplikat_command = duplikat_command
         self._preset_typ = preset_typ
         self._preset_title = preset_title or "Doklady"
         self._preset_subtitle = _SUBTITLE_BY_TYP.get(
@@ -371,6 +373,9 @@ class DokladyPage(QWidget):
         dialog.zauctovat_requested.connect(
             lambda current_item: self._open_zauctovani(dialog, current_item)
         )
+        dialog.duplikat_requested.connect(
+            lambda current_item: self._on_duplikat(current_item)
+        )
         dialog.exec()
         self.refresh()
 
@@ -385,6 +390,46 @@ class DokladyPage(QWidget):
         dialog = ZauctovaniDialog(vm, parent=parent_dialog)
         if dialog.exec() and dialog.posted_item is not None:
             parent_dialog.refresh_after_zauctovani(dialog.posted_item)
+
+    def _on_duplikat(self, item: DokladyListItem) -> None:
+        """Duplikuje doklad — připraví data a otevře form s předvyplněním."""
+        if self._duplikat_command is None or self._form_vm_factory is None:
+            return
+        try:
+            data = self._duplikat_command.execute(item.id)
+        except Exception as exc:  # noqa: BLE001
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.warning(
+                self, "Chyba duplikování",
+                f"Nepodařilo se připravit duplikát: {exc}",
+            )
+            return
+
+        vm = self._form_vm_factory()
+        prefill = DuplikatPrefill(
+            zdrojove_cislo=data.zdrojove_cislo,
+            typ=data.typ,
+            nove_cislo=data.nove_cislo,
+            datum_vystaveni=data.datum_vystaveni,
+            partner_id=data.partner_id,
+            castka_celkem=data.castka_celkem,
+            mena=data.mena,
+            castka_mena=data.castka_mena,
+            kurz=data.kurz,
+            dph_rezim=data.dph_rezim,
+            popis=data.popis,
+        )
+        dialog = DokladFormDialog(
+            vm,
+            preset_typ=self._preset_typ,
+            pdf_parser=self._pdf_parser,
+            priloha_uploader=self._form_priloha_uploader,
+            duplikat_prefill=prefill,
+            parent=self,
+        )
+        if dialog.exec() and dialog.created_item is not None:
+            self.refresh()
+            self._open_detail(dialog.created_item)
 
     def _on_novy_clicked(self) -> None:
         if self._form_vm_factory is None:
