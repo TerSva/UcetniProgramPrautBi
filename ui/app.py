@@ -252,13 +252,17 @@ def _build_factories(factory: ConnectionFactory, nastaveni_vm: NastaveniViewMode
     return form_vm_factory, detail_vm_factory, zauctovani_vm_factory
 
 
-def _build_ocr_inbox_vm(factory: ConnectionFactory) -> OcrInboxViewModel:
+def _build_ocr_inbox_vm(
+    factory: ConnectionFactory,
+    priloha_commands: PrilohaCommands | None = None,
+) -> OcrInboxViewModel:
     """Sestaví OcrInboxViewModel."""
     uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
     upload_dir = Path(__file__).resolve().parent.parent / "uploads" / "ocr_inbox"
     upload_cmd = OcrUploadCommand(
         uow_factory=uow_factory,
         upload_dir=upload_dir,
+        priloha_commands=priloha_commands,
     )
     inbox_query = OcrInboxQuery(uow_factory=uow_factory)
     return OcrInboxViewModel(upload_cmd=upload_cmd, inbox_query=inbox_query)
@@ -345,7 +349,13 @@ def run(db_path: Path | None = None) -> int:
     partneri_vm = _build_partneri_vm(factory)
     nastaveni_vm = _build_nastaveni_vm(factory)
     pocatecni_stavy_vm = _build_pocatecni_stavy_vm(factory, nastaveni_vm)
-    ocr_inbox_vm = _build_ocr_inbox_vm(factory)
+
+    # Přílohy DI (musí být před OCR inbox — ten je potřebuje)
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    priloha_storage = PrilohaStorage()
+    priloha_cmd = PrilohaCommands(uow_factory=uow_factory, storage=priloha_storage)
+
+    ocr_inbox_vm = _build_ocr_inbox_vm(factory, priloha_commands=priloha_cmd)
     form_vm_factory, detail_vm_factory, zauctovani_vm_factory = (
         _build_factories(factory, nastaveni_vm)
     )
@@ -363,11 +373,6 @@ def run(db_path: Path | None = None) -> int:
         uow_factory=lambda: SqliteUnitOfWork(factory),
         ucetni_rok=_denik_rok,
     )
-
-    # Přílohy DI
-    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
-    priloha_storage = PrilohaStorage()
-    priloha_cmd = PrilohaCommands(uow_factory=uow_factory, storage=priloha_storage)
 
     def _priloha_loader(doklad_id: int):
         uow = uow_factory()

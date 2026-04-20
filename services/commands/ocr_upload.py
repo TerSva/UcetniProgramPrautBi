@@ -22,6 +22,7 @@ from infrastructure.database.repositories.ocr_upload_repository import (
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from infrastructure.ocr.invoice_parser import InvoiceParser, ParsedInvoice
 from infrastructure.ocr.ocr_engine import OcrEngine
+from services.commands.priloha_commands import PrilohaCommands
 
 
 #: Adresář pro uložení nahraných souborů.
@@ -37,11 +38,13 @@ class OcrUploadCommand:
         upload_dir: Path | None = None,
         ocr_engine: OcrEngine | None = None,
         parser: InvoiceParser | None = None,
+        priloha_commands: PrilohaCommands | None = None,
     ) -> None:
         self._uow_factory = uow_factory
         self._upload_dir = upload_dir or _DEFAULT_UPLOAD_DIR
         self._ocr = ocr_engine or OcrEngine()
         self._parser = parser or InvoiceParser()
+        self._priloha_cmd = priloha_commands
 
     def upload_file(self, source_path: Path) -> int:
         """Nahraje soubor, spočítá hash, vytvoří OcrUpload záznam.
@@ -172,7 +175,21 @@ class OcrUploadCommand:
             upload.schval(loaded.id)
             repo.update(upload)
             uow.commit()
-            return loaded.id
+
+        # Přiloží PDF k dokladu (mimo UoW — separátní transakce)
+        if self._priloha_cmd is not None:
+            file_path = Path(upload.file_path)
+            if file_path.exists():
+                try:
+                    self._priloha_cmd.priloz_pdf_k_dokladu(
+                        doklad_id=loaded.id,
+                        source_path=file_path,
+                        original_name=upload.file_name,
+                    )
+                except Exception:
+                    pass  # PDF se nepodařilo přiložit — doklad je stále platný
+
+        return loaded.id
 
     def reject(self, upload_id: int) -> None:
         """Zamítne upload."""
@@ -251,6 +268,19 @@ class OcrUploadCommand:
                 repo.update(upload)
                 uow.commit()
                 created.append(loaded.id)
+
+                # Přiloží PDF k dokladu
+                if self._priloha_cmd is not None:
+                    file_path = Path(upload.file_path)
+                    if file_path.exists():
+                        try:
+                            self._priloha_cmd.priloz_pdf_k_dokladu(
+                                doklad_id=loaded.id,
+                                source_path=file_path,
+                                original_name=upload.file_name,
+                            )
+                        except Exception:
+                            pass
 
         return created
 

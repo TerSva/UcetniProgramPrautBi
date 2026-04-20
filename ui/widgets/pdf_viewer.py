@@ -1,12 +1,12 @@
 """PdfViewerWidget — zobrazení PDF s přepínáním stránek a zoomem.
 
-Používá pdf2image (poppler) pro rasterizaci. Fallback na placeholder
-text pokud PDF chybí nebo není nainstalované pdf2image.
+Používá pdf2image (poppler) pro rasterizaci. Fallback na placeholder text
+pokud PDF chybí nebo není nainstalované pdf2image / poppler.
 """
 
 from __future__ import annotations
 
-import subprocess
+import shutil
 import sys
 from pathlib import Path
 
@@ -27,6 +27,26 @@ from ui.design_tokens import Spacing
 _ZOOM_LEVELS = (75, 100, 125, 150, 200)
 _DEFAULT_ZOOM_INDEX = 1  # 100%
 _DPI_BASE = 150  # DPI pro 100% zoom
+
+#: Cesty kde hledat poppler binárky (pdftoppm).
+#: GUI aplikace na macOS nedědí shell PATH, takže /opt/homebrew/bin chybí.
+_POPPLER_SEARCH_PATHS = (
+    "/opt/homebrew/bin",       # macOS ARM (Apple Silicon)
+    "/usr/local/bin",          # macOS Intel / Homebrew starší
+    "/usr/bin",                # Linux systémový
+)
+
+
+def _find_poppler_path() -> str | None:
+    """Najde adresář s poppler binárkami (pdftoppm)."""
+    # Nejdřív zkusí PATH (funguje v terminálu)
+    if shutil.which("pdftoppm") is not None:
+        return None  # pdf2image najde samo
+    # Fallback — prohledá známé lokace
+    for d in _POPPLER_SEARCH_PATHS:
+        if (Path(d) / "pdftoppm").exists():
+            return d
+    return None
 
 
 class PdfViewerWidget(QWidget):
@@ -87,7 +107,7 @@ class PdfViewerWidget(QWidget):
         self._zoom_in_btn.clicked.connect(self._on_zoom_in)
         toolbar.addWidget(self._zoom_in_btn)
 
-        self._open_btn = QPushButton("Otevrit externě", self)
+        self._open_btn = QPushButton("Otevřít externě", self)
         self._open_btn.setProperty("class", "secondary")
         self._open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._open_btn.clicked.connect(self._on_open_external)
@@ -107,12 +127,12 @@ class PdfViewerWidget(QWidget):
 
         self._toolbar_widget = toolbar
         self._set_toolbar_visible(False)
-        self.set_placeholder("Zadne PDF")
+        self.set_placeholder("Žádné PDF")
 
     # ─── Public API ──────────────────────────────────────────────
 
     def load_pdf(self, path: Path) -> None:
-        """Nacte PDF soubor a zobrazi prvni stranku."""
+        """Načte PDF soubor a zobrazí první stránku."""
         self._pdf_path = path
         if not path.exists():
             self.set_placeholder(f"Soubor nenalezen: {path}")
@@ -121,10 +141,13 @@ class PdfViewerWidget(QWidget):
         try:
             from pdf2image import convert_from_path
 
-            self._pages = convert_from_path(str(path), dpi=_DPI_BASE)
+            poppler_path = _find_poppler_path()
+            self._pages = convert_from_path(
+                str(path), dpi=_DPI_BASE, poppler_path=poppler_path,
+            )
             self._page_count = len(self._pages)
             if self._page_count == 0:
-                self.set_placeholder("PDF je prazdne")
+                self.set_placeholder("PDF je prázdné")
                 return
             self._current_page = 0
             self._zoom_index = _DEFAULT_ZOOM_INDEX
@@ -132,20 +155,28 @@ class PdfViewerWidget(QWidget):
             self._render_current()
         except ImportError:
             self.set_placeholder(
-                "pdf2image neni nainstalovano.\npip install pdf2image"
+                "pdf2image není nainstalováno.\npip install pdf2image"
             )
         except Exception as exc:  # noqa: BLE001
-            self.set_placeholder(f"Chyba nahledu: {exc}")
+            msg = str(exc)
+            if "poppler" in msg.lower() or "pdftoppm" in msg.lower():
+                self.set_placeholder(
+                    "PDF náhled vyžaduje poppler.\n"
+                    "macOS: brew install poppler\n"
+                    "Linux: apt-get install poppler-utils"
+                )
+            else:
+                self.set_placeholder(f"Chyba náhledu: {msg}")
 
     def load_image(self, path: Path) -> None:
-        """Nacte obrazek (JPG/PNG)."""
+        """Načte obrázek (JPG/PNG)."""
         self._pdf_path = path
         if not path.exists():
             self.set_placeholder(f"Soubor nenalezen: {path}")
             return
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
-            self.set_placeholder("Nelze nacist obrazek")
+            self.set_placeholder("Nelze načíst obrázek")
             return
         self._pages = []
         self._page_count = 0
@@ -158,7 +189,7 @@ class PdfViewerWidget(QWidget):
         ))
 
     def set_placeholder(self, text: str) -> None:
-        """Zobrazi placeholder text misto PDF."""
+        """Zobrazí placeholder text místo PDF."""
         self._pdf_path = None
         self._pages = []
         self._page_count = 0
@@ -170,7 +201,7 @@ class PdfViewerWidget(QWidget):
     # ─── Rendering ───────────────────────────────────────────────
 
     def _render_current(self) -> None:
-        """Vyrenderuje aktualni stranku s aktualnim zoomem."""
+        """Vyrenderuje aktuální stránku s aktuálním zoomem."""
         if not self._pages or self._current_page >= self._page_count:
             return
 
