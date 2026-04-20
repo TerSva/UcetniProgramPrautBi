@@ -302,6 +302,14 @@ class DokladFormDialog(QDialog):
         )
         root.addWidget(self._cislo_input)
 
+        # Auto-číslo checkbox (viditelný jen pro FV)
+        self._auto_cislo_check = QCheckBox(
+            "Automaticky generovat číslo", self,
+        )
+        self._auto_cislo_check.setChecked(True)
+        root.addWidget(self._auto_cislo_check)
+        self._sync_auto_cislo_visibility()
+
         # Datum vystavení + splatnosti (side by side)
         date_row = QHBoxLayout()
         date_row.setContentsMargins(0, 0, 0, 0)
@@ -454,6 +462,7 @@ class DokladFormDialog(QDialog):
             lambda _: self._on_foreign_amount_changed(),
         )
         self._spolecnik_check.toggled.connect(self._on_spolecnik_toggled)
+        self._auto_cislo_check.toggled.connect(self._on_auto_cislo_toggled)
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
         self._k_doreseni_check.toggled.connect(self._on_k_doreseni_toggled)
@@ -629,11 +638,56 @@ class DokladFormDialog(QDialog):
     def _on_spolecnik_toggled(self, checked: bool) -> None:
         self._spolecnik_combo.setVisible(checked)
 
+    def _sync_auto_cislo_visibility(self) -> None:
+        """Zobraz checkbox auto-číslo jen pro FV. Pro FP skryj (vždy ruční)."""
+        typ = cast(TypDokladu | None, self._typ_combo.value())
+        is_fv = typ == TypDokladu.FAKTURA_VYDANA
+        self._auto_cislo_check.setVisible(is_fv)
+        if is_fv:
+            self._apply_auto_cislo_state(self._auto_cislo_check.isChecked())
+        else:
+            # FP: vždy ruční (editovatelné), PD/ID/OD: vždy auto (read-only)
+            is_rucni = typ == TypDokladu.FAKTURA_PRIJATA
+            self._cislo_input.line_widget.setReadOnly(not is_rucni)
+            if not is_rucni:
+                self._cislo_input.line_widget.setStyleSheet(
+                    "background-color: #F3F4F6; color: #6B7280;"
+                )
+            else:
+                self._cislo_input.line_widget.setStyleSheet("")
+                self._cislo_input.line_widget.setPlaceholderText(
+                    "např. FP-2025-001"
+                )
+
+    def _on_auto_cislo_toggled(self, checked: bool) -> None:
+        """Toggle auto/ruční číslo pro FV."""
+        self._apply_auto_cislo_state(checked)
+
+    def _apply_auto_cislo_state(self, auto: bool) -> None:
+        """Nastaví pole číslo podle auto/ruční režimu."""
+        self._cislo_input.line_widget.setReadOnly(auto)
+        if auto:
+            self._cislo_input.line_widget.setStyleSheet(
+                "background-color: #F3F4F6; color: #6B7280;"
+            )
+            # Regenerate auto číslo
+            typ = cast(TypDokladu | None, self._typ_combo.value())
+            if typ is not None:
+                cislo = self._vm.suggest_cislo(typ, self._vm.ucetni_rok)
+                self._cislo_input.set_value(cislo)
+        else:
+            self._cislo_input.line_widget.setStyleSheet("")
+            self._cislo_input.set_value("")
+            self._cislo_input.line_widget.setPlaceholderText(
+                "např. 2025-001 nebo CANVA-FV-01"
+            )
+
     def _on_typ_changed(self, value: object) -> None:
         if not isinstance(value, TypDokladu):
             return
         cislo = self._vm.suggest_cislo(value, self._vm.ucetni_rok)
         self._cislo_input.set_value(cislo)
+        self._sync_auto_cislo_visibility()
         # Show společník section only for FP and PD
         self._spolecnik_section.setVisible(
             value in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.POKLADNI_DOKLAD)
@@ -720,9 +774,11 @@ class DokladFormDialog(QDialog):
             poznamka_doreseni=poznamka,
         )
         if item is None:
-            self._show_form_error(
-                self._vm.error or "Vytvoření dokladu selhalo.",
-            )
+            err = self._vm.error or "Vytvoření dokladu selhalo."
+            if "už existuje" in err:
+                self._cislo_input.set_error(err)
+            else:
+                self._show_form_error(err)
             return
         self._created_item = item
 

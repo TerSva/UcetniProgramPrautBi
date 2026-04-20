@@ -21,7 +21,7 @@ from decimal import Decimal
 from domain.doklady.doklad import Doklad
 from domain.doklady.repository import DokladyRepository
 from domain.doklady.typy import DphRezim, Mena, TypDokladu
-from domain.shared.errors import ConflictError
+from domain.doklady.errors import CisloDokladuJizExistujeError
 from domain.shared.money import Money
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.queries.doklady_list import DokladyListItem
@@ -87,8 +87,9 @@ class CreateDokladCommand:
         with uow:
             repo = self._doklady_repo_factory(uow)
             if repo.existuje_cislo(data.cislo):
-                raise ConflictError(
-                    f"Doklad s číslem {data.cislo!r} už existuje."
+                raise CisloDokladuJizExistujeError(
+                    f"Doklad s číslem '{data.cislo}' už existuje. "
+                    "Zvol jiné číslo."
                 )
             saved = repo.add(doklad)
             uow.commit()
