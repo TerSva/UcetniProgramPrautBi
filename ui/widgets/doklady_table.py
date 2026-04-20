@@ -1,16 +1,17 @@
 """DokladyTable — QTableView + model + delegate pro seznam dokladů.
 
-8 sloupců:
+9 sloupců:
     0  Číslo
     1  Typ           — display: "FV", "FP", ... (badge color via ForegroundRole)
     2  Datum         — datum_vystaveni ve formátu DD. MM. YYYY
     3  Splatnost     — datum_splatnosti nebo "—"
     4  Partner       — partner_nazev nebo "—" (stretch)
     5  Částka        — format_cz() (right-align, mono font)
-    6  Stav          — display: "Nový", "Zaúčtovaný", ... (badge color)
-    7  (prázdné)     — 🔔 Lucide bell ikona pro k_doreseni=True
+    6  Uhrazeno      — stav platby: "—", "Neuhrazeno", "Částečně", "Uhrazeno", "Storno"
+    7  Stav          — display: "Nový", "Zaúčtovaný", ... (badge color)
+    8  (prázdné)     — 🔔 Lucide bell ikona pro k_doreseni=True
 
-Indikátor k_doreseni používá `KDoreseniIconDelegate` — tzn. reálná SVG
+Indikátor k_doreseni (sloupec 8) používá `KDoreseniIconDelegate` — tzn. reálná SVG
 ikona z Lucide (WARNING_600 barva), ne emoji. Tooltip s poznámkou
 vrací model přes `ToolTipRole`.
 """
@@ -38,7 +39,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.doklady.typy import Mena
+from domain.doklady.typy import Mena, StavDokladu
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors
 from ui.widgets.badge import (
@@ -62,8 +63,9 @@ _COL_DATUM = 2
 _COL_SPLATNOST = 3
 _COL_PARTNER = 4
 _COL_CASTKA = 5
-_COL_STAV = 6
-_COL_DORESENI = 7
+_COL_UHRAZENO = 6
+_COL_STAV = 7
+_COL_DORESENI = 8
 
 
 _COLUMN_HEADERS: tuple[str, ...] = (
@@ -73,9 +75,28 @@ _COLUMN_HEADERS: tuple[str, ...] = (
     "Splatnost",
     "Partner",
     "Částka",
+    "Uhrazeno",
     "Stav",
     "",
 )
+
+#: Mapování StavDokladu → zobrazení ve sloupci Uhrazeno.
+_UHRAZENO_DISPLAY: dict[StavDokladu, str] = {
+    StavDokladu.NOVY: "—",
+    StavDokladu.ZAUCTOVANY: "Neuhrazeno",
+    StavDokladu.CASTECNE_UHRAZENY: "Částečně",
+    StavDokladu.UHRAZENY: "Uhrazeno",
+    StavDokladu.STORNOVANY: "Storno",
+}
+
+#: Mapování StavDokladu → barva textu ve sloupci Uhrazeno.
+_UHRAZENO_COLOR: dict[StavDokladu, str] = {
+    StavDokladu.NOVY: Colors.GRAY_700,
+    StavDokladu.ZAUCTOVANY: Colors.ERROR_700,
+    StavDokladu.CASTECNE_UHRAZENY: Colors.WARNING_700,
+    StavDokladu.UHRAZENY: Colors.SUCCESS_700,
+    StavDokladu.STORNOVANY: Colors.GRAY_700,
+}
 
 
 #: Badge variant → barva textu v buňce tabulky (tabulka je read-only, badge
@@ -184,6 +205,8 @@ class DokladyTableModel(QAbstractTableModel):
                         f"({item.castka_celkem.format_cz()})"
                     ).replace(",", "\u00a0").replace(".", ",")
                 return item.castka_celkem.format_cz()
+            if col == _COL_UHRAZENO:
+                return _UHRAZENO_DISPLAY.get(item.stav, "—")
             if col == _COL_STAV:
                 return stav_display_text(item.stav)
             if col == _COL_DORESENI:
@@ -196,6 +219,9 @@ class DokladyTableModel(QAbstractTableModel):
             if col == _COL_TYP:
                 variant = badge_variant_for_typ(item.typ)
                 return QBrush(QColor(_VARIANT_TEXT_COLOR[variant]))
+            if col == _COL_UHRAZENO:
+                color = _UHRAZENO_COLOR.get(item.stav, Colors.GRAY_700)
+                return QBrush(QColor(color))
             if col == _COL_STAV:
                 variant = badge_variant_for_stav(item.stav)
                 return QBrush(QColor(_VARIANT_TEXT_COLOR[variant]))
@@ -349,6 +375,8 @@ class DokladyTable(QTableView):
         h.setSectionResizeMode(_COL_PARTNER, QHeaderView.ResizeMode.Stretch)
         h.setSectionResizeMode(_COL_CASTKA, QHeaderView.ResizeMode.Fixed)
         h.resizeSection(_COL_CASTKA, 180)
+        h.setSectionResizeMode(_COL_UHRAZENO, QHeaderView.ResizeMode.Fixed)
+        h.resizeSection(_COL_UHRAZENO, 110)
         h.setSectionResizeMode(_COL_DORESENI, QHeaderView.ResizeMode.Fixed)
         h.resizeSection(_COL_DORESENI, 44)
         h.setHighlightSections(False)

@@ -25,8 +25,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from typing import Protocol, runtime_checkable
+
 from domain.doklady.typy import Mena, TypDokladu
 from domain.partneri.partner import KategoriePartnera
+from domain.shared.money import Money
+from infrastructure.ocr.invoice_parser import ParsedInvoice
 from services.commands.create_doklad import CreateDokladInput
 from services.queries.doklady_list import DokladyListItem
 from services.queries.partneri_list import PartneriListItem
@@ -42,6 +46,19 @@ from ui.widgets.labeled_inputs import (
     LabeledTextEdit,
 )
 from ui.widgets.partner_selector import PartnerSelector
+from ui.widgets.pdf_upload_zone import PdfUploadZone
+
+
+@runtime_checkable
+class PdfParserCallback(Protocol):
+    """Callback: cesta k PDF → ParsedInvoice | None."""
+    def __call__(self, path: str) -> ParsedInvoice | None: ...
+
+
+@runtime_checkable
+class PrilohaUploaderCallback(Protocol):
+    """Callback: (doklad_id, cesta) → None — přiloží PDF k dokladu."""
+    def __call__(self, doklad_id: int, path: str) -> None: ...
 
 
 class DokladFormDialog(QDialog):
@@ -53,6 +70,8 @@ class DokladFormDialog(QDialog):
         partner_items: list[PartneriListItem] | None = None,
         on_partner_created: object = None,
         preset_typ: TypDokladu | None = None,
+        pdf_parser: PdfParserCallback | None = None,
+        priloha_uploader: PrilohaUploaderCallback | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -60,13 +79,16 @@ class DokladFormDialog(QDialog):
         self.setModal(True)
         self.setProperty("class", "doklad-form")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.resize(480, 620)
+        self.resize(520, 700)
 
         self._vm = view_model
         self._partner_items = partner_items or []
         self._on_partner_created = on_partner_created
         self._preset_typ = preset_typ
+        self._pdf_parser = pdf_parser
+        self._priloha_uploader = priloha_uploader
         self._created_item: DokladyListItem | None = None
+        self._selected_pdf_path: str | None = None
 
         self._spolecnici_items = [
             p for p in self._partner_items
@@ -180,6 +202,17 @@ class DokladFormDialog(QDialog):
         title = QLabel("Nový doklad", self)
         title.setProperty("class", "dialog-title")
         root.addWidget(title)
+
+        # PDF upload zona
+        self._pdf_upload = PdfUploadZone(
+            message="Přetáhni PDF faktury pro auto-vyplnění",
+            parent=self,
+        )
+        self._pdf_status = QLabel("", self)
+        self._pdf_status.setProperty("class", "form-help")
+        self._pdf_status.setVisible(False)
+        root.addWidget(self._pdf_upload)
+        root.addWidget(self._pdf_status)
 
         # Typ
         self._typ_combo = LabeledComboBox("Typ dokladu", self)
@@ -357,6 +390,7 @@ class DokladFormDialog(QDialog):
         root.addLayout(footer)
 
     def _wire_signals(self) -> None:
+        self._pdf_upload.file_selected.connect(self._on_pdf_selected)
         self._typ_combo.current_value_changed.connect(self._on_typ_changed)
         self._partner_selector.new_partner_requested.connect(
             self._on_new_partner,
@@ -376,6 +410,63 @@ class DokladFormDialog(QDialog):
     def _on_k_doreseni_toggled(self, checked: bool) -> None:
         """Zobraz/skryj pole poznámky podle checkboxu."""
         self._poznamka_doreseni_input.setVisible(checked)
+
+    def _on_pdf_selected(self, path: str) -> None:
+        """PDF vybráno — uloží cestu a pokusí se o OCR auto-fill."""
+        from pathlib import Path as _P
+        self._selected_pdf_path = path
+        name = _P(path).name
+        self._pdf_status.setText(f"📎 {name}")
+        self._pdf_status.setVisible(True)
+
+        if self._pdf_parser is None:
+            return
+        parsed = self._pdf_parser(path)
+        if parsed is None:
+            return
+        self._autofill_from_parsed(parsed)
+
+    def _autofill_from_parsed(self, parsed: ParsedInvoice) -> None:
+        """Vyplní formulářová pole z ParsedInvoice (přepíše jen prázdná)."""
+        if parsed.typ_dokladu is not None and self._preset_typ is None:
+            self._typ_combo.set_value(parsed.typ_dokladu)
+            # Suggest číslo pro nový typ
+            cislo = self._vm.suggest_cislo(
+                parsed.typ_dokladu, self._vm.ucetni_rok,
+            )
+            self._cislo_input.set_value(cislo)
+
+        if parsed.datum_vystaveni is not None:
+            self._datum_vystaveni.set_value(parsed.datum_vystaveni)
+
+        if parsed.datum_splatnosti is not None:
+            self._datum_splatnosti.set_value(parsed.datum_splatnosti)
+
+        if parsed.castka_celkem is not None:
+            self._castka_input.set_value(parsed.castka_celkem)
+
+        if parsed.variabilni_symbol:
+            self._vs_input.set_value(parsed.variabilni_symbol)
+
+        if parsed.mena != Mena.CZK:
+            self._mena_combo.set_value(parsed.mena)
+            if parsed.castka_mena is not None:
+                self._castka_mena_input.set_value(parsed.castka_mena)
+            if parsed.kurz is not None:
+                self._kurz_input.set_value(str(parsed.kurz).replace(".", ","))
+
+        # Popis z dodavatele + čísla dokladu
+        parts = []
+        if parsed.dodavatel_nazev:
+            parts.append(parsed.dodavatel_nazev)
+        if parsed.cislo_dokladu:
+            parts.append(parsed.cislo_dokladu)
+        if parts and not self._popis_input.value().strip():
+            self._popis_input.set_value(" – ".join(parts))
+
+        self._pdf_status.setText(
+            f"📎 {self._pdf_status.text().lstrip('📎 ').strip()} — auto-vyplněno"
+        )
 
     # ─── Slots ────────────────────────────────────────────────────
 
@@ -524,8 +615,18 @@ class DokladFormDialog(QDialog):
             )
             return
         self._created_item = item
-        # Pokud flag krok selhal (2-UoW trade-off), doklad přesto existuje.
-        # Dialog zavřeme, UI zobrazí toast s ``vm.error``.
+
+        # Přiloží PDF k nově vytvořenému dokladu
+        if (
+            self._selected_pdf_path is not None
+            and self._priloha_uploader is not None
+            and item.id is not None
+        ):
+            try:
+                self._priloha_uploader(item.id, self._selected_pdf_path)
+            except Exception:
+                pass  # PDF se nepodařilo přiložit — doklad je stále platný
+
         self.accept()
 
     def _show_form_error(self, message: str) -> None:

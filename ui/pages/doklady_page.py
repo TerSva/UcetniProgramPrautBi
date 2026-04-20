@@ -16,6 +16,7 @@ Layout:
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
 from PyQt6.QtCore import Qt
@@ -29,7 +30,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from domain.doklady.priloha import PrilohaDokladu
 from domain.doklady.typy import TypDokladu
+from domain.shared.money import Money
 from services.queries.doklady_list import DokladyFilter, DokladyListItem
 from ui.design_tokens import Spacing
 from ui.dialogs.doklad_detail_dialog import DokladDetailDialog
@@ -90,6 +93,14 @@ class DokladyPage(QWidget):
         zauctovani_vm_factory: Callable[
             [DokladyListItem], ZauctovaniViewModel
         ] | None = None,
+        priloha_loader: Callable[[int], list[PrilohaDokladu]] | None = None,
+        priloha_uploader: Callable[
+            [int, Path, str], PrilohaDokladu
+        ] | None = None,
+        priloha_full_path: Callable[[str], Path] | None = None,
+        uhrazeno_query: Callable[[int], Money] | None = None,
+        pdf_parser: object = None,
+        form_priloha_uploader: object = None,
         preset_typ: TypDokladu | None = None,
         preset_title: str | None = None,
         parent: QWidget | None = None,
@@ -99,6 +110,12 @@ class DokladyPage(QWidget):
         self._form_vm_factory = form_vm_factory
         self._detail_vm_factory = detail_vm_factory
         self._zauctovani_vm_factory = zauctovani_vm_factory
+        self._priloha_loader = priloha_loader
+        self._priloha_uploader = priloha_uploader
+        self._priloha_full_path = priloha_full_path
+        self._uhrazeno_query = uhrazeno_query
+        self._pdf_parser = pdf_parser
+        self._form_priloha_uploader = form_priloha_uploader
         self._preset_typ = preset_typ
         self._preset_title = preset_title or "Doklady"
         self._preset_subtitle = _SUBTITLE_BY_TYP.get(
@@ -343,7 +360,14 @@ class DokladyPage(QWidget):
         if self._detail_vm_factory is None:
             return
         vm = self._detail_vm_factory(item)
-        dialog = DokladDetailDialog(vm, parent=self)
+        dialog = DokladDetailDialog(
+            vm,
+            priloha_loader=self._priloha_loader,
+            priloha_uploader=self._priloha_uploader,
+            priloha_full_path=self._priloha_full_path,
+            uhrazeno_query=self._uhrazeno_query,
+            parent=self,
+        )
         dialog.zauctovat_requested.connect(
             lambda current_item: self._open_zauctovani(dialog, current_item)
         )
@@ -366,7 +390,13 @@ class DokladyPage(QWidget):
         if self._form_vm_factory is None:
             return
         vm = self._form_vm_factory()
-        dialog = DokladFormDialog(vm, preset_typ=self._preset_typ, parent=self)
+        dialog = DokladFormDialog(
+            vm,
+            preset_typ=self._preset_typ,
+            pdf_parser=self._pdf_parser,
+            priloha_uploader=self._form_priloha_uploader,
+            parent=self,
+        )
         if dialog.exec() and dialog.created_item is not None:
             self.refresh()
             # Otevři detail pro nově vytvořený doklad → umožní okamžitě

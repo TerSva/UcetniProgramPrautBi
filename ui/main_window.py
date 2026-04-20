@@ -35,6 +35,7 @@ from ui.pages import (
     PartneriPage,
     PlaceholderPage,
     PocatecniStavyPage,
+    UcetniDenikPage,
 )
 from ui.viewmodels import (
     ChartOfAccountsViewModel,
@@ -47,6 +48,7 @@ from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.nastaveni_vm import NastaveniViewModel
 from ui.viewmodels.bankovni_vypisy_vm import BankovniVypisyViewModel
+from ui.viewmodels.ucetni_denik_vm import UcetniDenikViewModel
 from ui.viewmodels.import_vypisu_vm import ImportVypisuViewModel
 from ui.viewmodels.ocr_inbox_vm import OcrInboxViewModel
 from ui.viewmodels.pocatecni_stavy_vm import PocatecniStavyViewModel
@@ -66,11 +68,7 @@ _DOKLADY_TYP_PAGES: tuple[tuple[str, TypDokladu, str], ...] = (
 #: Definice placeholder stránek (key, title, subtitle, phase, phase_name).
 _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
     # banka — replaced by BankaImportPage + BankaVypisyPage in Fáze 13
-    (
-        "ucetni_denik", "Účetní deník",
-        "Seznam všech účetních zápisů.",
-        13, "Účetní deník",
-    ),
+    # ucetni_denik — replaced by real UcetniDenikPage
     (
         "vykazy", "Výkazy",
         "Rozvaha, výkaz zisku a ztráty — PDF export.",
@@ -116,6 +114,13 @@ class MainWindow(QMainWindow):
         ocr_inbox_vm: OcrInboxViewModel | None = None,
         import_vypisu_vm: ImportVypisuViewModel | None = None,
         bankovni_vypisy_vm: BankovniVypisyViewModel | None = None,
+        ucetni_denik_vm: UcetniDenikViewModel | None = None,
+        priloha_loader: object = None,
+        priloha_uploader: object = None,
+        priloha_full_path: object = None,
+        uhrazeno_query: object = None,
+        pdf_parser: object = None,
+        form_priloha_uploader: object = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -134,6 +139,13 @@ class MainWindow(QMainWindow):
         self._ocr_inbox_vm = ocr_inbox_vm
         self._import_vypisu_vm = import_vypisu_vm
         self._bankovni_vypisy_vm = bankovni_vypisy_vm
+        self._ucetni_denik_vm = ucetni_denik_vm
+        self._priloha_loader = priloha_loader
+        self._priloha_uploader = priloha_uploader
+        self._priloha_full_path = priloha_full_path
+        self._uhrazeno_query = uhrazeno_query
+        self._pdf_parser = pdf_parser
+        self._form_priloha_uploader = form_priloha_uploader
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -198,6 +210,12 @@ class MainWindow(QMainWindow):
                 form_vm_factory=self._form_vm_factory,
                 detail_vm_factory=self._detail_vm_factory,
                 zauctovani_vm_factory=self._zauctovani_vm_factory,
+                priloha_loader=self._priloha_loader,
+                priloha_uploader=self._priloha_uploader,
+                priloha_full_path=self._priloha_full_path,
+                uhrazeno_query=self._uhrazeno_query,
+                pdf_parser=self._pdf_parser,
+                form_priloha_uploader=self._form_priloha_uploader,
                 preset_typ=typ,
                 preset_title=title,
                 parent=self._stack,
@@ -309,7 +327,22 @@ class MainWindow(QMainWindow):
             )
         self._add_page("banka_vypisy", banka_vypisy_page)
 
-        # 10. Placeholder pages
+        # 10. Účetní deník page
+        if self._ucetni_denik_vm is not None:
+            denik_page: QWidget = UcetniDenikPage(
+                self._ucetni_denik_vm, parent=self._stack,
+            )
+        else:
+            denik_page = PlaceholderPage(
+                title="Účetní deník",
+                subtitle="Seznam všech účetních zápisů.",
+                phase_number=13,
+                phase_name="Účetní deník",
+                parent=self._stack,
+            )
+        self._add_page("ucetni_denik", denik_page)
+
+        # 11. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:
             page = PlaceholderPage(
                 title=title,
@@ -326,6 +359,12 @@ class MainWindow(QMainWindow):
             form_vm_factory=self._form_vm_factory,
             detail_vm_factory=self._detail_vm_factory,
             zauctovani_vm_factory=self._zauctovani_vm_factory,
+            priloha_loader=self._priloha_loader,
+            priloha_uploader=self._priloha_uploader,
+            priloha_full_path=self._priloha_full_path,
+            uhrazeno_query=self._uhrazeno_query,
+            pdf_parser=self._pdf_parser,
+            form_priloha_uploader=self._form_priloha_uploader,
             parent=self._stack,
         )
         self._add_page("_doklady_all", self._all_doklady_page)

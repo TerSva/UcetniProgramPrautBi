@@ -10,14 +10,11 @@ from datetime import date
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QDialog,
-    QFormLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
     QSplitter,
     QVBoxLayout,
     QWidget,
@@ -34,6 +31,7 @@ from ui.widgets.labeled_inputs import (
     LabeledMoneyEdit,
     LabeledTextEdit,
 )
+from ui.widgets.pdf_viewer import PdfViewerWidget
 
 
 class OcrUploadDetailDialog(QDialog):
@@ -53,7 +51,7 @@ class OcrUploadDetailDialog(QDialog):
         self.setWindowTitle(f"Detail: {item.file_name}")
         self.setMinimumSize(900, 600)
 
-        self._preview_label: QLabel
+        self._pdf_viewer: PdfViewerWidget
         self._cislo_input: LabeledLineEdit
         self._typ_combo: LabeledComboBox
         self._datum_input: LabeledDateEdit
@@ -104,26 +102,10 @@ class OcrUploadDetailDialog(QDialog):
 
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
 
-        # Left: preview
-        left = QWidget()
-        left_layout = QVBoxLayout(left)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-
-        preview_title = QLabel("Náhled souboru", left)
-        preview_title.setProperty("class", "section-title")
-        left_layout.addWidget(preview_title)
-
-        scroll = QScrollArea(left)
-        scroll.setWidgetResizable(True)
-        self._preview_label = QLabel()
-        self._preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._preview_label.setMinimumSize(400, 400)
-        self._preview_label.setProperty("class", "form-help")
-        self._preview_label.setText("Načítám náhled...")
-        scroll.setWidget(self._preview_label)
-        left_layout.addWidget(scroll, stretch=1)
-
-        splitter.addWidget(left)
+        # Left: preview via PdfViewerWidget
+        self._pdf_viewer = PdfViewerWidget(parent=splitter)
+        self._pdf_viewer.set_placeholder("Načítám náhled...")
+        splitter.addWidget(self._pdf_viewer)
 
         # Right: form
         right = QWidget()
@@ -270,73 +252,23 @@ class OcrUploadDetailDialog(QDialog):
         self._load_preview()
 
     def _load_preview(self) -> None:
-        """Načte náhled PDF/obrázku."""
+        """Načte náhled PDF/obrázku přes PdfViewerWidget."""
         if not self._file_path:
-            self._preview_label.setText("Soubor není k dispozici")
+            self._pdf_viewer.set_placeholder("Soubor není k dispozici")
             return
 
         path = Path(self._file_path)
         if not path.exists():
-            self._preview_label.setText("Soubor není k dispozici")
+            self._pdf_viewer.set_placeholder("Soubor není k dispozici")
             return
 
         suffix = path.suffix.lower()
-
-        if suffix in (".jpg", ".jpeg", ".png"):
-            self._show_image(path)
-        elif suffix == ".pdf":
-            self._show_pdf_preview(path)
+        if suffix == ".pdf":
+            self._pdf_viewer.load_pdf(path)
+        elif suffix in (".jpg", ".jpeg", ".png"):
+            self._pdf_viewer.load_image(path)
         else:
-            self._preview_label.setText(f"Nepodporovaný formát: {suffix}")
-
-    def _show_image(self, path: Path) -> None:
-        """Zobrazí obrázek."""
-        pixmap = QPixmap(str(path))
-        if pixmap.isNull():
-            self._preview_label.setText("Nelze načíst obrázek")
-            return
-        scaled = pixmap.scaled(
-            400, 600,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        self._preview_label.setPixmap(scaled)
-
-    def _show_pdf_preview(self, path: Path) -> None:
-        """Zobrazí první stranu PDF pomocí pdf2image (poppler)."""
-        try:
-            from pdf2image import convert_from_path
-
-            images = convert_from_path(
-                str(path), first_page=1, last_page=1, dpi=150,
-            )
-            if not images:
-                self._preview_label.setText("PDF je prázdné")
-                return
-
-            pil_img = images[0]
-            # PIL → QImage → QPixmap
-            data = pil_img.tobytes("raw", "RGB")
-            qimg = QImage(
-                data, pil_img.width, pil_img.height,
-                pil_img.width * 3,
-                QImage.Format.Format_RGB888,
-            )
-            pixmap = QPixmap.fromImage(qimg)
-            scaled = pixmap.scaled(
-                400, 600,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            self._preview_label.setPixmap(scaled)
-
-        except ImportError:
-            self._preview_label.setText(
-                "pdf2image není nainstalován.\n"
-                "pip install pdf2image"
-            )
-        except Exception as exc:  # noqa: BLE001
-            self._preview_label.setText(f"Chyba náhledu: {exc}")
+            self._pdf_viewer.set_placeholder(f"Nepodporovaný formát: {suffix}")
 
     def _on_approve(self) -> None:
         self._result_action = "approve"

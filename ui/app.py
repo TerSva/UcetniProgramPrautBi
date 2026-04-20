@@ -46,6 +46,11 @@ from services.queries.partneri_list import PartneriListQuery
 from services.queries.next_doklad_number import NextDokladNumberQuery
 from services.queries.uctova_osnova import UctovaOsnovaQuery
 from services.commands.ocr_upload import OcrUploadCommand
+from services.commands.priloha_commands import PrilohaCommands
+from infrastructure.database.repositories.priloha_repository import (
+    SqlitePrilohaRepository,
+)
+from infrastructure.storage.priloha_storage import PrilohaStorage
 from services.commands.pocatecni_stavy import PocatecniStavyCommand
 from services.commands.vklad_zk import VkladZKCommand
 from services.queries.ocr_inbox import OcrInboxQuery
@@ -347,6 +352,68 @@ def run(db_path: Path | None = None) -> int:
     import_vypisu_vm = _build_import_vypisu_vm(factory)
     bankovni_vypisy_vm = _build_bankovni_vypisy_vm(factory)
 
+    # Účetní deník VM
+    from ui.viewmodels.ucetni_denik_vm import UcetniDenikViewModel
+    _denik_rok = None
+    if nastaveni_vm is not None:
+        nastaveni_vm.load()
+        if nastaveni_vm.firma is not None:
+            _denik_rok = nastaveni_vm.firma.rok_zacatku_uctovani
+    ucetni_denik_vm = UcetniDenikViewModel(
+        uow_factory=lambda: SqliteUnitOfWork(factory),
+        ucetni_rok=_denik_rok,
+    )
+
+    # Přílohy DI
+    uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    priloha_storage = PrilohaStorage()
+    priloha_cmd = PrilohaCommands(uow_factory=uow_factory, storage=priloha_storage)
+
+    def _priloha_loader(doklad_id: int):
+        uow = uow_factory()
+        with uow:
+            return SqlitePrilohaRepository(uow).list_by_doklad(doklad_id)
+
+    def _priloha_uploader(doklad_id, source_path, original_name):
+        return priloha_cmd.priloz_pdf_k_dokladu(doklad_id, source_path, original_name)
+
+    def _priloha_full_path(relativni_cesta):
+        return priloha_storage.full_path(relativni_cesta)
+
+    def _uhrazeno_query(doklad_id: int):
+        from domain.shared.money import Money
+        uow = uow_factory()
+        with uow:
+            row = uow.connection.execute(
+                "SELECT COALESCE(SUM(castka), 0) AS total "
+                "FROM ucetni_zaznamy "
+                "WHERE doklad_id = ? AND md_ucet LIKE '221%'",
+                (doklad_id,),
+            ).fetchone()
+            return Money(int(row["total"])) if row else Money.zero()
+
+    # PDF parser pro auto-fill ve formuláři nového dokladu
+    from infrastructure.ocr.ocr_engine import OcrEngine
+    from infrastructure.ocr.invoice_parser import InvoiceParser
+    _ocr_engine = OcrEngine()
+    _invoice_parser = InvoiceParser()
+
+    def _pdf_parser(path: str):
+        from pathlib import Path as _P
+        try:
+            result = _ocr_engine.extract_text(_P(path))
+            if not result.text.strip():
+                return None
+            return _invoice_parser.parse(result.text)
+        except Exception:
+            return None
+
+    def _form_priloha_uploader(doklad_id: int, path: str):
+        from pathlib import Path as _P
+        priloha_cmd.priloz_pdf_k_dokladu(
+            doklad_id, _P(path), _P(path).name,
+        )
+
     window = MainWindow(
         dashboard_vm=dashboard_vm,
         doklady_list_vm=doklady_list_vm,
@@ -360,6 +427,13 @@ def run(db_path: Path | None = None) -> int:
         ocr_inbox_vm=ocr_inbox_vm,
         import_vypisu_vm=import_vypisu_vm,
         bankovni_vypisy_vm=bankovni_vypisy_vm,
+        ucetni_denik_vm=ucetni_denik_vm,
+        priloha_loader=_priloha_loader,
+        priloha_uploader=_priloha_uploader,
+        priloha_full_path=_priloha_full_path,
+        uhrazeno_query=_uhrazeno_query,
+        pdf_parser=_pdf_parser,
+        form_priloha_uploader=_form_priloha_uploader,
     )
     window.show()
 

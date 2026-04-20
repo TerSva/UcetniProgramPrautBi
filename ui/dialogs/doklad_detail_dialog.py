@@ -1,28 +1,30 @@
-"""DokladDetailDialog — detail dokladu s edit módem + akcemi.
+"""DokladDetailDialog — dvousloupcovy detail dokladu s PDF nahledem.
 
 Layout:
-    Header  : Číslo dokladu  [Typ badge] [Stav badge]
-    (editable) Popis + Datum splatnosti inputs
-    (read-only) Ostatní metadata
-    K dořešení box (pokud flag nebo v edit módu tlačítko „Označit / Dořešit")
-    Akční řádek:
-        [Upravit] [Zaúčtovat] [Označit k dořešení / Dořešit]
-        [Stornovat] [Smazat]                           [Zavřít]
-    V edit módu:
-        [Zrušit úpravy]                             [Uložit změny]
+    QSplitter(Horizontal) 1100x700
+    ┌──────────────────────────┬───────────────────────────────────┐
+    │ PDF nahled               │ Header: Cislo [Typ] [Stav]       │
+    │ (PdfViewerWidget)        │ K doreseni box                   │
+    │                          │ Form: metadata                   │
+    │ nebo                     │ Castka celkem                    │
+    │                          │ Zbyva uhradit: XX Kc             │
+    │ PdfUploadZone            │ Popis                            │
+    │ "Pretahni sem PDF"       │                                  │
+    │                          │ [Upravit] [Zauctovat] ... [Zavrit]│
+    └──────────────────────────┴───────────────────────────────────┘
 
-Všechny akce procházejí přes ``DokladDetailViewModel``. Dialog po
-úspěšné mutaci neukončuje se — refreshne obsah z VM. ``accept()`` se
-zavolá jen pokud byl doklad smazaný.
-
-``result_item`` — aktuální DTO v okamžiku zavření (pro refresh listu).
+Vsechny akce prochazi pres ``DokladDetailViewModel``. Dialog po
+uspesne mutaci neukoncuje se — refreshne obsah z VM. ``accept()`` se
+zavola jen pokud byl doklad smazany.
 """
 
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
+from typing import Callable, Protocol
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSettings, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -30,11 +32,15 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
+    QSplitter,
     QVBoxLayout,
     QWidget,
 )
 
+from domain.doklady.priloha import PrilohaDokladu
 from domain.doklady.typy import DphRezim, Mena, StavDokladu
+from domain.shared.money import Money
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors, Spacing
 from ui.dialogs.confirm_dialog import ConfirmDialog
@@ -49,31 +55,58 @@ from ui.widgets.badge import (
 )
 from ui.widgets.icon import load_icon
 from ui.widgets.labeled_inputs import LabeledDateEdit, LabeledTextEdit
+from ui.widgets.pdf_upload_zone import PdfUploadZone
+from ui.widgets.pdf_viewer import PdfViewerWidget
 
 
 def _format_date_long(d: date) -> str:
     return f"{d.day}. {d.month}. {d.year}"
 
 
-class DokladDetailDialog(QDialog):
-    """Modální dialog s detailem + edit módem + akcemi."""
+class _PrilohaLoader(Protocol):
+    """Callback pro nacteni priloh dokladu."""
+    def __call__(self, doklad_id: int) -> list[PrilohaDokladu]: ...
 
-    #: Emitováno, když uživatelka kliknutím na „Zaúčtovat" chce otevřít
-    #: zaúčtovací dialog. Page to zpracuje (má k dispozici VM factories).
+
+class _PrilohaUploader(Protocol):
+    """Callback pro upload PDF k dokladu."""
+    def __call__(
+        self, doklad_id: int, source_path: Path, original_name: str,
+    ) -> PrilohaDokladu: ...
+
+
+class _UhrazenoQuery(Protocol):
+    """Callback pro zjisteni uhrazene castky z ucetniho deniku."""
+    def __call__(self, doklad_id: int) -> Money: ...
+
+
+class DokladDetailDialog(QDialog):
+    """Modalni dialog s detailem + edit modem + akcemi."""
+
+    #: Emitovano kdyz uzivatelka klikne na Zauctovat.
     zauctovat_requested = pyqtSignal(object)   # DokladyListItem
 
     def __init__(
         self,
         view_model: DokladDetailViewModel,
+        priloha_loader: _PrilohaLoader | None = None,
+        priloha_uploader: _PrilohaUploader | None = None,
+        priloha_full_path: Callable[[str], Path] | None = None,
+        uhrazeno_query: _UhrazenoQuery | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = view_model
+        self._priloha_loader = priloha_loader
+        self._priloha_uploader = priloha_uploader
+        self._priloha_full_path = priloha_full_path
+        self._uhrazeno_query = uhrazeno_query
+
         self.setWindowTitle(f"Doklad {view_model.doklad.cislo}")
         self.setProperty("class", "doklad-detail")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setModal(True)
-        self.resize(580, 620)
+        self.resize(1100, 700)
 
         # Widgety
         self._typ_badge: Badge
@@ -86,6 +119,7 @@ class DokladDetailDialog(QDialog):
         self._k_doreseni_check: QCheckBox
         self._poznamka_doreseni_edit: LabeledTextEdit
         self._error_label: QLabel
+        self._zbyva_label: QLabel
 
         self._edit_button: QPushButton
         self._zauctovat_button: QPushButton
@@ -96,15 +130,18 @@ class DokladDetailDialog(QDialog):
         self._cancel_edit_button: QPushButton
         self._save_edit_button: QPushButton
 
+        self._pdf_viewer: PdfViewerWidget
+        self._upload_zone: PdfUploadZone
+
         self._build_ui()
         self._wire_signals()
+        self._load_pdf()
         self._sync_ui()
 
     # ─── Public API ──────────────────────────────────────────────
 
     @property
     def result_item(self) -> DokladyListItem | None:
-        """Aktuální DTO v okamžiku uzavření. None pokud smazán."""
         if self._vm.is_deleted:
             return None
         return self._vm.doklad
@@ -174,9 +211,44 @@ class DokladDetailDialog(QDialog):
 
         root = QVBoxLayout(self)
         root.setContentsMargins(
-            Spacing.S6, Spacing.S6, Spacing.S6, Spacing.S6,
+            Spacing.S4, Spacing.S4, Spacing.S4, Spacing.S4,
         )
-        root.setSpacing(Spacing.S4)
+        root.setSpacing(0)
+
+        splitter = QSplitter(Qt.Orientation.Horizontal, self)
+
+        # ── LEFT: PDF viewer / upload zone ──
+        left = QWidget()
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(0, 0, Spacing.S3, 0)
+        left_layout.setSpacing(Spacing.S2)
+
+        left_title = QLabel("Příloha", left)
+        left_title.setProperty("class", "section-title")
+        left_layout.addWidget(left_title)
+
+        self._pdf_viewer = PdfViewerWidget(left)
+        left_layout.addWidget(self._pdf_viewer, stretch=1)
+
+        self._upload_zone = PdfUploadZone(
+            message="Doklad nemá přiloženo PDF.\nPřetáhni sem soubor.",
+            parent=left,
+        )
+        self._upload_zone.file_selected.connect(self._on_pdf_uploaded)
+        self._upload_zone.setVisible(False)
+        left_layout.addWidget(self._upload_zone, stretch=1)
+
+        splitter.addWidget(left)
+
+        # ── RIGHT: metadata ──
+        right = QWidget()
+        right_scroll = QScrollArea()
+        right_scroll.setWidgetResizable(True)
+        right_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(Spacing.S3, 0, 0, 0)
+        right_layout.setSpacing(Spacing.S4)
 
         # Header
         header = QHBoxLayout()
@@ -199,11 +271,11 @@ class DokladDetailDialog(QDialog):
             parent=self,
         )
         header.addWidget(self._stav_badge)
-        root.addLayout(header)
+        right_layout.addLayout(header)
 
-        # K dořešení box (jen když flagnuto)
+        # K doreseni box
         self._doreseni_box = self._build_doreseni_box()
-        root.addWidget(self._doreseni_box)
+        right_layout.addWidget(self._doreseni_box)
 
         # Form: read-only + editable
         form = QFormLayout()
@@ -216,7 +288,6 @@ class DokladDetailDialog(QDialog):
             self._form_value(_format_date_long(item.datum_vystaveni)),
         )
 
-        # Splatnost — read-only label + editable widget (prepínaný)
         self._splatnost_display = self._form_value("—")
         form.addRow(
             self._form_label("Datum splatnosti:"),
@@ -233,11 +304,11 @@ class DokladDetailDialog(QDialog):
             self._vs_display,
         )
 
-        # DPH režim — zobrazení jen pro non-default hodnoty
+        # DPH rezim
         _DPH_REZIM_LABELS = {
             DphRezim.REVERSE_CHARGE: "Reverse Charge",
             DphRezim.OSVOBOZENO: "Osvobozeno",
-            DphRezim.MIMO_DPH: "Mimo předmět DPH",
+            DphRezim.MIMO_DPH: "Mimo predmet DPH",
         }
         dph_label_text = _DPH_REZIM_LABELS.get(item.dph_rezim)
         self._dph_rezim_label = self._form_label("DPH režim:")
@@ -259,8 +330,14 @@ class DokladDetailDialog(QDialog):
         castka.setProperty("class", "dialog-value-strong")
         form.addRow(self._form_label("Částka celkem:"), castka)
 
-        # Cizoměnový řádek — jen pokud měna != CZK
-        self._foreign_label = self._form_label("Původně:")
+        # Zbyva uhradit
+        self._zbyva_label = QLabel("", self)
+        self._zbyva_label.setProperty("class", "dialog-value-strong")
+        self._zbyva_uhradit_label = self._form_label("Zbývá uhradit:")
+        form.addRow(self._zbyva_uhradit_label, self._zbyva_label)
+
+        # Cizomenovy radek
+        self._foreign_label = self._form_label("Puvodne:")
         if (
             item.mena != Mena.CZK
             and item.castka_mena is not None
@@ -283,60 +360,81 @@ class DokladDetailDialog(QDialog):
         self._popis_display.setWordWrap(True)
         form.addRow(self._form_label("Popis:"), self._popis_display)
 
-        # Fáze 6.5: datum storna — viditelné jen pro STORNOVANY doklad
-        self._storno_label = self._form_label("Stornováno:")
+        # Datum storna
+        self._storno_label = self._form_label("Stornovano:")
         self._storno_value = self._form_value("—")
         form.addRow(self._storno_label, self._storno_value)
 
-        root.addLayout(form)
+        right_layout.addLayout(form)
 
-        # Edit widgets (shown only in edit mode)
+        # Edit widgets
         self._popis_edit = LabeledTextEdit(
             "Popis", rows=3, parent=self,
         )
         self._popis_edit.setVisible(False)
-        root.addWidget(self._popis_edit)
+        right_layout.addWidget(self._popis_edit)
 
         self._splatnost_edit = LabeledDateEdit(
             "Datum splatnosti", clearable=True, parent=self,
         )
         self._splatnost_edit.setVisible(False)
-        root.addWidget(self._splatnost_edit)
+        right_layout.addWidget(self._splatnost_edit)
 
-        # K dořešení edit widgety — viditelné jen v edit módu pro NOVY
+        # K doreseni edit widgety
         self._k_doreseni_check = QCheckBox(
             "Označit k dořešení", self,
         )
         self._k_doreseni_check.setProperty("class", "form-check")
         self._k_doreseni_check.setCursor(Qt.CursorShape.PointingHandCursor)
         self._k_doreseni_check.setVisible(False)
-        root.addWidget(self._k_doreseni_check)
+        right_layout.addWidget(self._k_doreseni_check)
 
         self._poznamka_doreseni_edit = LabeledTextEdit(
             "Poznámka k dořešení",
-            placeholder="Proč vyžaduje pozornost? (nepovinné)",
+            placeholder="Proc vyzaduje pozornost? (nepovinne)",
             rows=2,
             parent=self,
         )
         self._poznamka_doreseni_edit.setVisible(False)
-        root.addWidget(self._poznamka_doreseni_edit)
+        right_layout.addWidget(self._poznamka_doreseni_edit)
 
         self._error_label = QLabel("", self)
         self._error_label.setProperty("class", "dialog-error")
         self._error_label.setWordWrap(True)
         self._error_label.setVisible(False)
-        root.addWidget(self._error_label)
+        right_layout.addWidget(self._error_label)
 
-        root.addStretch(1)
+        right_layout.addStretch(1)
 
         # Actions row (read-only mode)
         self._actions_row = self._build_actions_row()
-        root.addWidget(self._actions_row)
+        right_layout.addWidget(self._actions_row)
 
         # Edit actions row
         self._edit_actions_row = self._build_edit_actions_row()
         self._edit_actions_row.setVisible(False)
-        root.addWidget(self._edit_actions_row)
+        right_layout.addWidget(self._edit_actions_row)
+
+        right_scroll.setWidget(right)
+        splitter.addWidget(right_scroll)
+
+        # Splitter sizes — restore or default 45:55
+        settings = QSettings("PrautBi", "UcetniProgram")
+        saved = settings.value("doklad_detail_splitter")
+        if saved:
+            splitter.restoreState(saved)
+        else:
+            splitter.setSizes([450, 550])
+        self._splitter = splitter
+        splitter.splitterMoved.connect(self._on_splitter_moved)
+
+        root.addWidget(splitter)
+
+    def _on_splitter_moved(self) -> None:
+        settings = QSettings("PrautBi", "UcetniProgram")
+        settings.setValue(
+            "doklad_detail_splitter", self._splitter.saveState()
+        )
 
     def _build_doreseni_box(self) -> QWidget:
         box = QWidget(self)
@@ -396,8 +494,6 @@ class DokladDetailDialog(QDialog):
         self._storno_button = QPushButton("Stornovat", container)
         self._storno_button.setProperty("class", "destructive")
         self._storno_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Fáze 6.5: Storno přes opravný účetní předpis je aktivní.
-        # Tlačítko ovládá ``_vm.can_storno`` — viz ``_sync_ui``.
         self._storno_button.setToolTip(
             "Stornovat vytvoří opravný účetní předpis (protizápis), "
             "který anuluje dopad původního zaúčtování ve výkazech."
@@ -456,9 +552,45 @@ class DokladDetailDialog(QDialog):
         )
 
     def _on_k_doreseni_toggled_edit(self, checked: bool) -> None:
-        """V edit módu: checkbox skrývá/zobrazuje pole poznámky."""
         if self._vm.edit_mode and self._is_novy():
             self._poznamka_doreseni_edit.setVisible(checked)
+
+    # ─── PDF loading ─────────────────────────────────────────────
+
+    def _load_pdf(self) -> None:
+        """Nacte PDF prilohu pro doklad."""
+        if self._priloha_loader is None or self._priloha_full_path is None:
+            self._pdf_viewer.setVisible(False)
+            self._upload_zone.setVisible(True)
+            return
+
+        prilohy = self._priloha_loader(self._vm.doklad.id)
+        pdf_priloha = next(
+            (p for p in prilohy if p.mime_type == "application/pdf"), None,
+        )
+        if pdf_priloha is None:
+            self._pdf_viewer.setVisible(False)
+            self._upload_zone.setVisible(True)
+            return
+
+        full = self._priloha_full_path(pdf_priloha.relativni_cesta)
+        self._pdf_viewer.setVisible(True)
+        self._upload_zone.setVisible(False)
+        self._pdf_viewer.load_pdf(full)
+
+    def _on_pdf_uploaded(self, path_str: str) -> None:
+        """Upload PDF k dokladu."""
+        if self._priloha_uploader is None:
+            return
+        path = Path(path_str)
+        try:
+            self._priloha_uploader(
+                self._vm.doklad.id, path, path.name,
+            )
+            # Refresh — zobraz PDF
+            self._load_pdf()
+        except Exception as exc:  # noqa: BLE001
+            self._show_error(f"Chyba uploadu: {exc}")
 
     # ─── Slots ───────────────────────────────────────────────────
 
@@ -467,13 +599,11 @@ class DokladDetailDialog(QDialog):
 
     def _on_edit(self) -> None:
         self._vm.enter_edit()
-        # Předvyplň edit widgety z aktuálního DTO
         self._popis_edit.set_value(self._vm.draft_popis or "")
         self._splatnost_edit.set_value(self._vm.draft_splatnost)
         self._splatnost_edit.inner_widget.setEnabled(
             self._vm.can_edit_splatnost
         )
-        # K dořešení edit — jen pro NOVY
         self._k_doreseni_check.setChecked(self._vm.draft_k_doreseni)
         self._poznamka_doreseni_edit.set_value(
             self._vm.draft_poznamka_doreseni or ""
@@ -495,7 +625,6 @@ class DokladDetailDialog(QDialog):
         self._vm.set_draft_popis(popis)
         self._vm.set_draft_splatnost(splatnost)
 
-        # K dořešení edit — jen pro NOVY má význam
         if self._is_novy():
             flag = self._k_doreseni_check.isChecked()
             self._vm.set_draft_k_doreseni(flag)
@@ -507,18 +636,14 @@ class DokladDetailDialog(QDialog):
 
         result = self._vm.save_edit()
         if result is None:
-            self._show_error(self._vm.error or "Uložení selhalo.")
+            self._show_error(self._vm.error or "Ulozeni selhalo.")
             return
         self._sync_ui()
 
     def _on_zauctovat(self) -> None:
-        # Dialog neotevírá zauctovací dialog sám — signál obsluhuje page.
         self.zauctovat_requested.emit(self._vm.doklad)
 
     def _on_toggle_flag(self) -> None:
-        # NOVY doklady řeší flag přes edit mode — tlačítko je pro ně
-        # schované (viz _sync_ui). Tenhle handler obsluhuje jen
-        # ZAUCTOVANY/CASTECNE_UHRAZENY/UHRAZENY.
         if self._vm.doklad.k_doreseni:
             self._vm.dores()
         else:
@@ -551,7 +676,7 @@ class DokladDetailDialog(QDialog):
                 f"{self._vm.doklad.cislo}?\n"
                 "Vytvoří se opravný účetní předpis (protizápis), "
                 "který anuluje dopad původního zaúčtování "
-                "ve Předvaze, Hlavní knize a v KPI na Dashboardu. "
+                "v Předvaze, Hlavní knize a v KPI na Dashboardu. "
                 "Akce je nevratná."
             ),
             confirm_text="Ano, stornovat",
@@ -571,7 +696,7 @@ class DokladDetailDialog(QDialog):
             title="Smazat doklad",
             message=(
                 f"Opravdu chcete smazat doklad {self._vm.doklad.cislo}?\n"
-                "Smazat lze jen doklad ve stavu NOVY bez účetních zápisů."
+                "Smazat lze jen doklad ve stavu NOVÝ bez účetních zápisů."
             ),
             confirm_text="Ano, smazat",
             destructive=True,
@@ -581,12 +706,11 @@ class DokladDetailDialog(QDialog):
         if self._vm.smazat():
             self.accept()
             return
-        self._show_error(self._vm.error or "Smazání selhalo.")
+        self._show_error(self._vm.error or "Smazani selhalo.")
 
     # ─── External: zauctovani_dialog succeeded ───────────────────
 
     def refresh_after_zauctovani(self, item: DokladyListItem) -> None:
-        """Volá page po úspěšném zaúčtování — zrefreshuje detail."""
         self._vm.refresh_from(item)
         self._sync_ui()
 
@@ -609,7 +733,10 @@ class DokladDetailDialog(QDialog):
         self._popis_display.setText(item.popis or "—")
         self._vs_display.setText(item.variabilni_symbol or "—")
 
-        # Datum storna — jen pro STORNOVANY
+        # Zbyva uhradit
+        self._update_zbyva_uhradit()
+
+        # Datum storna
         je_stornovany = item.stav == StavDokladu.STORNOVANY
         self._storno_label.setVisible(je_stornovany)
         self._storno_value.setVisible(je_stornovany)
@@ -618,7 +745,7 @@ class DokladDetailDialog(QDialog):
         else:
             self._storno_value.setText("—")
 
-        # K dořešení box — render „(bez poznámky)" dimmed italic když prázdná
+        # K doreseni box
         self._doreseni_box.setVisible(item.k_doreseni)
         if item.k_doreseni:
             if item.poznamka_doreseni:
@@ -639,8 +766,6 @@ class DokladDetailDialog(QDialog):
         self._actions_row.setVisible(not edit)
         self._edit_actions_row.setVisible(edit)
 
-        # K dořešení edit widgety — jen v edit mode pro NOVY doklady.
-        # Poznámka pole viditelné jen když checkbox zaškrtnutý.
         is_novy = item.stav == StavDokladu.NOVY
         self._k_doreseni_check.setVisible(edit and is_novy)
         self._poznamka_doreseni_edit.setVisible(
@@ -653,25 +778,58 @@ class DokladDetailDialog(QDialog):
         self._zauctovat_button.setVisible(
             item.stav == StavDokladu.NOVY
         )
-        # Fáze 6.5: storno řeší can_storno. Pro NOVY je True v domain VM,
-        # ale service vyhodí ValidationError — aby UI nelákalo uživatelku,
-        # disabled zůstává pro NOVY (ať použije Smazat).
         self._storno_button.setEnabled(
             self._vm.can_storno
             and item.stav != StavDokladu.NOVY
         )
         self._smazat_button.setEnabled(self._vm.can_smazat)
-        # Fáze 6.7: „Označit k dořešení" se pro NOVY skrývá — flag
-        # ovládá edit mode. Pro zaúčtované doklady tlačítko zůstává.
         self._flag_button.setVisible(not is_novy)
         self._flag_button.setEnabled(self._vm.can_toggle_flag)
         self._flag_button.setText(
             "Dořešit" if item.k_doreseni else "Označit k dořešení"
         )
 
-        # Reset error pokud nejsme v edit mode
+        # Reset error
         if not edit and not self._vm.error:
             self._error_label.setVisible(False)
+
+    def _update_zbyva_uhradit(self) -> None:
+        """Vypocte a zobrazi 'Zbyva uhradit'."""
+        item = self._vm.doklad
+
+        if item.stav in (StavDokladu.UHRAZENY,):
+            self._zbyva_label.setText("Uhrazeno \u2713")
+            self._zbyva_label.setStyleSheet(f"color: {Colors.SUCCESS_700};")
+            return
+
+        if item.stav == StavDokladu.STORNOVANY:
+            self._zbyva_label.setText("Storno")
+            self._zbyva_label.setStyleSheet(f"color: {Colors.GRAY_500};")
+            return
+
+        if item.stav == StavDokladu.NOVY:
+            self._zbyva_label.setText(item.castka_celkem.format_cz())
+            self._zbyva_label.setStyleSheet(f"color: {Colors.GRAY_500};")
+            return
+
+        # ZAUCTOVANY nebo CASTECNE_UHRAZENY — zkus zjistit ze deniku
+        uhrazeno = Money.zero()
+        if self._uhrazeno_query is not None:
+            try:
+                uhrazeno = self._uhrazeno_query(item.id)
+            except Exception:  # noqa: BLE001
+                pass
+
+        zbyva = item.castka_celkem - uhrazeno
+        if zbyva <= Money.zero():
+            self._zbyva_label.setText("Uhrazeno \u2713")
+            self._zbyva_label.setStyleSheet(f"color: {Colors.SUCCESS_700};")
+        elif uhrazeno > Money.zero():
+            self._zbyva_label.setText(f"{zbyva.format_cz()}")
+            self._zbyva_label.setStyleSheet(f"color: {Colors.WARNING_700};")
+        else:
+            self._zbyva_label.setText(item.castka_celkem.format_cz())
+            self._zbyva_label.setStyleSheet(f"color: {Colors.ERROR_600};")
 
     def _show_error(self, message: str) -> None:
         self._error_label.setText(message)

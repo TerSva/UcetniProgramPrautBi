@@ -49,9 +49,9 @@ def _item(
 
 class TestModelZaklad:
 
-    def test_pocet_sloupcu_je_8(self, qtbot):
+    def test_pocet_sloupcu_je_9(self, qtbot):
         m = DokladyTableModel()
-        assert m.columnCount() == 8
+        assert m.columnCount() == 9
 
     def test_nazvy_sloupcu_obsahuji_partner(self, qtbot):
         m = DokladyTableModel()
@@ -63,6 +63,7 @@ class TestModelZaklad:
         assert "Partner" in headers
         assert "Číslo" in headers
         assert "Částka" in headers
+        assert "Uhrazeno" in headers
         assert "Stav" in headers
 
     def test_set_items_nastavi_pocet_radku(self, qtbot):
@@ -120,25 +121,25 @@ class TestKDoreseniSloupec:
             _item(id=1, k_doreseni=False),
             _item(id=2, k_doreseni=True, poznamka="x"),
         ])
-        assert m.data(m.index(0, 7), Qt.ItemDataRole.UserRole) is False
-        assert m.data(m.index(1, 7), Qt.ItemDataRole.UserRole) is True
+        assert m.data(m.index(0, 8), Qt.ItemDataRole.UserRole) is False
+        assert m.data(m.index(1, 8), Qt.ItemDataRole.UserRole) is True
 
     def test_display_je_prazdny(self, qtbot):
         m = DokladyTableModel()
         m.set_items([_item(k_doreseni=True, poznamka="p")])
         # Delegate kreslí ikonu, DisplayRole musí být prázdný
-        assert m.data(m.index(0, 7), Qt.ItemDataRole.DisplayRole) == ""
+        assert m.data(m.index(0, 8), Qt.ItemDataRole.DisplayRole) == ""
 
     def test_tooltip_obsahuje_poznamku(self, qtbot):
         m = DokladyTableModel()
         m.set_items([_item(k_doreseni=True, poznamka="vyřešit fakturu")])
-        tooltip = m.data(m.index(0, 7), Qt.ItemDataRole.ToolTipRole)
+        tooltip = m.data(m.index(0, 8), Qt.ItemDataRole.ToolTipRole)
         assert tooltip == "vyřešit fakturu"
 
     def test_tooltip_none_bez_flagnutí(self, qtbot):
         m = DokladyTableModel()
         m.set_items([_item(k_doreseni=False)])
-        assert m.data(m.index(0, 7), Qt.ItemDataRole.ToolTipRole) is None
+        assert m.data(m.index(0, 8), Qt.ItemDataRole.ToolTipRole) is None
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -148,10 +149,10 @@ class TestKDoreseniSloupec:
 
 class TestDokladyTable:
 
-    def test_delegate_je_na_sloupci_7(self, qtbot):
+    def test_delegate_je_na_sloupci_8(self, qtbot):
         table = DokladyTable()
         qtbot.addWidget(table)
-        delegate = table.itemDelegateForColumn(7)
+        delegate = table.itemDelegateForColumn(8)
         assert isinstance(delegate, KDoreseniIconDelegate)
 
     def test_set_items_propise_do_modelu(self, qtbot):
