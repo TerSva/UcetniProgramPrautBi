@@ -19,7 +19,7 @@ from services.queries.dashboard import DashboardData
 class _DashboardQuery(Protocol):
     """Strukturální typ — cokoli s `execute() -> DashboardData`."""
 
-    def execute(self) -> DashboardData: ...
+    def execute(self, *, zisk_rok: int | None = None) -> DashboardData: ...
 
 
 class DashboardViewModel:
@@ -29,6 +29,7 @@ class DashboardViewModel:
         self._query = query
         self._data: DashboardData | None = None
         self._error: str | None = None
+        self._zisk_rok: int | None = None  # None = aktuální rok
 
     @property
     def data(self) -> DashboardData | None:
@@ -42,10 +43,18 @@ class DashboardViewModel:
     def has_data(self) -> bool:
         return self._data is not None
 
+    @property
+    def zisk_rok(self) -> int | None:
+        return self._zisk_rok
+
+    def set_zisk_rok(self, rok: int) -> None:
+        """Nastav rok pro výpočet zisku a reloadni."""
+        self._zisk_rok = rok
+
     def load(self) -> None:
         """Načti data ze query. Při chybě nastav error, data zůstanou None."""
         try:
-            self._data = self._query.execute()
+            self._data = self._query.execute(zisk_rok=self._zisk_rok)
             self._error = None
         except Exception as exc:  # noqa: BLE001 — UI musí přežít cokoliv
             self._data = None

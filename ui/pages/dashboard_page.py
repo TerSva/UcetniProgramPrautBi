@@ -19,6 +19,7 @@ from datetime import date
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QShowEvent
 from PyQt6.QtWidgets import (
+    QComboBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -91,6 +92,11 @@ class DashboardPage(QWidget):
                 TypDokladu.FAKTURA_PRIJATA,
             )
         )
+        # Rok combo → VM → refresh
+        self._rok_combo.currentIndexChanged.connect(self._on_rok_changed)
+        # Nastav výchozí rok na VM (2025)
+        self._vm.set_zisk_rok(self._rok_combo.currentData())
+
         self._show_count: int = 0
         self.refresh()
 
@@ -156,8 +162,26 @@ class DashboardPage(QWidget):
         self._error_label.setVisible(False)
         self._error_label.setWordWrap(True)
 
+        # Rok selector pro Hrubý zisk
+        rok_row = QHBoxLayout()
+        rok_row.setContentsMargins(0, 0, 0, 0)
+        rok_row.setSpacing(Spacing.S2)
+        rok_row.addStretch(1)
+
+        rok_label = QLabel("Zisk za rok:", self)
+        rok_label.setProperty("class", "filter-label")
+        self._rok_combo = QComboBox(self)
+        current_year = date.today().year
+        for r in range(2025, current_year + 1):
+            self._rok_combo.addItem(str(r), r)
+        # Default na účetní rok 2025
+        self._rok_combo.setCurrentIndex(0)
+        self._rok_combo.setFixedWidth(80)
+        rok_row.addWidget(rok_label)
+        rok_row.addWidget(self._rok_combo)
+
         # 2×2 grid karet — actionable nahoře, referenční dole
-        self._card_doklady = KpiCard("Doklady letos", "—", parent=self)
+        self._card_doklady = KpiCard("Doklady celkem", "—", parent=self)
         self._card_zisk = KpiCard(
             "Hrubý zisk", "—", subtitle=None, parent=self,
         )
@@ -191,6 +215,7 @@ class DashboardPage(QWidget):
         root.addLayout(header)
         root.addWidget(self._ocr_notification)
         root.addWidget(self._error_label)
+        root.addLayout(rok_row)
         root.addLayout(grid)
         root.addStretch(1)
 
@@ -280,6 +305,13 @@ class DashboardPage(QWidget):
     # ────────────────────────────────────────────────
     # Internals
     # ────────────────────────────────────────────────
+
+    def _on_rok_changed(self) -> None:
+        """Změna roku pro výpočet zisku."""
+        rok = self._rok_combo.currentData()
+        if rok is not None:
+            self._vm.set_zisk_rok(rok)
+            self.refresh()
 
     def _refresh_ocr_notification(self) -> None:
         """Aktualizuje OCR inbox notifikaci."""

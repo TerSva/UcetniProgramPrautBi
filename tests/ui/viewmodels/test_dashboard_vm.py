@@ -34,7 +34,7 @@ class _StubQuery:
         self.result = result
         self.calls = 0
 
-    def execute(self):
+    def execute(self, *, zisk_rok=None):
         self.calls += 1
         return self.result
 
@@ -44,7 +44,7 @@ class _ErrorQuery:
         self.exc = exc
         self.calls = 0
 
-    def execute(self):
+    def execute(self, *, zisk_rok=None):
         self.calls += 1
         raise self.exc
 

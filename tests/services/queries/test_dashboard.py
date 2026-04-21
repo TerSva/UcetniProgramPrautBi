@@ -155,9 +155,13 @@ class TestPrazdnaDb:
         assert data.hruby_zisk == Money.zero()
         assert data.odhad_dane == Money.zero()
 
-    def test_rok_je_z_today(self, dashboard_query):
+    def test_rok_default_z_today(self, dashboard_query):
         data = dashboard_query.execute(today=date(2026, 4, 13))
         assert data.rok == 2026
+
+    def test_rok_z_zisk_rok_parametru(self, dashboard_query):
+        data = dashboard_query.execute(today=date(2026, 4, 13), zisk_rok=2025)
+        assert data.rok == 2025
 
     def test_today_default_je_dnesni_datum(self, dashboard_query):
         data = dashboard_query.execute()
@@ -171,8 +175,8 @@ class TestPrazdnaDb:
 
 class TestDokladyPocty:
 
-    def test_pocita_jen_letosni(self, dashboard_query, service_factories):
-        # 2 letošní (2026), 1 loňský (2025)
+    def test_pocita_vsechny_doklady(self, dashboard_query, service_factories):
+        # 2 letošní (2026), 1 loňský (2025) — všechny se počítají
         _add_doklad(service_factories, "FV-26-1", TypDokladu.FAKTURA_VYDANA,
                     date(2026, 1, 5), "1000")
         _add_doklad(service_factories, "FV-26-2", TypDokladu.FAKTURA_VYDANA,
@@ -181,7 +185,7 @@ class TestDokladyPocty:
                     date(2025, 12, 30), "5000")
 
         data = dashboard_query.execute(today=date(2026, 4, 13))
-        assert data.doklady_celkem == 2
+        assert data.doklady_celkem == 3
 
     def test_doklady_k_zauctovani_jen_novy(
         self, dashboard_query, service_factories, zauctovani,
@@ -418,9 +422,10 @@ class TestHospodarskyVysledek:
         assert data.odhad_dane == Money.zero()
         assert data.je_ve_ztrate is True
 
-    def test_hv_jen_ytd_loni_ignorovano(
+    def test_hv_jen_vybrany_rok_default(
         self, dashboard_query, service_factories, zauctovani,
     ):
+        """Loňský výnos se nezapočte do zisku za 2026 (default)."""
         d = _add_doklad(
             service_factories, "FV-LONI", TypDokladu.FAKTURA_VYDANA,
             date(2025, 11, 1), "9999",
@@ -437,3 +442,25 @@ class TestHospodarskyVysledek:
         data = dashboard_query.execute(today=date(2026, 4, 13))
         assert data.vynosy == Money.zero()
         assert data.hruby_zisk == Money.zero()
+
+    def test_hv_za_vybrany_rok_2025(
+        self, dashboard_query, service_factories, zauctovani,
+    ):
+        """S zisk_rok=2025 se loňský výnos započte."""
+        d = _add_doklad(
+            service_factories, "FV-LONI", TypDokladu.FAKTURA_VYDANA,
+            date(2025, 11, 1), "9999",
+        )
+        zauctovani.zauctuj_doklad(d, UctovyPredpis(
+            doklad_id=d,
+            zaznamy=(UcetniZaznam(
+                doklad_id=d, datum=date(2025, 11, 1),
+                md_ucet="311", dal_ucet="601",
+                castka=Money.from_koruny("9999"),
+            ),),
+        ))
+
+        data = dashboard_query.execute(today=date(2026, 4, 13), zisk_rok=2025)
+        assert data.rok == 2025
+        assert data.vynosy == Money.from_koruny("9999")
+        assert data.hruby_zisk == Money.from_koruny("9999")

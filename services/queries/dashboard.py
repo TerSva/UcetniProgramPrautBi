@@ -4,10 +4,10 @@ Read-only query, žádná mutace stavu. Snapshot je frozen DTO bez závislostí
 na DB — UI vrstva ho dostává hotový a pouze ho formátuje.
 
 Algoritmus:
-  * doklady_celkem / k_zauctovani — YTD počet (od 1.1. do today)
+  * doklady_celkem / k_zauctovani — celé období (all-time do today)
   * doklady_k_doreseni — count přes len(list_k_doreseni()) — žádné backend změny
   * pohledavky / zavazky — all-time saldo na účtech 311 / 321
-  * vynosy / naklady / hruby_zisk — YTD obraty agregované přes typ účtu
+  * vynosy / naklady / hruby_zisk — za vybraný rok (zisk_rok parametr)
   * odhad_dane = max(hrubý zisk × 19 %, 0)
 """
 
@@ -89,11 +89,23 @@ class DashboardDataQuery:
         self._denik_repo_factory = denik_repo_factory
         self._osnova_repo_factory = osnova_repo_factory
 
-    def execute(self, today: date | None = None) -> DashboardData:
-        """Spočítá snapshot. `today` je parametrizovatelný pro testy."""
+    def execute(
+        self,
+        today: date | None = None,
+        zisk_rok: int | None = None,
+    ) -> DashboardData:
+        """Spočítá snapshot.
+
+        `today` je parametrizovatelný pro testy.
+        `zisk_rok` určuje rok pro výpočet výnosů/nákladů/zisku.
+        Pokud None, použije se today.year.
+        """
         if today is None:
             today = date.today()
-        zacatek_roku = date(today.year, 1, 1)
+        if zisk_rok is None:
+            zisk_rok = today.year
+        zacatek_zisk_roku = date(zisk_rok, 1, 1)
+        konec_zisk_roku = min(date(zisk_rok, 12, 31), today)
         davno = date(1900, 1, 1)
 
         uow = self._uow_factory()
@@ -102,13 +114,13 @@ class DashboardDataQuery:
             denik_repo = self._denik_repo_factory(uow)
             osnova_repo = self._osnova_repo_factory(uow)
 
-            # ── Doklady (YTD) ──────────────────────────────────────────
-            doklady_ytd = doklady_repo.list_by_obdobi(
-                zacatek_roku, today, limit=100_000
+            # ── Doklady (celé období) ──────────────────────────────────
+            doklady_all = doklady_repo.list_by_obdobi(
+                davno, today, limit=100_000
             )
-            doklady_celkem = len(doklady_ytd)
+            doklady_celkem = len(doklady_all)
             doklady_k_zauctovani = sum(
-                1 for d in doklady_ytd if d.stav == StavDokladu.NOVY
+                1 for d in doklady_all if d.stav == StavDokladu.NOVY
             )
             doklady_k_doreseni = len(
                 doklady_repo.list_k_doreseni(limit=100_000)
@@ -136,9 +148,9 @@ class DashboardDataQuery:
             pohledavky = md_311 - dal_311
             zavazky = dal_321 - md_321
 
-            # ── Hospodářský výsledek (YTD) ─────────────────────────────
+            # ── Hospodářský výsledek (vybraný rok) ─────────────────────
             zaznamy_ytd = denik_repo.list_by_obdobi(
-                zacatek_roku, today, limit=1_000_000
+                zacatek_zisk_roku, konec_zisk_roku, limit=1_000_000
             )
 
             # Načti osnovu jednou (vč. neaktivních pro úplnost agregace)
@@ -173,7 +185,7 @@ class DashboardDataQuery:
             doklady_k_doreseni=doklady_k_doreseni,
             pohledavky=pohledavky,
             zavazky=zavazky,
-            rok=today.year,
+            rok=zisk_rok,
             vynosy=vynosy,
             naklady=naklady,
             hruby_zisk=hruby_zisk,

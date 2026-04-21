@@ -52,7 +52,7 @@ class _StubQuery:
     def __init__(self, result):
         self.result = result
 
-    def execute(self):
+    def execute(self, *, zisk_rok=None):
         return self.result
 
 
@@ -60,7 +60,7 @@ class _ErrorQuery:
     def __init__(self, exc):
         self.exc = exc
 
-    def execute(self):
+    def execute(self, *, zisk_rok=None):
         raise self.exc
 
 
@@ -223,7 +223,7 @@ class TestRefresh:
                 self.calls = 0
                 self.results = [_data(doklady_celkem=1), _data(doklady_celkem=99)]
 
-            def execute(self):
+            def execute(self, *, zisk_rok=None):
                 r = self.results[self.calls]
                 self.calls += 1
                 return r
@@ -248,7 +248,7 @@ class TestRefresh:
                     _data(doklady_celkem=42),
                 ]
 
-            def execute(self):
+            def execute(self, *, zisk_rok=None):
                 r = self.results[min(self.calls, len(self.results) - 1)]
                 self.calls += 1
                 return r
@@ -271,7 +271,7 @@ class TestRefresh:
             def __init__(self):
                 self.first = True
 
-            def execute(self):
+            def execute(self, *, zisk_rok=None):
                 if self.first:
                     self.first = False
                     raise RuntimeError("temp")
