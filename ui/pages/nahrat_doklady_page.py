@@ -171,6 +171,12 @@ class NahratDokladyPage(QWidget):
         header_row.addWidget(self._count_label)
         header_row.addStretch(1)
 
+        self._add_files_button = QPushButton("Přidat soubory", self)
+        self._add_files_button.setProperty("class", "secondary")
+        self._add_files_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_files_button.clicked.connect(self._on_add_files)
+        header_row.addWidget(self._add_files_button)
+
         self._batch_button = QPushButton("Schválit vše", self)
         self._batch_button.setProperty("class", "primary")
         self._batch_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -208,6 +214,7 @@ class NahratDokladyPage(QWidget):
         h.resizeSection(4, 100)
         h.resizeSection(5, 80)
         h.resizeSection(6, 180)
+        self._table.setAlternatingRowColors(True)
         self._table.cellDoubleClicked.connect(self._on_row_double_click)
         root.addWidget(self._table, stretch=1)
 
@@ -232,10 +239,22 @@ class NahratDokladyPage(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers,
         )
         self._schvalene_table.verticalHeader().setVisible(False)
+        self._schvalene_table.setAlternatingRowColors(True)
         sh = self._schvalene_table.horizontalHeader()
         sh.setStretchLastSection(True)
         self._schvalene_table.setMaximumHeight(150)
         root.addWidget(self._schvalene_table)
+
+    def _on_add_files(self) -> None:
+        """Přidej soubory přes systémový dialog."""
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Vyberte soubory",
+            "",
+            "Doklady (*.pdf *.jpg *.jpeg *.png);;Všechny soubory (*)",
+        )
+        if files:
+            self._handle_files([Path(f) for f in files])
 
     def _handle_files(self, paths: list[Path]) -> None:
         """Zpracuje nahrané soubory."""
@@ -379,7 +398,8 @@ class NahratDokladyPage(QWidget):
             actions_layout.setSpacing(4)
 
             btn_approve = QPushButton("Uložit", actions)
-            btn_approve.setProperty("class", "primary-sm")
+            btn_approve.setProperty("class", "table-action-teal")
+            btn_approve.setFlat(True)
             btn_approve.setCursor(Qt.CursorShape.PointingHandCursor)
             uid = item.id
             btn_approve.clicked.connect(
@@ -388,7 +408,8 @@ class NahratDokladyPage(QWidget):
             actions_layout.addWidget(btn_approve)
 
             btn_reject = QPushButton("Zamítnout", actions)
-            btn_reject.setProperty("class", "danger-sm")
+            btn_reject.setProperty("class", "table-action-danger")
+            btn_reject.setFlat(True)
             btn_reject.setCursor(Qt.CursorShape.PointingHandCursor)
             btn_reject.clicked.connect(
                 lambda _c, uid=uid: self._on_reject_single(uid),

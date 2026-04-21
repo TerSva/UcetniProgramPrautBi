@@ -173,6 +173,7 @@ class PartneriPage(QWidget):
             QAbstractItemView.EditTrigger.NoEditTriggers,
         )
         self._table.verticalHeader().setVisible(False)
+        self._table.setAlternatingRowColors(True)
 
         hdr = self._table.horizontalHeader()
         hdr.setStretchLastSection(True)

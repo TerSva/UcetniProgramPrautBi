@@ -115,6 +115,7 @@ class PocatecniStavyPage(QWidget):
             QAbstractItemView.SelectionBehavior.SelectRows,
         )
         self._table.verticalHeader().setVisible(False)
+        self._table.setAlternatingRowColors(True)
         h = self._table.horizontalHeader()
         h.setStretchLastSection(False)
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
@@ -258,7 +259,8 @@ class PocatecniStavyPage(QWidget):
             self._table.setItem(i, 3, QTableWidgetItem(s.poznamka or ""))
 
             btn = QPushButton("Smazat", self._table)
-            btn.setProperty("class", "danger-sm")
+            btn.setProperty("class", "table-action-danger")
+            btn.setFlat(True)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             sid = s.id
             btn.clicked.connect(lambda _checked, sid=sid: self._on_smazat(sid))

@@ -16,11 +16,13 @@ from typing import cast
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -234,13 +236,29 @@ class DokladFormDialog(QDialog):
     # ─── Build ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        root = QVBoxLayout(self)
+        # Constrain dialog height to fit screen
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            max_h = min(750, avail.height() - 100)
+            self.setMaximumHeight(max_h)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+
+        scroll_content = QWidget()
+        root = QVBoxLayout(scroll_content)
         root.setContentsMargins(
             Spacing.S6, Spacing.S6, Spacing.S6, Spacing.S6,
         )
         root.setSpacing(Spacing.S4)
 
-        title = QLabel("Nový doklad", self)
+        title = QLabel("Nový doklad", scroll_content)
         title.setProperty("class", "dialog-title")
         root.addWidget(title)
 
@@ -432,21 +450,28 @@ class DokladFormDialog(QDialog):
 
         root.addStretch(1)
 
-        # Footer
-        footer = QHBoxLayout()
-        footer.addStretch(1)
+        scroll.setWidget(scroll_content)
+        outer.addWidget(scroll, stretch=1)
+
+        # Footer (outside scroll)
+        footer_widget = QWidget(self)
+        footer_layout = QHBoxLayout(footer_widget)
+        footer_layout.setContentsMargins(
+            Spacing.S6, Spacing.S3, Spacing.S6, Spacing.S6,
+        )
+        footer_layout.addStretch(1)
 
         self._cancel_button = QPushButton("Zrušit", self)
         self._cancel_button.setProperty("class", "secondary")
         self._cancel_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        footer.addWidget(self._cancel_button)
+        footer_layout.addWidget(self._cancel_button)
 
         self._submit_button = QPushButton("Vytvořit doklad", self)
         self._submit_button.setProperty("class", "primary")
         self._submit_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        footer.addWidget(self._submit_button)
+        footer_layout.addWidget(self._submit_button)
 
-        root.addLayout(footer)
+        outer.addWidget(footer_widget)
 
     def _wire_signals(self) -> None:
         self._pdf_upload.file_selected.connect(self._on_pdf_selected)

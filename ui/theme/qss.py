@@ -925,6 +925,100 @@ QPushButton[class="osnova-add-analytika"]:hover {{
     border-color: {Colors.PRIMARY_400};
 }}
 
+/* ═══════════════════════════════════════════════════════════
+   GENERIC QTableWidget — zebra, hlavičky, hover
+   (DokladyTable/QTableView má vlastní override výše)
+   ═══════════════════════════════════════════════════════════ */
+
+QTableWidget {{
+    background: {Surfaces.CARD};
+    alternate-background-color: {Colors.GRAY_50};
+    border: 1px solid {Borders.DEFAULT};
+    border-radius: {Radius.MD}px;
+    gridline-color: {Borders.TABLE};
+    selection-background-color: {Surfaces.SELECTED};
+    selection-color: {Colors.BRAND};
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    color: {Colors.GRAY_800};
+}}
+
+QTableWidget::item {{
+    padding: 4px 8px;
+    border-bottom: 1px solid {Borders.TABLE};
+}}
+
+QTableWidget::item:hover {{
+    background: {Colors.BRAND_SUBTLE};
+}}
+
+QTableWidget::item:selected {{
+    background: {Surfaces.SELECTED};
+    color: {Colors.BRAND};
+}}
+
+QTableWidget QHeaderView::section {{
+    background: {Colors.GRAY_50};
+    color: {Colors.GRAY_700};
+    border: none;
+    border-bottom: 2px solid {Colors.GRAY_200};
+    padding: 6px 8px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_XS}px;
+    font-weight: {Fonts.WEIGHT_SEMIBOLD};
+}}
+
+QTableWidget QHeaderView {{
+    background: {Colors.GRAY_50};
+}}
+
+/* ── Table row action links (flat text buttons) ── */
+
+QPushButton[class="table-action-teal"] {{
+    border: none;
+    background: transparent;
+    color: {Colors.BRAND_HOVER};
+    padding: 2px 4px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+}}
+
+QPushButton[class="table-action-teal"]:hover {{
+    color: {Colors.BRAND};
+    text-decoration: underline;
+}}
+
+QPushButton[class="table-action-gray"] {{
+    border: none;
+    background: transparent;
+    color: {Colors.GRAY_500};
+    padding: 2px 4px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+}}
+
+QPushButton[class="table-action-gray"]:hover {{
+    color: {Colors.GRAY_700};
+    text-decoration: underline;
+}}
+
+QPushButton[class="table-action-danger"] {{
+    border: none;
+    background: transparent;
+    color: {Colors.ERROR_600};
+    padding: 2px 4px;
+    font-family: {Fonts.BODY_STACK};
+    font-size: {Fonts.SIZE_SM}px;
+    font-weight: {Fonts.WEIGHT_MEDIUM};
+}}
+
+QPushButton[class="table-action-danger"]:hover {{
+    color: {Colors.ERROR_700};
+    text-decoration: underline;
+}}
+
 /* ── Fáze 12: OCR inbox ── */
 
 QWidget[class="drop-zone"] {{

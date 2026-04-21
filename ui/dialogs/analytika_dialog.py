@@ -131,7 +131,7 @@ class AnalytikaDialog(QDialog):
         # Suffix input (hidden in edit mode)
         self._suffix_input = LabeledLineEdit(
             f"Kód (za tečkou {syntetic_kod}.)",
-            placeholder="např. 100, 200",
+            placeholder="100",
             parent=self,
         )
         if self._is_edit:
@@ -189,7 +189,7 @@ class AnalytikaDialog(QDialog):
         self._submit_button.clicked.connect(self._on_submit)
 
     def _on_submit(self) -> None:
-        suffix = (self._suffix_input.value() or "").strip()
+        suffix = (self._suffix_input.value() or "").strip().lstrip(".")
         nazev = (self._nazev_input.value() or "").strip()
         popis = (self._popis_input.value() or "").strip() or None
 
@@ -200,7 +200,7 @@ class AnalytikaDialog(QDialog):
                 return
             if not _SUFFIX_RE.match(suffix):
                 self._show_error(
-                    "Kód musí být 1-3 alfanumerické znaky."
+                    "Zadej jen část za tečkou, např. '100' nebo '200'."
                 )
                 return
 

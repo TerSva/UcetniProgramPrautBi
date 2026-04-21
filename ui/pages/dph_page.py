@@ -104,6 +104,7 @@ class DphPage(QWidget):
             QAbstractItemView.SelectionMode.SingleSelection,
         )
         self._table.verticalHeader().setVisible(False)
+        self._table.setAlternatingRowColors(True)
 
         h = self._table.horizontalHeader()
         h.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

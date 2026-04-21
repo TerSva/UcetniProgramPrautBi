@@ -775,8 +775,10 @@ class DokladDetailDialog(QDialog):
         else:
             self._storno_value.setText("—")
 
-        # K doreseni box
-        self._doreseni_box.setVisible(item.k_doreseni)
+        # K doreseni box — show only for NOVY documents
+        self._doreseni_box.setVisible(
+            item.k_doreseni and item.stav == StavDokladu.NOVY
+        )
         if item.k_doreseni:
             if item.poznamka_doreseni:
                 self._doreseni_note.setText(item.poznamka_doreseni)

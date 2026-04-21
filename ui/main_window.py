@@ -15,6 +15,7 @@ from __future__ import annotations
 from typing import Callable
 
 from PyQt6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QMainWindow,
     QStackedWidget,
@@ -125,7 +126,15 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
-        self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
+        self.setMinimumSize(1200, 700)
+        screen = QApplication.primaryScreen()
+        if screen is not None:
+            avail = screen.availableGeometry()
+            default_w = min(1400, avail.width() - 100)
+            default_h = min(900, avail.height() - 100)
+            self.resize(default_w, default_h)
+        else:
+            self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
 
         self._dashboard_vm = dashboard_vm
         self._doklady_list_vm = doklady_list_vm

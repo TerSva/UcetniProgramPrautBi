@@ -133,6 +133,7 @@ class BankaVypisyPage(QWidget):
         self._vypisy_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers,
         )
+        self._vypisy_table.setAlternatingRowColors(True)
         left_layout.addWidget(self._vypisy_table)
 
         top_row.addWidget(left_card, stretch=2)
@@ -243,6 +244,7 @@ class BankaVypisyPage(QWidget):
         self._tx_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers,
         )
+        self._tx_table.setAlternatingRowColors(True)
         self._tx_table.setSizePolicy(
             QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding,
         )
@@ -500,12 +502,14 @@ class BankaVypisyPage(QWidget):
                 actions_layout.setSpacing(4)
 
                 sparovat_btn = QPushButton("Spárovat")
-                sparovat_btn.setProperty("class", "secondary-sm")
+                sparovat_btn.setProperty("class", "table-action-teal")
+                sparovat_btn.setFlat(True)
                 sparovat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 sparovat_btn.clicked.connect(partial(self._on_sparovat, tx.id))
 
                 ignorovat_btn = QPushButton("Ignorovat")
-                ignorovat_btn.setProperty("class", "secondary-sm")
+                ignorovat_btn.setProperty("class", "table-action-gray")
+                ignorovat_btn.setFlat(True)
                 ignorovat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 ignorovat_btn.clicked.connect(partial(self._on_ignorovat, tx.id))
 

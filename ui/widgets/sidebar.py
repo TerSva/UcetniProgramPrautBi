@@ -54,7 +54,6 @@ SIDEBAR_STRUCTURE: tuple[SidebarSection, ...] = (
     SidebarSection(
         title="Účetnictví",
         items=(
-            SidebarItem("nahrat_doklady", "Nahrát doklady", "inbox", "Účetnictví"),
             SidebarItem(
                 "doklady", "Doklady", "file-text", "Účetnictví",
                 sub_items=(
@@ -65,6 +64,7 @@ SIDEBAR_STRUCTURE: tuple[SidebarSection, ...] = (
                     SidebarItem("doklady_od", "Opravné doklady (OD)", "refresh-ccw", "Účetnictví"),
                 ),
             ),
+            SidebarItem("nahrat_doklady", "Nahrát doklady", "inbox", "Účetnictví"),
             SidebarItem(
                 "banka", "Banka", "landmark", "Účetnictví",
                 sub_items=(

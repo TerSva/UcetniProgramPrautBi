@@ -155,6 +155,7 @@ class BankaImportPage(QWidget):
         self._report_table.setEditTriggers(
             QTableWidget.EditTrigger.NoEditTriggers,
         )
+        self._report_table.setAlternatingRowColors(True)
         step2_layout.addWidget(self._report_table, stretch=1)
 
         # Import + Reset buttons
