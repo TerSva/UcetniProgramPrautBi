@@ -7,7 +7,7 @@ schovaný error label (red). ``set_error(msg)`` ho ukáže a přidá třídu
 Pět variant:
     * ``LabeledLineEdit`` — QLineEdit (jednořádkový text, max_length).
     * ``LabeledTextEdit`` — QPlainTextEdit (víceřádkový).
-    * ``LabeledDateEdit`` — QDateEdit s calendar popupem (+ clearable).
+    * ``LabeledDateEdit`` — QLineEdit pro datum (d.M.yyyy), volitelně clearable.
     * ``LabeledMoneyEdit`` — QLineEdit s Money parsingem (vstup v Kč).
     * ``LabeledComboBox`` — QComboBox s typovou safety (itemData).
 
@@ -20,10 +20,9 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 from typing import Generic, TypeVar
 
-from PyQt6.QtCore import QDate, Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
-    QDateEdit,
     QLabel,
     QLineEdit,
     QPlainTextEdit,
@@ -165,11 +164,10 @@ class LabeledTextEdit(_LabeledBase):
 
 
 class LabeledDateEdit(_LabeledBase):
-    """Datum input — QDateEdit s kalendářem, nebo QLineEdit pro clearable.
+    """Datum input — QLineEdit pro volné psaní data (d.M.yyyy).
 
-    clearable=False: QDateEdit s calendar popup (vždy má hodnotu).
-    clearable=True: QLineEdit s placeholderem — uživatel píše d.M.yyyy,
-        pole může být prázdné (→ None).
+    clearable=False: předvyplněno dnešním datem, vždy má hodnotu.
+    clearable=True: prázdný placeholder — pole může být prázdné (→ None).
     """
 
     def __init__(
@@ -179,51 +177,40 @@ class LabeledDateEdit(_LabeledBase):
         parent: QWidget | None = None,
     ) -> None:
         self._clearable = clearable
-        self._date_edit: QDateEdit | None = None
         self._line_edit: QLineEdit | None = None
 
-        if clearable:
-            self._line_edit = QLineEdit()
-            self._line_edit.setPlaceholderText("d.M.yyyy")
-            widget = self._line_edit
-        else:
-            self._date_edit = QDateEdit()
-            self._date_edit.setCalendarPopup(True)
-            self._date_edit.setDisplayFormat("d.M.yyyy")
-            self._date_edit.setDate(QDate.currentDate())
-            widget = self._date_edit
+        # Obě varianty používají QLineEdit pro volné psaní data.
+        # clearable=True: pole může být prázdné (→ None).
+        # clearable=False: předvyplněno dnešním datem.
+        self._line_edit = QLineEdit()
+        self._line_edit.setPlaceholderText("d.M.yyyy")
+        if not clearable:
+            today = date.today()
+            self._line_edit.setText(f"{today.day}.{today.month}.{today.year}")
+        widget = self._line_edit
 
         super().__init__(label_text, widget, parent)
 
     def value(self) -> date | None:
-        if self._clearable:
-            assert self._line_edit is not None
-            text = self._line_edit.text().strip()
-            if not text:
-                return None
-            return self._parse_date(text)
-        assert self._date_edit is not None
-        qd = self._date_edit.date()
-        return date(qd.year(), qd.month(), qd.day())
+        assert self._line_edit is not None
+        text = self._line_edit.text().strip()
+        if not text:
+            return None
+        return self._parse_date(text)
 
     def set_value(self, d: date | None) -> None:
-        if self._clearable:
-            assert self._line_edit is not None
-            if d is None:
+        assert self._line_edit is not None
+        if d is None:
+            if self._clearable:
                 self._line_edit.clear()
             else:
-                self._line_edit.setText(f"{d.day}.{d.month}.{d.year}")
+                today = date.today()
+                self._line_edit.setText(f"{today.day}.{today.month}.{today.year}")
         else:
-            assert self._date_edit is not None
-            if d is None:
-                self._date_edit.setDate(QDate.currentDate())
-            else:
-                self._date_edit.setDate(QDate(d.year, d.month, d.day))
+            self._line_edit.setText(f"{d.day}.{d.month}.{d.year}")
 
     @property
-    def date_widget(self) -> QDateEdit | QLineEdit:
-        if self._date_edit is not None:
-            return self._date_edit
+    def date_widget(self) -> QLineEdit:
         assert self._line_edit is not None
         return self._line_edit
 
