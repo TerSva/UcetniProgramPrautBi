@@ -10,7 +10,10 @@ DashboardDataQuery → DashboardViewModel → MainWindow.
 
 from __future__ import annotations
 
+import logging
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from PyQt6.QtGui import QFontDatabase
@@ -112,6 +115,27 @@ def register_fonts() -> list[str]:
             continue
         families.update(QFontDatabase.applicationFontFamilies(font_id))
     return sorted(families)
+
+
+_log = logging.getLogger(__name__)
+
+
+def _backup_database(db_path: Path) -> None:
+    """Při startu aplikace vytvoří zálohu DB. Zachová posledních 7 záloh."""
+    if not db_path.exists():
+        return
+    try:
+        backup_dir = db_path.parent / "backups"
+        backup_dir.mkdir(exist_ok=True)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_path = backup_dir / f"ucetni_{timestamp}.db"
+        shutil.copy2(db_path, backup_path)
+        # Smazat starší zálohy nad limit 7
+        backups = sorted(backup_dir.glob("ucetni_*.db"))
+        for old in backups[:-7]:
+            old.unlink()
+    except Exception:  # noqa: BLE001
+        _log.warning("Nepodařilo se vytvořit zálohu DB", exc_info=True)
 
 
 def _setup_database(db_path: Path) -> ConnectionFactory:
@@ -348,7 +372,9 @@ def run(db_path: Path | None = None) -> int:
     register_fonts()
     app.setStyleSheet(build_stylesheet())
 
-    factory = _setup_database(db_path or DEFAULT_DB_PATH)
+    resolved_db = db_path or DEFAULT_DB_PATH
+    _backup_database(resolved_db)
+    factory = _setup_database(resolved_db)
     dashboard_vm = _build_dashboard_vm(factory)
     doklady_list_vm = _build_doklady_list_vm(factory)
     chart_of_accounts_vm = _build_chart_of_accounts_vm(factory)
