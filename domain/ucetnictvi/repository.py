@@ -33,6 +33,10 @@ class UctovaOsnovaRepository(ABC):
         """
 
     @abstractmethod
+    def delete(self, cislo: str) -> None:
+        """Smaže účet. Raise NotFoundError pokud neexistuje."""
+
+    @abstractmethod
     def get_by_cislo(self, cislo: str) -> Ucet:
         """Vrátí účet. Raise NotFoundError pokud neexistuje."""
 

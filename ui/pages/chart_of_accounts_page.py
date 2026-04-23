@@ -187,10 +187,20 @@ class ChartOfAccountsPage(QWidget):
     def _on_edit_ucet(
         self, cislo: str, nazev: str, popis: str | None,
     ) -> None:
+        from ui.dialogs.ucet_edit_dialog import UcetEditAction
+
         dialog = UcetEditDialog(cislo, nazev, popis, parent=self)
         if dialog.exec() and dialog.result is not None:
             r = dialog.result
-            self._vm.update_ucet(cislo, r.nazev, r.popis)
+            if r.action == UcetEditAction.DELETE:
+                self._vm.delete_analytika(cislo)
+            elif r.new_suffix is not None and "." in cislo:
+                # Analytika — může mít změněný suffix
+                self._vm.rename_analytika(
+                    cislo, r.new_suffix, r.nazev, r.popis,
+                )
+            else:
+                self._vm.update_ucet(cislo, r.nazev, r.popis)
             self._sync_ui()
 
     # ─── Sync ─────────────────────────────────────────

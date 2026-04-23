@@ -1,10 +1,13 @@
-"""UcetEditDialog — úprava názvu a popisu syntetického účtu.
+"""UcetEditDialog — úprava účtu (syntetického nebo analytického).
 
-Jednoduchý dialog: zobrazí číslo (read-only), editovatelný název a popis.
+Syntetický účet: editovatelný název + popis.
+Analytický účet: editovatelný suffix (kód za tečkou), název, popis + tlačítko Smazat.
 """
 
 from __future__ import annotations
 
+import re
+from enum import Enum, auto
 from typing import NamedTuple
 
 from PyQt6.QtCore import Qt
@@ -12,6 +15,7 @@ from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -20,12 +24,21 @@ from PyQt6.QtWidgets import (
 from ui.design_tokens import Spacing
 from ui.widgets.labeled_inputs import LabeledLineEdit, LabeledTextEdit
 
+_SUFFIX_RE = re.compile(r"^\w{1,3}$")
+
+
+class UcetEditAction(Enum):
+    SAVE = auto()
+    DELETE = auto()
+
 
 class UcetEditResult(NamedTuple):
     """Výsledek dialogu pro úpravu účtu."""
 
+    action: UcetEditAction
     nazev: str
     popis: str | None
+    new_suffix: str | None  # jen pro analytiky, None = nezměněno
 
 
 class UcetEditDialog(QDialog):
@@ -41,11 +54,13 @@ class UcetEditDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self._cislo = cislo
+        self._is_analytic = "." in cislo
         self._result: UcetEditResult | None = None
 
         self.setWindowTitle(f"Upravit účet {cislo}")
         self.setMinimumWidth(400)
 
+        self._suffix_input: LabeledLineEdit | None = None
         self._nazev_input: LabeledLineEdit
         self._popis_input: LabeledTextEdit
         self._error_label: QLabel
@@ -72,10 +87,20 @@ class UcetEditDialog(QDialog):
         title.setProperty("class", "dialog-title")
         root.addWidget(title)
 
-        # Číslo (read-only)
-        cislo_label = QLabel(f"Číslo účtu: {cislo}", self)
-        cislo_label.setProperty("class", "page-subtitle")
-        root.addWidget(cislo_label)
+        # Suffix (jen pro analytiky)
+        if self._is_analytic:
+            parent_kod, current_suffix = cislo.split(".", 1)
+            self._suffix_input = LabeledLineEdit(
+                f"Kód (za tečkou {parent_kod}.)",
+                placeholder="100",
+                parent=self,
+            )
+            self._suffix_input.set_value(current_suffix)
+            root.addWidget(self._suffix_input)
+        else:
+            cislo_label = QLabel(f"Číslo účtu: {cislo}", self)
+            cislo_label.setProperty("class", "page-subtitle")
+            root.addWidget(cislo_label)
 
         # Název
         self._nazev_input = LabeledLineEdit(
@@ -103,20 +128,30 @@ class UcetEditDialog(QDialog):
         root.addWidget(self._error_label)
 
         # Buttons
-        self._submit_button = QPushButton("Uložit změny", self)
-        self._submit_button.setProperty("class", "primary")
-        self._submit_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_layout = QHBoxLayout()
+        btn_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Smazat (jen pro analytiky)
+        if self._is_analytic:
+            delete_button = QPushButton("Smazat", self)
+            delete_button.setProperty("class", "danger-sm")
+            delete_button.setCursor(Qt.CursorShape.PointingHandCursor)
+            delete_button.clicked.connect(self._on_delete)
+            btn_layout.addWidget(delete_button)
+
+        btn_layout.addStretch(1)
 
         cancel_button = QPushButton("Zrušit", self)
         cancel_button.setProperty("class", "secondary")
         cancel_button.setCursor(Qt.CursorShape.PointingHandCursor)
         cancel_button.clicked.connect(self.reject)
-
-        btn_layout = QHBoxLayout()
-        btn_layout.setContentsMargins(0, 0, 0, 0)
-        btn_layout.addStretch(1)
         btn_layout.addWidget(cancel_button)
+
+        self._submit_button = QPushButton("Uložit změny", self)
+        self._submit_button.setProperty("class", "primary")
+        self._submit_button.setCursor(Qt.CursorShape.PointingHandCursor)
         btn_layout.addWidget(self._submit_button)
+
         root.addLayout(btn_layout)
 
     def _wire_signals(self) -> None:
@@ -124,12 +159,50 @@ class UcetEditDialog(QDialog):
 
     def _on_submit(self) -> None:
         nazev = (self._nazev_input.value() or "").strip()
-
         if not nazev:
-            self._error_label.setText("Název je povinný.")
-            self._error_label.setVisible(True)
+            self._show_error("Název je povinný.")
             return
 
         popis = (self._popis_input.value() or "").strip() or None
-        self._result = UcetEditResult(nazev=nazev, popis=popis)
+        new_suffix: str | None = None
+
+        if self._is_analytic and self._suffix_input is not None:
+            suffix = (self._suffix_input.value() or "").strip().lstrip(".")
+            if not suffix:
+                self._show_error("Kód analytiky je povinný.")
+                return
+            if not _SUFFIX_RE.match(suffix):
+                self._show_error(
+                    "Kód za tečkou: max 3 znaky (např. '100', '01')."
+                )
+                return
+            new_suffix = suffix
+
+        self._result = UcetEditResult(
+            action=UcetEditAction.SAVE,
+            nazev=nazev,
+            popis=popis,
+            new_suffix=new_suffix,
+        )
         self.accept()
+
+    def _on_delete(self) -> None:
+        reply = QMessageBox.question(
+            self,
+            "Smazat analytiku",
+            f"Opravdu smazat účet {self._cislo}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._result = UcetEditResult(
+                action=UcetEditAction.DELETE,
+                nazev="",
+                popis=None,
+                new_suffix=None,
+            )
+            self.accept()
+
+    def _show_error(self, text: str) -> None:
+        self._error_label.setText(text)
+        self._error_label.setVisible(True)

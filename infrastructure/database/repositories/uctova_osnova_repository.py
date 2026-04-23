@@ -53,6 +53,13 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
         if cursor.rowcount == 0:
             raise NotFoundError(f"Účet s číslem {ucet.cislo!r} neexistuje.")
 
+    def delete(self, cislo: str) -> None:
+        cursor = self._conn.execute(
+            "DELETE FROM uctova_osnova WHERE cislo = ?", (cislo,)
+        )
+        if cursor.rowcount == 0:
+            raise NotFoundError(f"Účet s číslem {cislo!r} neexistuje.")
+
     def get_by_cislo(self, cislo: str) -> Ucet:
         row = self._conn.execute(
             "SELECT * FROM uctova_osnova WHERE cislo = ?", (cislo,)

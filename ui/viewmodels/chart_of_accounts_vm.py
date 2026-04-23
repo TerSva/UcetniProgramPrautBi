@@ -129,3 +129,24 @@ class ChartOfAccountsViewModel:
         except Exception as exc:
             self._error = str(exc)
         self.load()
+
+    def delete_analytika(self, cislo: str) -> None:
+        """Smaž analytiku a reloadni."""
+        try:
+            self._command.delete_analytika(cislo)
+            self._error = None
+        except Exception as exc:
+            self._error = str(exc)
+        self.load()
+
+    def rename_analytika(
+        self, old_cislo: str, new_suffix: str,
+        nazev: str, popis: str | None = None,
+    ) -> None:
+        """Přejmenuj analytiku (změní suffix) a reloadni."""
+        try:
+            self._command.rename_analytika(old_cislo, new_suffix, nazev, popis)
+            self._error = None
+        except Exception as exc:
+            self._error = str(exc)
+        self.load()

@@ -140,6 +140,85 @@ class ManageChartOfAccountsCommand:
             repo.update(ucet)
             uow.commit()
 
+    def delete_analytika(self, cislo: str) -> None:
+        """Smaže analytiku. Nelze smazat syntetický účet.
+
+        Raises:
+            NotFoundError: účet neexistuje.
+            ValidationError: účet není analytika nebo má účetní zápisy.
+        """
+        uow = self._uow_factory()
+        with uow:
+            repo = self._osnova_repo_factory(uow)
+            ucet = repo.get_by_cislo(cislo)
+            if not ucet.is_analytic:
+                raise ValidationError(
+                    f"Účet {cislo} není analytika — syntetické účty nelze mazat."
+                )
+            # Check for journal entries referencing this account
+            count = uow.connection.execute(
+                "SELECT COUNT(*) FROM ucetni_zaznamy "
+                "WHERE md_ucet = ? OR dal_ucet = ?",
+                (cislo, cislo),
+            ).fetchone()[0]
+            if count > 0:
+                raise ValidationError(
+                    f"Účet {cislo} nelze smazat — má {count} účetních zápisů."
+                )
+            repo.delete(cislo)
+            uow.commit()
+
+    def rename_analytika(
+        self, old_cislo: str, new_suffix: str,
+        nazev: str, popis: str | None = None,
+    ) -> Ucet:
+        """Přejmenuje analytiku (změní suffix). Vytvoří novou, smaže starou.
+
+        Raises:
+            NotFoundError: účet neexistuje.
+            ValidationError: účet není analytika nebo má účetní zápisy.
+            ConflictError: nový kód už existuje.
+        """
+        uow = self._uow_factory()
+        with uow:
+            repo = self._osnova_repo_factory(uow)
+            old = repo.get_by_cislo(old_cislo)
+            if not old.is_analytic:
+                raise ValidationError(
+                    f"Účet {old_cislo} není analytika."
+                )
+            new_cislo = f"{old.parent_kod}.{new_suffix}"
+            if new_cislo == old_cislo:
+                # Suffix se nezměnil — jen update název/popis
+                old.uprav_nazev(nazev)
+                old.uprav_popis(popis)
+                repo.update(old)
+                uow.commit()
+                return old
+            # Check for journal entries on old account
+            count = uow.connection.execute(
+                "SELECT COUNT(*) FROM ucetni_zaznamy "
+                "WHERE md_ucet = ? OR dal_ucet = ?",
+                (old_cislo, old_cislo),
+            ).fetchone()[0]
+            if count > 0:
+                raise ValidationError(
+                    f"Účet {old_cislo} nelze přejmenovat — má {count} účetních zápisů."
+                )
+            # Create new, delete old
+            new_ucet = Ucet(
+                cislo=new_cislo,
+                nazev=nazev,
+                typ=old.typ,
+                je_aktivni=old.je_aktivni,
+                parent_kod=old.parent_kod,
+                popis=popis,
+            )
+            repo.add(new_ucet)
+            repo.delete(old_cislo)
+            uow.commit()
+        return new_ucet
+
     def update_ucet(
         self,
         cislo: str,
