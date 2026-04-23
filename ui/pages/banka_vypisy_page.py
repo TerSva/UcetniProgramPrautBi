@@ -582,6 +582,9 @@ class BankaVypisyPage(QWidget):
 
     def _refresh_transakce(self) -> None:
         txs = self._vm.transakce
+        # Nejdřív smazat všechny řádky (včetně cell widgetů z předchozího
+        # výpisu — setCellWidget se nemaže přes setItem).
+        self._tx_table.setRowCount(0)
         self._tx_table.setRowCount(len(txs))
         for i, tx in enumerate(txs):
             self._tx_table.setItem(
