@@ -27,6 +27,7 @@ INSERT OR IGNORE INTO uctova_osnova (cislo, nazev, typ, je_aktivni) VALUES
     ('345', 'Ostatní daně a poplatky', 'P', 1);
 
 INSERT OR IGNORE INTO uctova_osnova (cislo, nazev, typ, je_aktivni) VALUES
+    ('353', 'Pohledávky za upsaný vlastní kapitál', 'A', 1),
     ('355', 'Ostatní pohledávky za společníky', 'A', 1);
 INSERT OR IGNORE INTO uctova_osnova (cislo, nazev, typ, je_aktivni, parent_kod) VALUES
     ('355.001', 'Pohledávky za společníkem Martin Švanda', 'A', 1, '355'),

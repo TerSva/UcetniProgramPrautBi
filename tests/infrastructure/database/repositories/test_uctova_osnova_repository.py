@@ -19,7 +19,7 @@ class TestSeedOsnovy:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
             # 20 base + 47 from seed 020 (PRAUT 2025 complete chart of accounts)
-            assert len(ucty) == 67
+            assert len(ucty) == 68
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
