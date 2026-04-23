@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 from domain.banka.bankovni_transakce import StavTransakce
 from ui.design_tokens import Spacing
 from ui.dialogs.sparovat_platbu_dialog import SparovatPlatbuDialog
+from ui.dialogs.zauctovat_transakci_dialog import ZauctovatTransakciDialog
 from ui.viewmodels.bankovni_vypisy_vm import BankovniVypisyViewModel
 from ui.widgets.labeled_inputs import LabeledComboBox, LabeledLineEdit, LabeledMoneyEdit
 
@@ -474,6 +475,66 @@ class BankaVypisyPage(QWidget):
         self._refresh_transakce()
         self._load()
 
+    def _on_zauctovat_tx(self, tx_id: int) -> None:
+        """Otevře dialog pro přímé zaúčtování transakce."""
+        # Najdi TransakceListItem
+        txs = self._vm.transakce
+        tx_item = next((t for t in txs if t.id == tx_id), None)
+        if tx_item is None:
+            return
+
+        # Načti účtovou osnovu
+        ucet_kod = self._vm.get_ucet_kod_for_vypis()
+        if ucet_kod is None:
+            QMessageBox.warning(
+                self, "Chyba", "Nelze zjistit bankovní účet výpisu.",
+            )
+            return
+
+        if self._vm._uow_factory is None:
+            QMessageBox.warning(self, "Chyba", "Funkce není dostupná.")
+            return
+
+        from infrastructure.database.repositories.uctova_osnova_repository import (
+            SqliteUctovaOsnovaRepository,
+        )
+        from services.queries.uctova_osnova import UcetItem
+
+        uow = self._vm._uow_factory()
+        with uow:
+            repo = SqliteUctovaOsnovaRepository(uow)
+            ucty_domain = repo.list_all(jen_aktivni=True)
+        ucty = [UcetItem.from_domain(u) for u in ucty_domain]
+
+        dlg = ZauctovatTransakciDialog(
+            transakce=tx_item,
+            ucty=ucty,
+            ucet_221=ucet_kod,
+            parent=self,
+        )
+        if not dlg.exec():
+            return
+
+        ok = self._vm.zauctovat_transakci(
+            tx_id=tx_id,
+            md_ucet=dlg.md_ucet,
+            dal_ucet=dlg.dal_ucet,
+            popis=dlg.popis_zapisu or None,
+        )
+        if not ok:
+            QMessageBox.warning(
+                self, "Chyba",
+                self._vm.error or "Zaúčtování selhalo.",
+            )
+            return
+
+        QMessageBox.information(
+            self, "Zaúčtováno",
+            "Transakce úspěšně zaúčtována.",
+        )
+        self._refresh_transakce()
+        self._load()
+
     def _on_open_doklad(self, doklad_id: int) -> None:
         """Otevře detail dokladu přes callback z MainWindow."""
         if self._on_open_doklad_cb is not None:
@@ -566,6 +627,12 @@ class BankaVypisyPage(QWidget):
                 sparovat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 sparovat_btn.clicked.connect(partial(self._on_sparovat, tx.id))
 
+                zauctovat_btn = QPushButton("Zaúčtovat")
+                zauctovat_btn.setProperty("class", "table-action-teal")
+                zauctovat_btn.setFlat(True)
+                zauctovat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                zauctovat_btn.clicked.connect(partial(self._on_zauctovat_tx, tx.id))
+
                 ignorovat_btn = QPushButton("Ignorovat")
                 ignorovat_btn.setProperty("class", "table-action-gray")
                 ignorovat_btn.setFlat(True)
@@ -573,6 +640,7 @@ class BankaVypisyPage(QWidget):
                 ignorovat_btn.clicked.connect(partial(self._on_ignorovat, tx.id))
 
                 actions_layout.addWidget(sparovat_btn)
+                actions_layout.addWidget(zauctovat_btn)
                 actions_layout.addWidget(ignorovat_btn)
                 self._tx_table.setCellWidget(i, 8, actions_widget)
             else:

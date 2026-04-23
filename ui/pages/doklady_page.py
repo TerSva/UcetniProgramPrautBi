@@ -104,6 +104,8 @@ class DokladyPage(QWidget):
         form_priloha_uploader: object = None,
         duplikat_command: object = None,
         uow_factory: Callable | None = None,
+        partner_items_loader: Callable | None = None,
+        on_partner_created: Callable | None = None,
         preset_typ: TypDokladu | None = None,
         preset_title: str | None = None,
         parent: QWidget | None = None,
@@ -122,6 +124,8 @@ class DokladyPage(QWidget):
         self._form_priloha_uploader = form_priloha_uploader
         self._duplikat_command = duplikat_command
         self._uow_factory = uow_factory
+        self._partner_items_loader = partner_items_loader
+        self._on_partner_created = on_partner_created
         self._preset_typ = preset_typ
         self._preset_title = preset_title or "Doklady"
         self._preset_subtitle = _SUBTITLE_BY_TYP.get(
@@ -425,8 +429,11 @@ class DokladyPage(QWidget):
             dph_rezim=data.dph_rezim,
             popis=data.popis,
         )
+        partner_items = self._partner_items_loader() if callable(self._partner_items_loader) else []
         dialog = DokladFormDialog(
             vm,
+            partner_items=partner_items,
+            on_partner_created=self._on_partner_created,
             preset_typ=self._preset_typ,
             pdf_parser=self._pdf_parser,
             priloha_uploader=self._form_priloha_uploader,
@@ -441,8 +448,11 @@ class DokladyPage(QWidget):
         if self._form_vm_factory is None:
             return
         vm = self._form_vm_factory()
+        partner_items = self._partner_items_loader() if callable(self._partner_items_loader) else []
         dialog = DokladFormDialog(
             vm,
+            partner_items=partner_items,
+            on_partner_created=self._on_partner_created,
             preset_typ=self._preset_typ,
             pdf_parser=self._pdf_parser,
             priloha_uploader=self._form_priloha_uploader,

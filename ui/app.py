@@ -463,6 +463,37 @@ def run(db_path: Path | None = None) -> int:
             doklad_id, _P(path), _P(path).name,
         )
 
+    # Partner DI pro "+ Nový" partner v DokladFormDialog
+    _partneri_list_query = PartneriListQuery(
+        uow_factory=uow_factory,
+        partneri_repo_factory=lambda uow: SqlitePartneriRepository(uow),
+    )
+    _manage_partneri_cmd = ManagePartneriCommand(
+        uow_factory=uow_factory,
+        partneri_repo_factory=lambda uow: SqlitePartneriRepository(uow),
+    )
+
+    def _partner_items_loader():
+        return _partneri_list_query.execute(jen_aktivni=True)
+
+    def _on_partner_created(result):
+        from services.queries.partneri_list import PartneriListItem
+        partner = _manage_partneri_cmd.create(
+            nazev=result.nazev,
+            kategorie=result.kategorie,
+            ico=result.ico,
+            dic=result.dic,
+            adresa=result.adresa,
+            bankovni_ucet=result.bankovni_ucet,
+            email=result.email,
+            telefon=result.telefon,
+            poznamka=result.poznamka,
+            podil_procent=result.podil_procent,
+            ucet_pohledavka=result.ucet_pohledavka,
+            ucet_zavazek=result.ucet_zavazek,
+        )
+        return PartneriListItem.from_domain(partner)
+
     window = MainWindow(
         dashboard_vm=dashboard_vm,
         doklady_list_vm=doklady_list_vm,
@@ -486,6 +517,8 @@ def run(db_path: Path | None = None) -> int:
         form_priloha_uploader=_form_priloha_uploader,
         duplikat_command=duplikat_cmd,
         uow_factory=uow_factory,
+        partner_items_loader=_partner_items_loader,
+        on_partner_created=_on_partner_created,
     )
     window.show()
 

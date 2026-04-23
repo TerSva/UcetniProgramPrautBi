@@ -125,6 +125,8 @@ class MainWindow(QMainWindow):
         form_priloha_uploader: object = None,
         duplikat_command: object = None,
         uow_factory: object = None,
+        partner_items_loader: object = None,
+        on_partner_created: object = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -161,6 +163,8 @@ class MainWindow(QMainWindow):
         self._duplikat_command = duplikat_command
         self._form_priloha_uploader = form_priloha_uploader
         self._uow_factory = uow_factory
+        self._partner_items_loader = partner_items_loader
+        self._on_partner_created = on_partner_created
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -234,6 +238,8 @@ class MainWindow(QMainWindow):
                 form_priloha_uploader=self._form_priloha_uploader,
                 duplikat_command=self._duplikat_command,
                 uow_factory=self._uow_factory,
+                partner_items_loader=self._partner_items_loader,
+                on_partner_created=self._on_partner_created,
                 preset_typ=typ,
                 preset_title=title,
                 parent=self._stack,
@@ -388,6 +394,8 @@ class MainWindow(QMainWindow):
             form_priloha_uploader=self._form_priloha_uploader,
             duplikat_command=self._duplikat_command,
             uow_factory=self._uow_factory,
+            partner_items_loader=self._partner_items_loader,
+            on_partner_created=self._on_partner_created,
             parent=self._stack,
         )
         self._add_page("_doklady_all", self._all_doklady_page)

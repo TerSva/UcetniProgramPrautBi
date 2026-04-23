@@ -249,3 +249,77 @@ class BankovniVypisyViewModel:
         except Exception as exc:  # noqa: BLE001
             self._error = str(exc)
             return False
+
+    def zauctovat_transakci(
+        self,
+        tx_id: int,
+        md_ucet: str,
+        dal_ucet: str,
+        popis: str | None = None,
+    ) -> bool:
+        """Přímé zaúčtování transakce (bez dokladu)."""
+        if self._uow_factory is None:
+            self._error = "uow_factory není k dispozici"
+            return False
+        try:
+            from domain.shared.money import Money
+            from domain.ucetnictvi.ucetni_zaznam import UcetniZaznam
+            from infrastructure.database.repositories.ucetni_denik_repository import (
+                SqliteUcetniDenikRepository,
+            )
+
+            uow = self._uow_factory()
+            with uow:
+                tx_repo = SqliteBankovniTransakceRepository(uow)
+                denik_repo = SqliteUcetniDenikRepository(uow)
+
+                tx = tx_repo.get(tx_id)
+                if tx is None:
+                    self._error = f"Transakce {tx_id} nenalezena"
+                    return False
+
+                # BV doklad_id z výpisu
+                row = uow.connection.execute(
+                    "SELECT bv_doklad_id FROM bankovni_vypisy WHERE id = ?",
+                    (tx.bankovni_vypis_id,),
+                ).fetchone()
+                bv_doklad_id = row["bv_doklad_id"] if row else None
+                if bv_doklad_id is None:
+                    self._error = "BV doklad nenalezen"
+                    return False
+
+                castka = (
+                    tx.castka
+                    if tx.castka.is_positive
+                    else Money(-tx.castka.to_halire())
+                )
+
+                zaznam = UcetniZaznam(
+                    doklad_id=bv_doklad_id,
+                    datum=tx.datum_zauctovani,
+                    md_ucet=md_ucet,
+                    dal_ucet=dal_ucet,
+                    castka=castka,
+                    popis=popis,
+                )
+                zapis_id = denik_repo.add(zaznam)
+                tx.auto_zauctuj(zapis_id)
+                tx_repo.update(tx)
+                uow.commit()
+
+            if self._selected_vypis_id is not None:
+                self.select_vypis(self._selected_vypis_id)
+            self._error = None
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return False
+
+    def get_ucet_kod_for_vypis(self) -> str | None:
+        """Vrátí ucet_kod (221.xxx) vybraného výpisu."""
+        if self._selected_vypis_id is None:
+            return None
+        for v in self._vypisy:
+            if v.id == self._selected_vypis_id:
+                return v.ucet_kod
+        return None
