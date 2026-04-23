@@ -21,7 +21,7 @@ def _seed_analytiky(db_factory):
     uow = SqliteUnitOfWork(db_factory)
     with uow:
         repo = SqliteUctovaOsnovaRepository(uow)
-        repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+        # 501.100 already exists from seed 020
         repo.add(Ucet("501.200", "Služby", TypUctu.NAKLADY, parent_kod="501"))
         uow.commit()
 
@@ -61,11 +61,11 @@ class TestChartOfAccountsQuery:
 
     def test_filter_inactive(self, db_factory):
         """show_inactive=False skryje neaktivní účty."""
-        # Deaktivuj účet 501
+        # Deaktivuj účet 504 (no analytiky — clean test)
         uow = SqliteUnitOfWork(db_factory)
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
-            u = repo.get_by_cislo("501")
+            u = repo.get_by_cislo("504")
             u.deaktivuj()
             repo.update(u)
             uow.commit()
@@ -76,7 +76,7 @@ class TestChartOfAccountsQuery:
         all_result = query.execute(show_inactive=True)
         trida_5_all = next(t for t in all_result if t.trida == 5)
         cisla_all = {u.cislo for u in trida_5_all.ucty}
-        assert "501" in cisla_all
+        assert "504" in cisla_all
 
         # Bez neaktivních
         active_result = query.execute(show_inactive=False)
@@ -85,7 +85,7 @@ class TestChartOfAccountsQuery:
         )
         if trida_5_active:
             cisla_active = {u.cislo for u in trida_5_active.ucty}
-            assert "501" not in cisla_active
+            assert "504" not in cisla_active
 
     def test_trida_nazev(self, db_factory):
         """Každá třída má správný český název."""

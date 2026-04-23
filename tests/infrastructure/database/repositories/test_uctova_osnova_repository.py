@@ -18,7 +18,8 @@ class TestSeedOsnovy:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
-            assert len(ucty) == 20  # 9 base + 7 banka (221.001-003, 568, 591, 662, 261) + 4 RC (518.200, 321.002, 343.100, 343.200)
+            # 20 base + 47 from seed 020 (PRAUT 2025 complete chart of accounts)
+            assert len(ucty) == 67
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -37,16 +38,19 @@ class TestListByTyp:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             naklady = repo.list_by_typ(TypUctu.NAKLADY)
-            assert len(naklady) == 5  # 501, 518, 518.200, 568, 591
+            assert len(naklady) == 23
             cisla = {u.cislo for u in naklady}
-            assert {"501", "518", "518.200", "568", "591"} == cisla
+            assert "501" in cisla
+            assert "518" in cisla
+            assert "568" in cisla
+            assert "591" in cisla
 
     def test_vynosy(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             vynosy = repo.list_by_typ(TypUctu.VYNOSY)
-            assert len(vynosy) == 3  # 601, 602, 662
+            assert len(vynosy) == 6
 
     def test_serazeno_podle_cisla(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -63,17 +67,17 @@ class TestAdd:
         uow = SqliteUnitOfWork(db_factory)
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
-            ucet = Ucet(cislo="411", nazev="Základní kapitál", typ=TypUctu.PASIVA)
+            ucet = Ucet(cislo="461", nazev="Bankovní úvěry", typ=TypUctu.PASIVA)
             result = repo.add(ucet)
-            assert result.cislo == "411"
+            assert result.cislo == "461"
             uow.commit()
 
         # ověření v nové UoW
         uow2 = SqliteUnitOfWork(db_factory)
         with uow2:
             repo2 = SqliteUctovaOsnovaRepository(uow2)
-            u = repo2.get_by_cislo("411")
-            assert u.nazev == "Základní kapitál"
+            u = repo2.get_by_cislo("461")
+            assert u.nazev == "Bankovní úvěry"
 
     def test_duplicitni_cislo(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -150,11 +154,11 @@ class TestAnalytikaRoundTrip:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             analytika = Ucet(
-                cislo="501.100",
-                nazev="Kancelářské potřeby",
+                cislo="502.100",
+                nazev="Elektřina",
                 typ=TypUctu.NAKLADY,
-                parent_kod="501",
-                popis="Papíry, tonery",
+                parent_kod="502",
+                popis="Elektrická energie",
             )
             repo.add(analytika)
             uow.commit()
@@ -162,12 +166,12 @@ class TestAnalytikaRoundTrip:
         uow2 = SqliteUnitOfWork(db_factory)
         with uow2:
             repo2 = SqliteUctovaOsnovaRepository(uow2)
-            loaded = repo2.get_by_cislo("501.100")
-            assert loaded.cislo == "501.100"
-            assert loaded.nazev == "Kancelářské potřeby"
+            loaded = repo2.get_by_cislo("502.100")
+            assert loaded.cislo == "502.100"
+            assert loaded.nazev == "Elektřina"
             assert loaded.typ == TypUctu.NAKLADY
-            assert loaded.parent_kod == "501"
-            assert loaded.popis == "Papíry, tonery"
+            assert loaded.parent_kod == "502"
+            assert loaded.popis == "Elektrická energie"
             assert loaded.is_analytic is True
 
     def test_get_analytiky(self, db_factory):
@@ -175,9 +179,8 @@ class TestAnalytikaRoundTrip:
         uow = SqliteUnitOfWork(db_factory)
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
-            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
+            # 501.100 already exists from seed, add 501.200
             repo.add(Ucet("501.200", "Služby", TypUctu.NAKLADY, parent_kod="501"))
-            repo.add(Ucet("518.100", "IT služby", TypUctu.NAKLADY, parent_kod="518"))
             uow.commit()
 
         uow2 = SqliteUnitOfWork(db_factory)
@@ -188,18 +191,15 @@ class TestAnalytikaRoundTrip:
             assert {a.cislo for a in analytiky_501} == {"501.100", "501.200"}
 
             analytiky_518 = repo2.get_analytiky("518")
-            assert len(analytiky_518) == 2  # 518.100 (seed) + 518.200 (RC migration)
+            # 518.100, 518.200 from migrations + 518.300, 518.400 from seed 020
+            assert len(analytiky_518) == 4
 
-            analytiky_311 = repo2.get_analytiky("311")
-            assert len(analytiky_311) == 0
+            analytiky_314 = repo2.get_analytiky("314")
+            assert len(analytiky_314) == 0
 
     def test_update_popis(self, db_factory):
         """Update analytiky — popis se uloží."""
-        uow = SqliteUnitOfWork(db_factory)
-        with uow:
-            repo = SqliteUctovaOsnovaRepository(uow)
-            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
-            uow.commit()
+        # 501.100 already exists from seed migration
 
         uow2 = SqliteUnitOfWork(db_factory)
         with uow2:
@@ -219,11 +219,7 @@ class TestAnalytikaRoundTrip:
 
     def test_deaktivace_analytiky(self, db_factory):
         """Deaktivace analytiky se správně persistuje."""
-        uow = SqliteUnitOfWork(db_factory)
-        with uow:
-            repo = SqliteUctovaOsnovaRepository(uow)
-            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
-            uow.commit()
+        # 501.100 already exists from seed
 
         uow2 = SqliteUnitOfWork(db_factory)
         with uow2:
@@ -241,12 +237,7 @@ class TestAnalytikaRoundTrip:
 
     def test_duplicitni_analytika(self, db_factory):
         """Pokus o přidání duplicitní analytiky vyhodí ConflictError."""
-        uow = SqliteUnitOfWork(db_factory)
-        with uow:
-            repo = SqliteUctovaOsnovaRepository(uow)
-            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
-            uow.commit()
-
+        # 501.100 already exists from seed
         uow2 = SqliteUnitOfWork(db_factory)
         with uow2:
             repo2 = SqliteUctovaOsnovaRepository(uow2)
@@ -255,12 +246,7 @@ class TestAnalytikaRoundTrip:
 
     def test_list_all_includes_analytiky(self, db_factory):
         """list_all vrátí i analytické účty."""
-        uow = SqliteUnitOfWork(db_factory)
-        with uow:
-            repo = SqliteUctovaOsnovaRepository(uow)
-            repo.add(Ucet("501.100", "Kancelář", TypUctu.NAKLADY, parent_kod="501"))
-            uow.commit()
-
+        # 501.100 already exists from seed
         uow2 = SqliteUnitOfWork(db_factory)
         with uow2:
             repo2 = SqliteUctovaOsnovaRepository(uow2)

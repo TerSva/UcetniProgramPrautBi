@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from ui.design_tokens import Spacing
 from ui.dialogs.analytika_dialog import AnalytikaDialog
+from ui.dialogs.ucet_edit_dialog import UcetEditDialog
 from ui.viewmodels.chart_of_accounts_vm import ChartOfAccountsViewModel
 
 
@@ -183,6 +184,15 @@ class ChartOfAccountsPage(QWidget):
             self._vm.update_analytika(cislo, r.nazev, r.popis)
             self._sync_ui()
 
+    def _on_edit_ucet(
+        self, cislo: str, nazev: str, popis: str | None,
+    ) -> None:
+        dialog = UcetEditDialog(cislo, nazev, popis, parent=self)
+        if dialog.exec() and dialog.result is not None:
+            r = dialog.result
+            self._vm.update_ucet(cislo, r.nazev, r.popis)
+            self._sync_ui()
+
     # ─── Sync ─────────────────────────────────────────
 
     def _sync_ui(self) -> None:
@@ -272,8 +282,19 @@ class ChartOfAccountsPage(QWidget):
         else:
             label.setProperty("class", "osnova-ucet")
 
+        edit_btn = QPushButton("✎", row)
+        edit_btn.setProperty("class", "osnova-edit-btn")
+        edit_btn.setFixedSize(24, 24)
+        edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        edit_btn.setToolTip("Upravit účet")
+        edit_btn.clicked.connect(
+            lambda _checked, ci=item.cislo, na=item.nazev, po=item.popis:
+                self._on_edit_ucet(ci, na, po)
+        )
+
         row_layout.addWidget(checkbox)
         row_layout.addWidget(label, stretch=1)
+        row_layout.addWidget(edit_btn)
         layout.addWidget(row)
 
         # Analytiky

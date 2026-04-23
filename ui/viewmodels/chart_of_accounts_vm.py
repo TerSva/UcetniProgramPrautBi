@@ -27,6 +27,9 @@ class _ManageCommand(Protocol):
     def update_analytika(
         self, cislo: str, nazev: str, popis: str | None = None,
     ) -> None: ...
+    def update_ucet(
+        self, cislo: str, nazev: str, popis: str | None = None,
+    ) -> None: ...
 
 
 class ChartOfAccountsViewModel:
@@ -111,6 +114,17 @@ class ChartOfAccountsViewModel:
         """Uprav analytiku a reloadni."""
         try:
             self._command.update_analytika(cislo, nazev, popis)
+            self._error = None
+        except Exception as exc:
+            self._error = str(exc)
+        self.load()
+
+    def update_ucet(
+        self, cislo: str, nazev: str, popis: str | None = None,
+    ) -> None:
+        """Uprav účet (syntetický i analytický) a reloadni."""
+        try:
+            self._command.update_ucet(cislo, nazev, popis)
             self._error = None
         except Exception as exc:
             self._error = str(exc)

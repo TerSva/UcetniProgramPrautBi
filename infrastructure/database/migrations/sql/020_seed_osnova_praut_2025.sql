@@ -75,6 +75,7 @@ INSERT OR IGNORE INTO uctova_osnova (cislo, nazev, typ, je_aktivni) VALUES
     ('513', 'Náklady na reprezentaci', 'N', 1);
 
 INSERT OR IGNORE INTO uctova_osnova (cislo, nazev, typ, je_aktivni, parent_kod) VALUES
+    ('518.100', 'Inzerce', 'N', 1, '518'),
     ('518.300', 'Software a SaaS tuzemsko', 'N', 1, '518'),
     ('518.400', 'Ostatní služby tuzemsko', 'N', 1, '518');
 

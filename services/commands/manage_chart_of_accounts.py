@@ -139,3 +139,23 @@ class ManageChartOfAccountsCommand:
             ucet.uprav_popis(popis)
             repo.update(ucet)
             uow.commit()
+
+    def update_ucet(
+        self,
+        cislo: str,
+        nazev: str,
+        popis: str | None = None,
+    ) -> None:
+        """Změní název a popis účtu (syntetického i analytického).
+
+        Raises:
+            NotFoundError: účet neexistuje.
+        """
+        uow = self._uow_factory()
+        with uow:
+            repo = self._osnova_repo_factory(uow)
+            ucet = repo.get_by_cislo(cislo)
+            ucet.uprav_nazev(nazev)
+            ucet.uprav_popis(popis)
+            repo.update(ucet)
+            uow.commit()
