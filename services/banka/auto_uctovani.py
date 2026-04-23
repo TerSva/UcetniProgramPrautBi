@@ -93,7 +93,7 @@ class AutoUctovaniBankyCommand:
 
             for tx in transakce:
                 result = self._process_transaction(
-                    tx, ucet_221, doklady_repo, denik_repo, tx_repo,
+                    tx, ucet_221, doklady_repo, denik_repo, tx_repo, uow,
                 )
                 if result == "zauctovano":
                     zauctovano += 1
@@ -118,6 +118,7 @@ class AutoUctovaniBankyCommand:
         doklady_repo: SqliteDokladyRepository,
         denik_repo: SqliteUcetniDenikRepository,
         tx_repo: SqliteBankovniTransakceRepository,
+        uow: SqliteUnitOfWork | None = None,
     ) -> Literal["zauctovano", "sparovano", "preskoceno"]:
         """Zpracuj jednu transakci. Vrací typ výsledku."""
         popis_lower = (tx.popis or "").lower()
@@ -194,11 +195,17 @@ class AutoUctovaniBankyCommand:
             if doklad is not None:
                 castka = tx.castka if tx.castka.is_positive else Money(-tx.castka.to_halire())
                 if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
-                    # FP úhrada: MD 321 / Dal 221
-                    md, dal = "321", ucet_221
+                    # FP úhrada: MD 321.xxx / Dal 221 — účet z původního zaúčtování
+                    ucet_321 = self._find_analyticky_ucet(
+                        uow, doklad.id, "dal_ucet", "321",
+                    )
+                    md, dal = ucet_321, ucet_221
                 elif doklad.typ == TypDokladu.FAKTURA_VYDANA:
-                    # FV úhrada: MD 221 / Dal 311
-                    md, dal = ucet_221, "311"
+                    # FV úhrada: MD 221 / Dal 311.xxx — účet z původního zaúčtování
+                    ucet_311 = self._find_analyticky_ucet(
+                        uow, doklad.id, "md_ucet", "311",
+                    )
+                    md, dal = ucet_221, ucet_311
                 else:
                     return "preskoceno"
 
@@ -217,6 +224,34 @@ class AutoUctovaniBankyCommand:
                 return "sparovano"
 
         return "preskoceno"
+
+    @staticmethod
+    def _find_analyticky_ucet(
+        uow: SqliteUnitOfWork | None,
+        doklad_id: int,
+        sloupec: str,
+        synteticky: str,
+    ) -> str:
+        """Najde analytický účet (např. 321.100) z existujícího zaúčtování dokladu.
+
+        Args:
+            uow: Unit of work pro přístup k DB.
+            doklad_id: ID dokladu.
+            sloupec: 'md_ucet' nebo 'dal_ucet' — kde hledat.
+            synteticky: Syntetický účet (prefix), např. '321' nebo '311'.
+
+        Returns:
+            Analytický účet (např. '321.100') nebo fallback na syntetický.
+        """
+        if uow is None:
+            return synteticky
+        row = uow.connection.execute(
+            f"SELECT {sloupec} FROM ucetni_zaznamy "  # noqa: S608
+            f"WHERE doklad_id = ? AND {sloupec} LIKE ? "
+            "ORDER BY id LIMIT 1",
+            (doklad_id, f"{synteticky}%"),
+        ).fetchone()
+        return row[0] if row else synteticky
 
     @staticmethod
     def _get_bv_doklad_id(

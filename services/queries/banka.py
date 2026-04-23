@@ -50,6 +50,8 @@ class TransakceListItem:
     protiucet: str | None
     popis: str | None
     stav: StavTransakce
+    sparovany_doklad_id: int | None = None
+    sparovany_doklad_cislo: str | None = None
 
 
 class BankovniUctyQuery:
@@ -167,21 +169,35 @@ class BankovniTransakceQuery:
     ) -> list[TransakceListItem]:
         uow = self._uow_factory()
         with uow:
-            repo = SqliteBankovniTransakceRepository(uow)
-            txs = repo.list_by_vypis(vypis_id, stav=stav)
+            sql = """
+                SELECT t.*, d.cislo AS doklad_cislo
+                FROM bankovni_transakce t
+                LEFT JOIN doklady d ON t.sparovany_doklad_id = d.id
+                WHERE t.bankovni_vypis_id = ?
+            """
+            params: list = [vypis_id]
+            if stav is not None:
+                sql += " AND t.stav = ?"
+                params.append(stav.value)
+            sql += " ORDER BY t.datum_zauctovani"
+
+            cur = uow.connection.execute(sql, params)
+            rows = cur.fetchall()
             return [
                 TransakceListItem(
-                    id=tx.id,
-                    datum_transakce=tx.datum_transakce,
-                    datum_zauctovani=tx.datum_zauctovani,
-                    castka=tx.castka,
-                    smer=tx.smer,
-                    variabilni_symbol=tx.variabilni_symbol,
-                    protiucet=tx.protiucet,
-                    popis=tx.popis,
-                    stav=tx.stav,
+                    id=r["id"],
+                    datum_transakce=date.fromisoformat(r["datum_transakce"]),
+                    datum_zauctovani=date.fromisoformat(r["datum_zauctovani"]),
+                    castka=Money(r["castka"]),
+                    smer=r["smer"],
+                    variabilni_symbol=r["variabilni_symbol"],
+                    protiucet=r["protiucet"],
+                    popis=r["popis"],
+                    stav=StavTransakce(r["stav"]),
+                    sparovany_doklad_id=r["sparovany_doklad_id"],
+                    sparovany_doklad_cislo=r["doklad_cislo"],
                 )
-                for tx in txs
+                for r in rows
             ]
 
     def list_nesparovane(

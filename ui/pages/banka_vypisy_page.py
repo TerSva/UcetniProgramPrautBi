@@ -14,6 +14,7 @@ Layout:
 from __future__ import annotations
 
 from functools import partial
+from typing import Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QShowEvent
@@ -55,10 +56,12 @@ class BankaVypisyPage(QWidget):
     def __init__(
         self,
         view_model: BankovniVypisyViewModel,
+        on_open_doklad: Callable[[int], None] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = view_model
+        self._on_open_doklad_cb = on_open_doklad
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -233,9 +236,9 @@ class BankaVypisyPage(QWidget):
         self._info_label.setWordWrap(True)
         tx_layout.addWidget(self._info_label)
 
-        self._tx_table = QTableWidget(0, 8, tx_card)
+        self._tx_table = QTableWidget(0, 9, tx_card)
         self._tx_table.setHorizontalHeaderLabels([
-            "Datum", "Částka", "Směr", "VS", "Protiúčet", "Popis", "Stav", "Akce",
+            "Datum", "Částka", "Směr", "VS", "Protiúčet", "Popis", "Stav", "Doklad", "Akce",
         ])
         self._tx_table.horizontalHeader().setStretchLastSection(True)
         self._tx_table.verticalHeader().setVisible(False)
@@ -471,6 +474,11 @@ class BankaVypisyPage(QWidget):
         self._refresh_transakce()
         self._load()
 
+    def _on_open_doklad(self, doklad_id: int) -> None:
+        """Otevře detail dokladu přes callback z MainWindow."""
+        if self._on_open_doklad_cb is not None:
+            self._on_open_doklad_cb(doklad_id)
+
     def _refresh_vypisy(self) -> None:
         vypisy = self._vm.vypisy
         self._vypisy_table.setRowCount(len(vypisy))
@@ -529,6 +537,22 @@ class BankaVypisyPage(QWidget):
                 stav_item.setForeground(Qt.GlobalColor.darkGreen)
             self._tx_table.setItem(i, 6, stav_item)
 
+            # Doklad column
+            if tx.sparovany_doklad_cislo:
+                doklad_btn = QPushButton(tx.sparovany_doklad_cislo)
+                doklad_btn.setFlat(True)
+                doklad_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                doklad_btn.setStyleSheet(
+                    "color: #0d9488; text-decoration: underline; "
+                    "border: none; text-align: left; padding: 2px;"
+                )
+                doklad_btn.clicked.connect(
+                    partial(self._on_open_doklad, tx.sparovany_doklad_id),
+                )
+                self._tx_table.setCellWidget(i, 7, doklad_btn)
+            else:
+                self._tx_table.setItem(i, 7, QTableWidgetItem("—"))
+
             # Akce column — buttons for NESPAROVANO transactions
             if tx.stav == StavTransakce.NESPAROVANO:
                 actions_widget = QWidget()
@@ -550,6 +574,6 @@ class BankaVypisyPage(QWidget):
 
                 actions_layout.addWidget(sparovat_btn)
                 actions_layout.addWidget(ignorovat_btn)
-                self._tx_table.setCellWidget(i, 7, actions_widget)
+                self._tx_table.setCellWidget(i, 8, actions_widget)
             else:
-                self._tx_table.setItem(i, 7, QTableWidgetItem(""))
+                self._tx_table.setItem(i, 8, QTableWidgetItem(""))

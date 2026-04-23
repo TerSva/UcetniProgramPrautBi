@@ -74,11 +74,17 @@ class UhradaPokladnouCommand:
             )
             pd = doklady_repo.add(pd)
 
-            # Účtování
+            # Účtování — analytický účet z původního zaúčtování
             if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
-                md_ucet, dal_ucet = "321", "211"
+                ucet_321 = self._find_analyticky_ucet(
+                    uow, doklad_id, "dal_ucet", "321",
+                )
+                md_ucet, dal_ucet = ucet_321, "211"
             else:
-                md_ucet, dal_ucet = "211", "311"
+                ucet_311 = self._find_analyticky_ucet(
+                    uow, doklad_id, "md_ucet", "311",
+                )
+                md_ucet, dal_ucet = "211", ucet_311
 
             zaznam = UcetniZaznam(
                 doklad_id=pd.id,
@@ -120,6 +126,22 @@ class UhradaPokladnouCommand:
                 f"Doklad {doklad.cislo} je ve stavu {doklad.stav.value} "
                 f"— úhradu lze provést jen u zaúčtovaných dokladů.",
             )
+
+    @staticmethod
+    def _find_analyticky_ucet(
+        uow: SqliteUnitOfWork,
+        doklad_id: int,
+        sloupec: str,
+        synteticky: str,
+    ) -> str:
+        """Najde analytický účet z existujícího zaúčtování dokladu."""
+        row = uow.connection.execute(
+            f"SELECT {sloupec} FROM ucetni_zaznamy "  # noqa: S608
+            f"WHERE doklad_id = ? AND {sloupec} LIKE ? "
+            "ORDER BY id LIMIT 1",
+            (doklad_id, f"{synteticky}%"),
+        ).fetchone()
+        return row[0] if row else synteticky
 
 
 class UhradaIntDoklademCommand:
@@ -163,11 +185,17 @@ class UhradaIntDoklademCommand:
             )
             id_doklad = doklady_repo.add(id_doklad)
 
-            # Účtování — pytlování přes 365
+            # Účtování — pytlování přes 365, analytický účet z původního zaúčtování
             if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
-                md_ucet, dal_ucet = "321", ucet_spolecnika
+                ucet_321 = self._find_analyticky_ucet(
+                    uow, doklad_id, "dal_ucet", "321",
+                )
+                md_ucet, dal_ucet = ucet_321, ucet_spolecnika
             else:
-                md_ucet, dal_ucet = ucet_spolecnika, "311"
+                ucet_311 = self._find_analyticky_ucet(
+                    uow, doklad_id, "md_ucet", "311",
+                )
+                md_ucet, dal_ucet = ucet_spolecnika, ucet_311
 
             zaznam = UcetniZaznam(
                 doklad_id=id_doklad.id,
@@ -207,3 +235,19 @@ class UhradaIntDoklademCommand:
             raise ValidationError(
                 f"Doklad {doklad.cislo} je ve stavu {doklad.stav.value}.",
             )
+
+    @staticmethod
+    def _find_analyticky_ucet(
+        uow: SqliteUnitOfWork,
+        doklad_id: int,
+        sloupec: str,
+        synteticky: str,
+    ) -> str:
+        """Najde analytický účet z existujícího zaúčtování dokladu."""
+        row = uow.connection.execute(
+            f"SELECT {sloupec} FROM ucetni_zaznamy "  # noqa: S608
+            f"WHERE doklad_id = ? AND {sloupec} LIKE ? "
+            "ORDER BY id LIMIT 1",
+            (doklad_id, f"{synteticky}%"),
+        ).fetchone()
+        return row[0] if row else synteticky

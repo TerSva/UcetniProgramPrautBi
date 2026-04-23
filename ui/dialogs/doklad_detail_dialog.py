@@ -30,11 +30,14 @@ from PyQt6.QtWidgets import (
     QDialog,
     QFormLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QMenu,
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -81,6 +84,11 @@ class _UhrazenoQuery(Protocol):
     def __call__(self, doklad_id: int) -> Money: ...
 
 
+class _UcetniZapisyQuery(Protocol):
+    """Callback pro načtení účetních zápisů dokladu."""
+    def __call__(self, doklad_id: int) -> list: ...
+
+
 class DokladDetailDialog(QDialog):
     """Modalni dialog s detailem + edit modem + akcemi."""
 
@@ -98,6 +106,7 @@ class DokladDetailDialog(QDialog):
         priloha_uploader: _PrilohaUploader | None = None,
         priloha_full_path: Callable[[str], Path] | None = None,
         uhrazeno_query: _UhrazenoQuery | None = None,
+        ucetni_zapisy_query: _UcetniZapisyQuery | None = None,
         uow_factory: Callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -107,6 +116,7 @@ class DokladDetailDialog(QDialog):
         self._priloha_uploader = priloha_uploader
         self._priloha_full_path = priloha_full_path
         self._uhrazeno_query = uhrazeno_query
+        self._ucetni_zapisy_query = ucetni_zapisy_query
         self._uow_factory = uow_factory
 
         self.setWindowTitle(f"Doklad {view_model.doklad.cislo}")
@@ -375,6 +385,37 @@ class DokladDetailDialog(QDialog):
         form.addRow(self._storno_label, self._storno_value)
 
         right_layout.addLayout(form)
+
+        # Účetní zápisy section
+        self._zapisy_section = QWidget(self)
+        zapisy_layout = QVBoxLayout(self._zapisy_section)
+        zapisy_layout.setContentsMargins(0, Spacing.S2, 0, 0)
+        zapisy_layout.setSpacing(Spacing.S1)
+
+        zapisy_title = QLabel("Účetní zápisy:", self._zapisy_section)
+        zapisy_title.setProperty("class", "dialog-label")
+        zapisy_layout.addWidget(zapisy_title)
+
+        self._zapisy_table = QTableWidget(0, 6, self._zapisy_section)
+        self._zapisy_table.setHorizontalHeaderLabels([
+            "Datum", "Doklad", "MD účet", "Dal účet", "Částka", "Popis",
+        ])
+        self._zapisy_table.horizontalHeader().setStretchLastSection(True)
+        for col in range(5):  # all except last (Popis) stretch
+            self._zapisy_table.horizontalHeader().setSectionResizeMode(
+                col, QHeaderView.ResizeMode.ResizeToContents,
+            )
+        self._zapisy_table.verticalHeader().setVisible(False)
+        self._zapisy_table.verticalHeader().setDefaultSectionSize(22)
+        self._zapisy_table.setEditTriggers(
+            QTableWidget.EditTrigger.NoEditTriggers,
+        )
+        self._zapisy_table.setAlternatingRowColors(True)
+        self._zapisy_table.setMaximumHeight(130)
+        zapisy_layout.addWidget(self._zapisy_table)
+
+        self._zapisy_section.setVisible(False)
+        right_layout.addWidget(self._zapisy_section)
 
         # Edit widgets
         self._popis_edit = LabeledTextEdit(
@@ -946,6 +987,9 @@ class DokladDetailDialog(QDialog):
         # Zbyva uhradit
         self._update_zbyva_uhradit()
 
+        # Účetní zápisy
+        self._update_zapisy()
+
         # Datum storna
         je_stornovany = item.stav == StavDokladu.STORNOVANY
         self._storno_label.setVisible(je_stornovany)
@@ -1061,6 +1105,48 @@ class DokladDetailDialog(QDialog):
         else:
             self._zbyva_label.setText(item.castka_celkem.format_cz())
             self._zbyva_label.setStyleSheet(f"color: {Colors.ERROR_600};")
+
+    def _update_zapisy(self) -> None:
+        """Načte a zobrazí účetní záznamy pro doklad."""
+        item = self._vm.doklad
+
+        # Zobrazit jen pro zaúčtované+ stavy
+        show = (
+            self._ucetni_zapisy_query is not None
+            and item.stav in (
+                StavDokladu.ZAUCTOVANY,
+                StavDokladu.UHRAZENY,
+                StavDokladu.CASTECNE_UHRAZENY,
+                StavDokladu.STORNOVANY,
+            )
+        )
+        if not show:
+            self._zapisy_section.setVisible(False)
+            return
+
+        zapisy = self._ucetni_zapisy_query(item.id)
+        if not zapisy:
+            self._zapisy_section.setVisible(False)
+            return
+
+        self._zapisy_table.setRowCount(len(zapisy))
+        for i, z in enumerate(zapisy):
+            self._zapisy_table.setItem(
+                i, 0,
+                QTableWidgetItem(f"{z.datum.day:02d}.{z.datum.month:02d}.{z.datum.year % 100:02d}"),
+            )
+            self._zapisy_table.setItem(i, 1, QTableWidgetItem(z.zdroj_doklad))
+            self._zapisy_table.setItem(i, 2, QTableWidgetItem(z.md_ucet))
+            self._zapisy_table.setItem(i, 3, QTableWidgetItem(z.dal_ucet))
+            self._zapisy_table.setItem(
+                i, 4, QTableWidgetItem(z.castka.format_cz()),
+            )
+            popis_text = z.popis or ""
+            if z.je_storno:
+                popis_text = f"[STORNO] {popis_text}"
+            self._zapisy_table.setItem(i, 5, QTableWidgetItem(popis_text))
+
+        self._zapisy_section.setVisible(True)
 
     def _show_error(self, message: str) -> None:
         self._error_label.setText(message)

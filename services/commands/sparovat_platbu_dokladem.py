@@ -124,11 +124,17 @@ class SparovatPlatbuDoklademCommand:
                 else Money(-tx.castka.to_halire())
             )
 
-            # Účty podle typu dokladu
+            # Účty podle typu dokladu — analytický účet z původního zaúčtování
             if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
-                md_ucet, dal_ucet = "321", ucet_221
+                ucet_321 = self._find_analyticky_ucet(
+                    uow, doklad_id, "dal_ucet", "321",
+                )
+                md_ucet, dal_ucet = ucet_321, ucet_221
             else:
-                md_ucet, dal_ucet = ucet_221, "311"
+                ucet_311 = self._find_analyticky_ucet(
+                    uow, doklad_id, "md_ucet", "311",
+                )
+                md_ucet, dal_ucet = ucet_221, ucet_311
 
             # Hlavní účetní zápis
             zaznam = UcetniZaznam(
@@ -201,3 +207,19 @@ class SparovatPlatbuDoklademCommand:
             kurzovy_rozdil=kurzovy_rozdil,
             doklad_uhrazen=True,
         )
+
+    @staticmethod
+    def _find_analyticky_ucet(
+        uow: SqliteUnitOfWork,
+        doklad_id: int,
+        sloupec: str,
+        synteticky: str,
+    ) -> str:
+        """Najde analytický účet z existujícího zaúčtování dokladu."""
+        row = uow.connection.execute(
+            f"SELECT {sloupec} FROM ucetni_zaznamy "  # noqa: S608
+            f"WHERE doklad_id = ? AND {sloupec} LIKE ? "
+            "ORDER BY id LIMIT 1",
+            (doklad_id, f"{synteticky}%"),
+        ).fetchone()
+        return row[0] if row else synteticky

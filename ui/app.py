@@ -435,6 +435,12 @@ def run(db_path: Path | None = None) -> int:
             ).fetchone()
             return Money(int(row["total"])) if row else Money.zero()
 
+    from services.queries.ucetni_zapisy_dokladu import UcetniZapisyDokladuQuery
+    _ucetni_zapisy_q = UcetniZapisyDokladuQuery(uow_factory)
+
+    def _ucetni_zapisy_query(doklad_id: int):
+        return _ucetni_zapisy_q.list_by_doklad(doklad_id)
+
     # PDF parser pro auto-fill ve formuláři nového dokladu
     from infrastructure.ocr.ocr_engine import OcrEngine
     from infrastructure.ocr.invoice_parser import InvoiceParser
@@ -475,6 +481,7 @@ def run(db_path: Path | None = None) -> int:
         priloha_uploader=_priloha_uploader,
         priloha_full_path=_priloha_full_path,
         uhrazeno_query=_uhrazeno_query,
+        ucetni_zapisy_query=_ucetni_zapisy_query,
         pdf_parser=_pdf_parser,
         form_priloha_uploader=_form_priloha_uploader,
         duplikat_command=duplikat_cmd,

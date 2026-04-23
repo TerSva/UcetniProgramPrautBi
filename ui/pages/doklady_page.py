@@ -99,6 +99,7 @@ class DokladyPage(QWidget):
         ] | None = None,
         priloha_full_path: Callable[[str], Path] | None = None,
         uhrazeno_query: Callable[[int], Money] | None = None,
+        ucetni_zapisy_query: Callable[[int], list] | None = None,
         pdf_parser: object = None,
         form_priloha_uploader: object = None,
         duplikat_command: object = None,
@@ -116,6 +117,7 @@ class DokladyPage(QWidget):
         self._priloha_uploader = priloha_uploader
         self._priloha_full_path = priloha_full_path
         self._uhrazeno_query = uhrazeno_query
+        self._ucetni_zapisy_query = ucetni_zapisy_query
         self._pdf_parser = pdf_parser
         self._form_priloha_uploader = form_priloha_uploader
         self._duplikat_command = duplikat_command
@@ -370,6 +372,7 @@ class DokladyPage(QWidget):
             priloha_uploader=self._priloha_uploader,
             priloha_full_path=self._priloha_full_path,
             uhrazeno_query=self._uhrazeno_query,
+            ucetni_zapisy_query=self._ucetni_zapisy_query,
             uow_factory=self._uow_factory,
             parent=self,
         )

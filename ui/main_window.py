@@ -120,6 +120,7 @@ class MainWindow(QMainWindow):
         priloha_uploader: object = None,
         priloha_full_path: object = None,
         uhrazeno_query: object = None,
+        ucetni_zapisy_query: object = None,
         pdf_parser: object = None,
         form_priloha_uploader: object = None,
         duplikat_command: object = None,
@@ -155,6 +156,7 @@ class MainWindow(QMainWindow):
         self._priloha_uploader = priloha_uploader
         self._priloha_full_path = priloha_full_path
         self._uhrazeno_query = uhrazeno_query
+        self._ucetni_zapisy_query = ucetni_zapisy_query
         self._pdf_parser = pdf_parser
         self._duplikat_command = duplikat_command
         self._form_priloha_uploader = form_priloha_uploader
@@ -227,6 +229,7 @@ class MainWindow(QMainWindow):
                 priloha_uploader=self._priloha_uploader,
                 priloha_full_path=self._priloha_full_path,
                 uhrazeno_query=self._uhrazeno_query,
+                ucetni_zapisy_query=self._ucetni_zapisy_query,
                 pdf_parser=self._pdf_parser,
                 form_priloha_uploader=self._form_priloha_uploader,
                 duplikat_command=self._duplikat_command,
@@ -330,7 +333,9 @@ class MainWindow(QMainWindow):
 
         if self._bankovni_vypisy_vm is not None:
             banka_vypisy_page: QWidget = BankaVypisyPage(
-                self._bankovni_vypisy_vm, parent=self._stack,
+                self._bankovni_vypisy_vm,
+                on_open_doklad=self._open_doklad_by_id,
+                parent=self._stack,
             )
         else:
             banka_vypisy_page = PlaceholderPage(
@@ -378,6 +383,7 @@ class MainWindow(QMainWindow):
             priloha_uploader=self._priloha_uploader,
             priloha_full_path=self._priloha_full_path,
             uhrazeno_query=self._uhrazeno_query,
+            ucetni_zapisy_query=self._ucetni_zapisy_query,
             pdf_parser=self._pdf_parser,
             form_priloha_uploader=self._form_priloha_uploader,
             duplikat_command=self._duplikat_command,
@@ -436,3 +442,32 @@ class MainWindow(QMainWindow):
         if page_key in self._page_index:
             self._sidebar.set_active(page_key)
             self._stack.setCurrentIndex(self._page_index[page_key])
+
+    def _open_doklad_by_id(self, doklad_id: int) -> None:
+        """Otevře DokladDetailDialog pro doklad s daným ID (z banky)."""
+        if self._detail_vm_factory is None or self._uow_factory is None:
+            return
+        from infrastructure.database.repositories.doklady_repository import (
+            SqliteDokladyRepository,
+        )
+        from services.queries.doklady_list import DokladyListItem
+        from ui.dialogs.doklad_detail_dialog import DokladDetailDialog
+        from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
+
+        uow = self._uow_factory()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            doklad = repo.get_by_id(doklad_id)
+        item = DokladyListItem.from_domain(doklad)
+        vm = self._detail_vm_factory(item)
+        dialog = DokladDetailDialog(
+            vm,
+            priloha_loader=self._priloha_loader,
+            priloha_uploader=self._priloha_uploader,
+            priloha_full_path=self._priloha_full_path,
+            uhrazeno_query=self._uhrazeno_query,
+            ucetni_zapisy_query=self._ucetni_zapisy_query,
+            uow_factory=self._uow_factory,
+            parent=self,
+        )
+        dialog.exec()
