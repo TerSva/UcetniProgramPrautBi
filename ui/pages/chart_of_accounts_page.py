@@ -281,20 +281,15 @@ class ChartOfAccountsPage(QWidget):
             label.setProperty("class", "osnova-ucet-inactive")
         else:
             label.setProperty("class", "osnova-ucet")
-
-        edit_btn = QPushButton("✎", row)
-        edit_btn.setProperty("class", "osnova-edit-btn")
-        edit_btn.setFixedSize(24, 24)
-        edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        edit_btn.setToolTip("Upravit účet")
-        edit_btn.clicked.connect(
-            lambda _checked, ci=item.cislo, na=item.nazev, po=item.popis:
+        label.setCursor(Qt.CursorShape.PointingHandCursor)
+        label.setToolTip("Klikni pro úpravu")
+        label.mousePressEvent = (
+            lambda _event, ci=item.cislo, na=item.nazev, po=item.popis:
                 self._on_edit_ucet(ci, na, po)
         )
 
         row_layout.addWidget(checkbox)
         row_layout.addWidget(label, stretch=1)
-        row_layout.addWidget(edit_btn)
         layout.addWidget(row)
 
         # Analytiky
@@ -316,20 +311,15 @@ class ChartOfAccountsPage(QWidget):
                 a_label.setProperty("class", "osnova-ucet-inactive")
             else:
                 a_label.setProperty("class", "osnova-analytika")
-
-            edit_btn = QPushButton("✎", a_row)
-            edit_btn.setProperty("class", "osnova-edit-btn")
-            edit_btn.setFixedSize(24, 24)
-            edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            edit_btn.setToolTip("Upravit analytiku")
-            edit_btn.clicked.connect(
-                lambda _checked, ci=a.cislo, na=a.nazev, po=a.popis:
+            a_label.setCursor(Qt.CursorShape.PointingHandCursor)
+            a_label.setToolTip("Klikni pro úpravu")
+            a_label.mousePressEvent = (
+                lambda _event, ci=a.cislo, na=a.nazev, po=a.popis:
                     self._on_edit_ucet(ci, na, po)
             )
 
             a_layout.addWidget(a_check)
             a_layout.addWidget(a_label, stretch=1)
-            a_layout.addWidget(edit_btn)
             layout.addWidget(a_row)
 
         # Tlačítko "+ Přidat analytiku" (jen pro aktivní syntetické)
