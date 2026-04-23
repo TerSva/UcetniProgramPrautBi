@@ -323,9 +323,8 @@ class ChartOfAccountsPage(QWidget):
             edit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             edit_btn.setToolTip("Upravit analytiku")
             edit_btn.clicked.connect(
-                lambda _checked, ci=a.cislo, na=a.nazev, po=a.popis,
-                sk=item.cislo, sn=item.nazev:
-                    self._on_edit_analytika(ci, na, po, sk, sn)
+                lambda _checked, ci=a.cislo, na=a.nazev, po=a.popis:
+                    self._on_edit_ucet(ci, na, po)
             )
 
             a_layout.addWidget(a_check)
