@@ -14,6 +14,10 @@ from infrastructure.database.repositories.banka_repository import (
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand, AutoUctovaniResult
 from services.banka.smazat_vypis import SmazatVypisCommand, SmazatVypisResult
+from services.commands.sparovat_platbu_dokladem import (
+    SparovatPlatbuDoklademCommand,
+    SparovaniResult,
+)
 from services.queries.banka import (
     BankovniTransakceQuery,
     BankovniUctyQuery,
@@ -21,6 +25,7 @@ from services.queries.banka import (
     TransakceListItem,
     VypisListItem,
 )
+from services.queries.neuhrazene_doklady import NeuhrazeneDokladyQuery
 
 
 class BankovniVypisyViewModel:
@@ -33,6 +38,8 @@ class BankovniVypisyViewModel:
         transakce_query: BankovniTransakceQuery,
         auto_uctovani_cmd: AutoUctovaniBankyCommand,
         smazat_cmd: SmazatVypisCommand | None = None,
+        sparovat_cmd: SparovatPlatbuDoklademCommand | None = None,
+        neuhrazene_query: NeuhrazeneDokladyQuery | None = None,
         uow_factory: Callable[[], SqliteUnitOfWork] | None = None,
     ) -> None:
         self._ucty_query = ucty_query
@@ -40,6 +47,8 @@ class BankovniVypisyViewModel:
         self._transakce_query = transakce_query
         self._auto_uctovani_cmd = auto_uctovani_cmd
         self._smazat_cmd = smazat_cmd
+        self._sparovat_cmd = sparovat_cmd
+        self._neuhrazene_query = neuhrazene_query
         self._uow_factory = uow_factory
 
         self._ucty: list[BankovniUcet] = []
@@ -190,6 +199,27 @@ class BankovniVypisyViewModel:
                 self._selected_vypis_id = None
                 self._transakce = []
                 self.load()
+            self._error = None
+            return result
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return None
+
+    @property
+    def neuhrazene_query(self) -> NeuhrazeneDokladyQuery | None:
+        return self._neuhrazene_query
+
+    def sparovat_platbu(
+        self, transakce_id: int, doklad_id: int,
+    ) -> SparovaniResult | None:
+        """Spáruje transakci s dokladem."""
+        if self._sparovat_cmd is None:
+            self._error = "Příkaz pro párování není nakonfigurován"
+            return None
+        try:
+            result = self._sparovat_cmd.execute(transakce_id, doklad_id)
+            if self._selected_vypis_id is not None:
+                self.select_vypis(self._selected_vypis_id)
             self._error = None
             return result
         except Exception as exc:  # noqa: BLE001

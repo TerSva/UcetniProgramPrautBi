@@ -123,6 +123,7 @@ class MainWindow(QMainWindow):
         pdf_parser: object = None,
         form_priloha_uploader: object = None,
         duplikat_command: object = None,
+        uow_factory: object = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -157,6 +158,7 @@ class MainWindow(QMainWindow):
         self._pdf_parser = pdf_parser
         self._duplikat_command = duplikat_command
         self._form_priloha_uploader = form_priloha_uploader
+        self._uow_factory = uow_factory
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -228,6 +230,7 @@ class MainWindow(QMainWindow):
                 pdf_parser=self._pdf_parser,
                 form_priloha_uploader=self._form_priloha_uploader,
                 duplikat_command=self._duplikat_command,
+                uow_factory=self._uow_factory,
                 preset_typ=typ,
                 preset_title=title,
                 parent=self._stack,
@@ -378,6 +381,7 @@ class MainWindow(QMainWindow):
             pdf_parser=self._pdf_parser,
             form_priloha_uploader=self._form_priloha_uploader,
             duplikat_command=self._duplikat_command,
+            uow_factory=self._uow_factory,
             parent=self._stack,
         )
         self._add_page("_doklady_all", self._all_doklady_page)

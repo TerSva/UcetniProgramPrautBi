@@ -269,6 +269,14 @@ class Doklad:
             akce="označit jako uhrazený",
         )
 
+    def zrus_uhradu(self) -> None:
+        """UHRAZENY → ZAUCTOVANY (reverz při smazání výpisu / odpárování)."""
+        self._prechod(
+            povolene_z={StavDokladu.UHRAZENY},
+            cilovy=StavDokladu.ZAUCTOVANY,
+            akce="zrušit úhradu",
+        )
+
     def oznac_castecne_uhrazeny(self) -> None:
         """ZAUCTOVANY → CASTECNE_UHRAZENY."""
         self._prechod(

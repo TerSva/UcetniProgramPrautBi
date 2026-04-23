@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from typing import Callable
 
+from domain.banka.bankovni_transakce import StavTransakce
+from domain.doklady.typy import StavDokladu
 from infrastructure.database.repositories.banka_repository import (
     SqliteBankovniTransakceRepository,
     SqliteBankovniVypisRepository,
@@ -27,6 +29,7 @@ class SmazatVypisResult:
     smazano_transakci: int = 0
     smazano_ucetnich_zapisu: int = 0
     smazan_doklad: bool = False
+    obnoveno_dokladu: int = 0
     smazany_soubory: list[str] | None = None
     error: str | None = None
 
@@ -65,6 +68,22 @@ class SmazatVypisCommand:
                     error=f"Výpis s ID {vypis_id} nenalezen",
                 )
 
+            # 0. Obnov stav dokladů spárovaných s transakcemi tohoto výpisu
+            obnoveno = 0
+            sparovane = tx_repo.list_by_vypis(
+                vypis_id, stav=StavTransakce.SPAROVANO,
+            )
+            for tx in sparovane:
+                if tx.sparovany_doklad_id is not None:
+                    try:
+                        dok = doklady_repo.get_by_id(tx.sparovany_doklad_id)
+                        if dok.stav == StavDokladu.UHRAZENY:
+                            dok.zrus_uhradu()
+                            doklady_repo.update(dok)
+                            obnoveno += 1
+                    except Exception:  # noqa: BLE001
+                        pass  # doklad mohl být smazán jinak
+
             # 1. Smaž účetní záznamy navázané na BV doklad
             smazano_zapisu = 0
             if vypis.bv_doklad_id:
@@ -102,5 +121,6 @@ class SmazatVypisCommand:
             smazano_transakci=smazano_tx,
             smazano_ucetnich_zapisu=smazano_zapisu,
             smazan_doklad=smazan_doklad,
+            obnoveno_dokladu=obnoveno,
             smazany_soubory=smazane_soubory,
         )

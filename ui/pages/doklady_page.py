@@ -102,6 +102,7 @@ class DokladyPage(QWidget):
         pdf_parser: object = None,
         form_priloha_uploader: object = None,
         duplikat_command: object = None,
+        uow_factory: Callable | None = None,
         preset_typ: TypDokladu | None = None,
         preset_title: str | None = None,
         parent: QWidget | None = None,
@@ -118,6 +119,7 @@ class DokladyPage(QWidget):
         self._pdf_parser = pdf_parser
         self._form_priloha_uploader = form_priloha_uploader
         self._duplikat_command = duplikat_command
+        self._uow_factory = uow_factory
         self._preset_typ = preset_typ
         self._preset_title = preset_title or "Doklady"
         self._preset_subtitle = _SUBTITLE_BY_TYP.get(
@@ -368,6 +370,7 @@ class DokladyPage(QWidget):
             priloha_uploader=self._priloha_uploader,
             priloha_full_path=self._priloha_full_path,
             uhrazeno_query=self._uhrazeno_query,
+            uow_factory=self._uow_factory,
             parent=self,
         )
         dialog.zauctovat_requested.connect(

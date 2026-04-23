@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 
 from domain.banka.bankovni_transakce import StavTransakce
 from ui.design_tokens import Spacing
+from ui.dialogs.sparovat_platbu_dialog import SparovatPlatbuDialog
 from ui.viewmodels.bankovni_vypisy_vm import BankovniVypisyViewModel
 from ui.widgets.labeled_inputs import LabeledComboBox, LabeledLineEdit, LabeledMoneyEdit
 
@@ -431,10 +432,44 @@ class BankaVypisyPage(QWidget):
         self._refresh_transakce()
 
     def _on_sparovat(self, tx_id: int) -> None:
-        QMessageBox.information(
-            self, "Spárování",
-            f"Spárování transakce {tx_id} — funkce bude doplněna.",
+        """Otevře dialog pro ruční párování transakce s dokladem."""
+        if self._vm.neuhrazene_query is None:
+            QMessageBox.warning(
+                self, "Chyba", "Párování není nakonfigurováno.",
+            )
+            return
+
+        # Najdi TransakceListItem
+        txs = self._vm.transakce
+        tx_item = next((t for t in txs if t.id == tx_id), None)
+        if tx_item is None:
+            return
+
+        dlg = SparovatPlatbuDialog(
+            transakce=tx_item,
+            query=self._vm.neuhrazene_query,
+            parent=self,
         )
+        if not dlg.exec():
+            return
+
+        doklad_id = dlg.selected_doklad_id
+        if doklad_id is None:
+            return
+
+        result = self._vm.sparovat_platbu(tx_id, doklad_id)
+        if result is None:
+            QMessageBox.warning(
+                self, "Chyba", self._vm.error or "Párování selhalo.",
+            )
+            return
+
+        msg = "Platba úspěšně spárována a zaúčtována."
+        if result.kurzovy_rozdil is not None:
+            msg += f"\nKurzový rozdíl: {result.kurzovy_rozdil.format_cz()}"
+        QMessageBox.information(self, "Spárováno", msg)
+        self._refresh_transakce()
+        self._load()
 
     def _refresh_vypisy(self) -> None:
         vypisy = self._vm.vypisy

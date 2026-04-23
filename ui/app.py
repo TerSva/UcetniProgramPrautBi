@@ -61,11 +61,13 @@ from services.queries.ocr_inbox import OcrInboxQuery
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand
 from services.banka.import_vypisu import ImportVypisuCommand
 from services.banka.smazat_vypis import SmazatVypisCommand
+from services.commands.sparovat_platbu_dokladem import SparovatPlatbuDoklademCommand
 from services.queries.banka import (
     BankovniTransakceQuery,
     BankovniUctyQuery,
     BankovniVypisyQuery,
 )
+from services.queries.neuhrazene_doklady import NeuhrazeneDokladyQuery
 from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
@@ -351,12 +353,16 @@ def _build_bankovni_vypisy_vm(
     transakce_query = BankovniTransakceQuery(uow_factory=uow_factory)
     auto_cmd = AutoUctovaniBankyCommand(uow_factory=uow_factory)
     smazat_cmd = SmazatVypisCommand(uow_factory=uow_factory)
+    sparovat_cmd = SparovatPlatbuDoklademCommand(uow_factory=uow_factory)
+    neuhrazene_query = NeuhrazeneDokladyQuery(uow_factory=uow_factory)
     return BankovniVypisyViewModel(
         ucty_query=ucty_query,
         vypisy_query=vypisy_query,
         transakce_query=transakce_query,
         auto_uctovani_cmd=auto_cmd,
         smazat_cmd=smazat_cmd,
+        sparovat_cmd=sparovat_cmd,
+        neuhrazene_query=neuhrazene_query,
         uow_factory=uow_factory,
     )
 
@@ -472,6 +478,7 @@ def run(db_path: Path | None = None) -> int:
         pdf_parser=_pdf_parser,
         form_priloha_uploader=_form_priloha_uploader,
         duplikat_command=duplikat_cmd,
+        uow_factory=uow_factory,
     )
     window.show()
 

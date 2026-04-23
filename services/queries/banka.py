@@ -183,3 +183,42 @@ class BankovniTransakceQuery:
                 )
                 for tx in txs
             ]
+
+    def list_nesparovane(
+        self,
+        castka_od: Money | None = None,
+        castka_do: Money | None = None,
+    ) -> list[TransakceListItem]:
+        """Vrátí nespárované transakce ze všech výpisů (pro párování z dokladu)."""
+        uow = self._uow_factory()
+        with uow:
+            sql = """
+                SELECT * FROM bankovni_transakce
+                WHERE stav = ?
+            """
+            params: list = [StavTransakce.NESPAROVANO.value]
+
+            if castka_od is not None:
+                sql += " AND ABS(castka) >= ?"
+                params.append(abs(castka_od.to_halire()))
+            if castka_do is not None:
+                sql += " AND ABS(castka) <= ?"
+                params.append(abs(castka_do.to_halire()))
+
+            sql += " ORDER BY datum_zauctovani DESC, id DESC"
+
+            rows = uow.connection.execute(sql, params).fetchall()
+            return [
+                TransakceListItem(
+                    id=r["id"],
+                    datum_transakce=date.fromisoformat(r["datum_transakce"]),
+                    datum_zauctovani=date.fromisoformat(r["datum_zauctovani"]),
+                    castka=Money(r["castka"]),
+                    smer=r["smer"],
+                    variabilni_symbol=r["variabilni_symbol"],
+                    protiucet=r["protiucet"],
+                    popis=r["popis"],
+                    stav=StavTransakce(r["stav"]),
+                )
+                for r in rows
+            ]

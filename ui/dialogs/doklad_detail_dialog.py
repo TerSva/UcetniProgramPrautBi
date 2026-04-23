@@ -31,6 +31,7 @@ from PyQt6.QtWidgets import (
     QFormLayout,
     QHBoxLayout,
     QLabel,
+    QMenu,
     QPushButton,
     QScrollArea,
     QSplitter,
@@ -87,6 +88,8 @@ class DokladDetailDialog(QDialog):
     zauctovat_requested = pyqtSignal(object)   # DokladyListItem
     #: Emitováno když uživatelka klikne na Duplikovat.
     duplikat_requested = pyqtSignal(object)    # DokladyListItem
+    #: Emitováno po úspěšné úhradě — doklady page by měl refreshnout.
+    uhrada_completed = pyqtSignal()
 
     def __init__(
         self,
@@ -95,6 +98,7 @@ class DokladDetailDialog(QDialog):
         priloha_uploader: _PrilohaUploader | None = None,
         priloha_full_path: Callable[[str], Path] | None = None,
         uhrazeno_query: _UhrazenoQuery | None = None,
+        uow_factory: Callable | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -103,6 +107,7 @@ class DokladDetailDialog(QDialog):
         self._priloha_uploader = priloha_uploader
         self._priloha_full_path = priloha_full_path
         self._uhrazeno_query = uhrazeno_query
+        self._uow_factory = uow_factory
 
         self.setWindowTitle(f"Doklad {view_model.doklad.cislo}")
         self.setProperty("class", "doklad-detail")
@@ -128,6 +133,7 @@ class DokladDetailDialog(QDialog):
         self._zauctovat_button: QPushButton
         self._flag_button: QPushButton
         self._storno_button: QPushButton
+        self._uhrada_button: QPushButton
         self._smazat_button: QPushButton
         self._close_button: QPushButton
         self._cancel_edit_button: QPushButton
@@ -512,6 +518,20 @@ class DokladDetailDialog(QDialog):
         )
         row.addWidget(self._storno_button)
 
+        self._uhrada_button = QPushButton("Úhrada", container)
+        self._uhrada_button.setProperty("class", "primary")
+        self._uhrada_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._uhrada_button.setToolTip("Zaznamenat úhradu faktury")
+        uhrada_menu = QMenu(self._uhrada_button)
+        uhrada_menu.addAction("Z banky...", self._on_uhrada_z_banky)
+        uhrada_menu.addAction("Pokladnou...", self._on_uhrada_pokladnou)
+        uhrada_menu.addAction(
+            "Interním dokladem (pytlování)...",
+            self._on_uhrada_int_dokladem,
+        )
+        self._uhrada_button.setMenu(uhrada_menu)
+        row.addWidget(self._uhrada_button)
+
         self._smazat_button = QPushButton("Smazat", container)
         self._smazat_button.setProperty("class", "destructive")
         self._smazat_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -738,6 +758,152 @@ class DokladDetailDialog(QDialog):
             return
         self._show_error(self._vm.error or "Smazani selhalo.")
 
+    # ─── Úhrada handlers ──────────────────────────────────────────
+
+    def _on_uhrada_z_banky(self) -> None:
+        from services.queries.banka import BankovniTransakceQuery
+        from services.commands.sparovat_platbu_dokladem import (
+            SparovatPlatbuDoklademCommand,
+        )
+        from ui.dialogs.uhrada_z_banky_dialog import UhradaZBankyDialog
+        from PyQt6.QtWidgets import QMessageBox
+
+        if self._uow_factory is None:
+            self._show_error("Funkce úhrady z banky není dostupná.")
+            return
+
+        item = self._vm.doklad
+        tx_query = BankovniTransakceQuery(uow_factory=self._uow_factory)
+        dlg = UhradaZBankyDialog(item, tx_query, parent=self)
+        if not dlg.exec():
+            return
+
+        tx_id = dlg.selected_tx_id
+        if tx_id is None:
+            return
+
+        cmd = SparovatPlatbuDoklademCommand(uow_factory=self._uow_factory)
+        try:
+            result = cmd.execute(tx_id, item.id)
+            msg = f"Doklad {item.cislo} úspěšně uhrazen z banky."
+            if result.kurzovy_rozdil:
+                msg += f"\nKurzový rozdíl: {result.kurzovy_rozdil.format_cz()}"
+            QMessageBox.information(self, "Uhrazeno", msg)
+            self._refresh_doklad_from_db(item.id)
+            self._sync_ui()
+            self.uhrada_completed.emit()
+        except Exception as exc:  # noqa: BLE001
+            self._show_error(str(exc))
+
+    def _on_uhrada_pokladnou(self) -> None:
+        from services.commands.uhrada_dokladu import UhradaPokladnouCommand
+        from ui.dialogs.uhrada_pokladnou_dialog import UhradaPokladnouDialog
+        from PyQt6.QtWidgets import QMessageBox
+
+        if self._uow_factory is None:
+            self._show_error("Funkce úhrady pokladnou není dostupná.")
+            return
+
+        item = self._vm.doklad
+        rok = item.datum_vystaveni.year
+        next_cislo = f"PD-{rok}-{item.id:03d}"
+
+        dlg = UhradaPokladnouDialog(item, next_cislo, parent=self)
+        if not dlg.exec():
+            return
+
+        cmd = UhradaPokladnouCommand(uow_factory=self._uow_factory)
+        try:
+            result = cmd.execute(
+                doklad_id=item.id,
+                datum_uhrady=dlg.result_datum,
+                cislo_pd=dlg.result_cislo,
+                popis=dlg.result_popis,
+            )
+            QMessageBox.information(
+                self, "Uhrazeno",
+                f"Vytvořen PD doklad {result.novy_doklad_cislo}.\n"
+                f"Doklad {item.cislo} uhrazen.",
+            )
+            self._refresh_doklad_from_db(item.id)
+            self._sync_ui()
+            self.uhrada_completed.emit()
+        except Exception as exc:  # noqa: BLE001
+            self._show_error(str(exc))
+
+    def _on_uhrada_int_dokladem(self) -> None:
+        from domain.partneri.partner import KategoriePartnera
+        from services.commands.uhrada_dokladu import UhradaIntDoklademCommand
+        from ui.dialogs.uhrada_id_dialog import UhradaIntDoklademDialog
+        from PyQt6.QtWidgets import QMessageBox
+
+        if self._uow_factory is None:
+            self._show_error("Funkce úhrady int. dokladem není dostupná.")
+            return
+
+        item = self._vm.doklad
+
+        # Načti společníky
+        from infrastructure.database.repositories.partneri_repository import (
+            SqlitePartneriRepository,
+        )
+        uow = self._uow_factory()
+        with uow:
+            repo = SqlitePartneriRepository(uow)
+            all_partners = repo.list_all()
+        spolecnici = [
+            p for p in all_partners
+            if p.kategorie == KategoriePartnera.SPOLECNIK
+        ]
+
+        if not spolecnici:
+            self._show_error("Žádní společníci v systému.")
+            return
+
+        rok = item.datum_vystaveni.year
+        next_cislo = f"ID-{rok}-{item.id:03d}"
+
+        dlg = UhradaIntDoklademDialog(
+            item, spolecnici, next_cislo, parent=self,
+        )
+        if not dlg.exec():
+            return
+
+        cmd = UhradaIntDoklademCommand(uow_factory=self._uow_factory)
+        try:
+            result = cmd.execute(
+                doklad_id=item.id,
+                datum_uhrady=dlg.result_datum,
+                cislo_id=dlg.result_cislo,
+                ucet_spolecnika=dlg.result_ucet_spolecnika,
+                popis=dlg.result_popis,
+            )
+            QMessageBox.information(
+                self, "Uhrazeno",
+                f"Vytvořen ID doklad {result.novy_doklad_cislo}.\n"
+                f"Doklad {item.cislo} uhrazen (pytlování).",
+            )
+            self._refresh_doklad_from_db(item.id)
+            self._sync_ui()
+            self.uhrada_completed.emit()
+        except Exception as exc:  # noqa: BLE001
+            self._show_error(str(exc))
+
+    def _refresh_doklad_from_db(self, doklad_id: int) -> None:
+        """Re-načte doklad z DB po úhradě a aktualizuje VM."""
+        if self._uow_factory is None:
+            return
+        from infrastructure.database.repositories.doklady_repository import (
+            SqliteDokladyRepository,
+        )
+        from services.queries.doklady_list import DokladyListItem
+        uow = self._uow_factory()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            doklad = repo.get_by_id(doklad_id)
+        item = DokladyListItem.from_domain(doklad)
+        self._vm.refresh_from(item)
+
     # ─── External: zauctovani_dialog succeeded ───────────────────
 
     def refresh_after_zauctovani(self, item: DokladyListItem) -> None:
@@ -820,6 +986,18 @@ class DokladDetailDialog(QDialog):
         self._flag_button.setText(
             "Dořešit" if item.k_doreseni else "Označit k dořešení"
         )
+
+        # Úhrada — jen pro zaúčtované FP/FV, které nejsou uhrazeny/stornovány
+        is_invoice = item.typ in (
+            TypDokladu.FAKTURA_PRIJATA, TypDokladu.FAKTURA_VYDANA,
+        )
+        can_uhrada = (
+            is_invoice
+            and item.stav in (
+                StavDokladu.ZAUCTOVANY, StavDokladu.CASTECNE_UHRAZENY,
+            )
+        )
+        self._uhrada_button.setVisible(can_uhrada)
 
         # Reset error
         if not edit and not self._vm.error:
