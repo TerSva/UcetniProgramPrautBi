@@ -217,12 +217,13 @@ class OcrUploadDetailDialog(QDialog):
             except ValueError:
                 pass
 
-        # Cislo
+        # Cislo — rok z datum_vystaveni faktury, ne z dneška
+        rok = item.parsed_datum.year if item.parsed_datum else date.today().year
         if item.parsed_cislo:
             self._cislo_input.set_value(item.parsed_cislo)
         else:
             self._cislo_input.set_value(
-                f"FP-{date.today().year}-{item.id:04d}"
+                f"FP-{rok}-{item.id:04d}"
             )
 
         # Dodavatel
