@@ -122,10 +122,16 @@ class NahratDokladyPage(QWidget):
     def __init__(
         self,
         view_model: OcrInboxViewModel | None = None,
+        default_datum_loader: object = None,
+        partner_items_loader: object = None,
+        on_partner_created: object = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._vm = view_model
+        self._default_datum_loader = default_datum_loader
+        self._partner_items_loader = partner_items_loader
+        self._on_partner_created = on_partner_created
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -463,9 +469,13 @@ class NahratDokladyPage(QWidget):
             return
         item = items[row]
 
+        partner_items = self._partner_items_loader() if callable(self._partner_items_loader) else []
         dlg = OcrUploadDetailDialog(
             item=item,
             file_path=item.file_path,
+            default_datum_loader=self._default_datum_loader,
+            partner_items=partner_items,
+            on_partner_created=self._on_partner_created,
             parent=self,
         )
         if not dlg.exec():
@@ -479,6 +489,7 @@ class NahratDokladyPage(QWidget):
                     cislo=dlg.cislo,
                     datum_vystaveni=dlg.datum_vystaveni,
                     castka_celkem=dlg.castka_celkem,
+                    partner_id=dlg.partner_id,
                     popis=dlg.popis or None,
                     k_doreseni=True,
                     variabilni_symbol=dlg.variabilni_symbol,

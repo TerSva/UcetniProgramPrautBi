@@ -107,6 +107,7 @@ class DokladFormDialog(QDialog):
         view_model: DokladFormViewModel,
         partner_items: list[PartneriListItem] | None = None,
         on_partner_created: object = None,
+        default_datum_loader: object = None,
         preset_typ: TypDokladu | None = None,
         pdf_parser: PdfParserCallback | None = None,
         priloha_uploader: PrilohaUploaderCallback | None = None,
@@ -123,6 +124,7 @@ class DokladFormDialog(QDialog):
         self._vm = view_model
         self._partner_items = partner_items or []
         self._on_partner_created = on_partner_created
+        self._default_datum_loader = default_datum_loader
         self._preset_typ = preset_typ
         self._pdf_parser = pdf_parser
         self._priloha_uploader = priloha_uploader
@@ -334,7 +336,14 @@ class DokladFormDialog(QDialog):
         date_row.setSpacing(Spacing.S3)
 
         self._datum_vystaveni = LabeledDateEdit("Datum vystavení", parent=self)
-        self._datum_vystaveni.set_value(date.today())
+        # Default: datum posledního dokladu z DB, nebo date.today()
+        _default_d = date.today()
+        if callable(self._default_datum_loader):
+            try:
+                _default_d = self._default_datum_loader()
+            except Exception:  # noqa: BLE001
+                pass
+        self._datum_vystaveni.set_value(_default_d)
         date_row.addWidget(self._datum_vystaveni, stretch=1)
 
         self._datum_splatnosti = LabeledDateEdit(
@@ -488,6 +497,9 @@ class DokladFormDialog(QDialog):
         )
         self._spolecnik_check.toggled.connect(self._on_spolecnik_toggled)
         self._auto_cislo_check.toggled.connect(self._on_auto_cislo_toggled)
+        self._datum_vystaveni.date_widget.textChanged.connect(
+            self._on_datum_changed_cislo,
+        )
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
         self._k_doreseni_check.toggled.connect(self._on_k_doreseni_toggled)
@@ -618,7 +630,26 @@ class DokladFormDialog(QDialog):
         typ = cast(TypDokladu | None, self._typ_combo.value())
         if typ is None:
             return
-        cislo = self._vm.suggest_cislo(typ, self._vm.ucetni_rok)
+        # Rok z default datumu, ne z ucetni_rok (nastavení)
+        d = self._datum_vystaveni.value()
+        rok = d.year if d else self._vm.ucetni_rok
+        cislo = self._vm.suggest_cislo(typ, rok)
+        self._cislo_input.set_value(cislo)
+
+    def _on_datum_changed_cislo(self, _text: str) -> None:
+        """Při změně data přegeneruj číslo dokladu s novým rokem.
+
+        Jen pokud je číslo v auto režimu (read-only) — neměníme ruční čísla.
+        """
+        if not self._cislo_input.line_widget.isReadOnly():
+            return
+        d = self._datum_vystaveni.value()
+        if d is None:
+            return
+        typ = cast(TypDokladu | None, self._typ_combo.value())
+        if typ is None:
+            return
+        cislo = self._vm.suggest_cislo(typ, d.year)
         self._cislo_input.set_value(cislo)
 
     def _on_new_partner(self) -> None:
@@ -698,7 +729,9 @@ class DokladFormDialog(QDialog):
             # Regenerate auto číslo
             typ = cast(TypDokladu | None, self._typ_combo.value())
             if typ is not None:
-                cislo = self._vm.suggest_cislo(typ, self._vm.ucetni_rok)
+                d = self._datum_vystaveni.value()
+                rok = d.year if d else self._vm.ucetni_rok
+                cislo = self._vm.suggest_cislo(typ, rok)
                 self._cislo_input.set_value(cislo)
         else:
             self._cislo_input.line_widget.setStyleSheet("")
@@ -710,7 +743,9 @@ class DokladFormDialog(QDialog):
     def _on_typ_changed(self, value: object) -> None:
         if not isinstance(value, TypDokladu):
             return
-        cislo = self._vm.suggest_cislo(value, self._vm.ucetni_rok)
+        d = self._datum_vystaveni.value()
+        rok = d.year if d else self._vm.ucetni_rok
+        cislo = self._vm.suggest_cislo(value, rok)
         self._cislo_input.set_value(cislo)
         self._sync_auto_cislo_visibility()
         # Show společník section only for FP and PD

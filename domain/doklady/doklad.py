@@ -326,6 +326,19 @@ class Doklad:
 
     # --- Editace (omezená dle stavu) ---
 
+    def uprav_partner(self, partner_id: int | None) -> None:
+        """Partner lze měnit kdykoli kromě STORNOVANY."""
+        if self._stav == StavDokladu.STORNOVANY:
+            raise ValidationError(
+                "Nelze upravovat stornovaný doklad."
+            )
+        if partner_id is not None:
+            if not isinstance(partner_id, int) or partner_id <= 0:
+                raise ValidationError(
+                    f"partner_id musí být kladný int nebo None, dostal {partner_id}."
+                )
+        self._partner_id = partner_id
+
     def uprav_popis(self, novy_popis: str | None) -> None:
         """Popis lze měnit kdykoli kromě STORNOVANY."""
         if self._stav == StavDokladu.STORNOVANY:

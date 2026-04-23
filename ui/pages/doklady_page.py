@@ -106,6 +106,7 @@ class DokladyPage(QWidget):
         uow_factory: Callable | None = None,
         partner_items_loader: Callable | None = None,
         on_partner_created: Callable | None = None,
+        default_datum_loader: Callable | None = None,
         preset_typ: TypDokladu | None = None,
         preset_title: str | None = None,
         parent: QWidget | None = None,
@@ -126,6 +127,7 @@ class DokladyPage(QWidget):
         self._uow_factory = uow_factory
         self._partner_items_loader = partner_items_loader
         self._on_partner_created = on_partner_created
+        self._default_datum_loader = default_datum_loader
         self._preset_typ = preset_typ
         self._preset_title = preset_title or "Doklady"
         self._preset_subtitle = _SUBTITLE_BY_TYP.get(
@@ -370,6 +372,7 @@ class DokladyPage(QWidget):
         if self._detail_vm_factory is None:
             return
         vm = self._detail_vm_factory(item)
+        detail_partner_items = self._partner_items_loader() if callable(self._partner_items_loader) else []
         dialog = DokladDetailDialog(
             vm,
             priloha_loader=self._priloha_loader,
@@ -378,6 +381,8 @@ class DokladyPage(QWidget):
             uhrazeno_query=self._uhrazeno_query,
             ucetni_zapisy_query=self._ucetni_zapisy_query,
             uow_factory=self._uow_factory,
+            partner_items=detail_partner_items,
+            on_partner_created=self._on_partner_created,
             parent=self,
         )
         dialog.zauctovat_requested.connect(
@@ -434,6 +439,7 @@ class DokladyPage(QWidget):
             vm,
             partner_items=partner_items,
             on_partner_created=self._on_partner_created,
+            default_datum_loader=self._default_datum_loader,
             preset_typ=self._preset_typ,
             pdf_parser=self._pdf_parser,
             priloha_uploader=self._form_priloha_uploader,
@@ -453,6 +459,7 @@ class DokladyPage(QWidget):
             vm,
             partner_items=partner_items,
             on_partner_created=self._on_partner_created,
+            default_datum_loader=self._default_datum_loader,
             preset_typ=self._preset_typ,
             pdf_parser=self._pdf_parser,
             priloha_uploader=self._form_priloha_uploader,

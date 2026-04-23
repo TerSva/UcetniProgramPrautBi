@@ -58,7 +58,9 @@ from ui.widgets.badge import (
     typ_display_text,
 )
 from ui.widgets.icon import load_icon
+from services.queries.partneri_list import PartneriListItem
 from ui.widgets.labeled_inputs import LabeledDateEdit, LabeledTextEdit
+from ui.widgets.partner_selector import PartnerSelector
 from ui.widgets.pdf_upload_zone import PdfUploadZone
 from ui.widgets.pdf_viewer import PdfViewerWidget
 
@@ -108,6 +110,8 @@ class DokladDetailDialog(QDialog):
         uhrazeno_query: _UhrazenoQuery | None = None,
         ucetni_zapisy_query: _UcetniZapisyQuery | None = None,
         uow_factory: Callable | None = None,
+        partner_items: list[PartneriListItem] | None = None,
+        on_partner_created: object = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -118,6 +122,8 @@ class DokladDetailDialog(QDialog):
         self._uhrazeno_query = uhrazeno_query
         self._ucetni_zapisy_query = ucetni_zapisy_query
         self._uow_factory = uow_factory
+        self._partner_items = partner_items or []
+        self._on_partner_created = on_partner_created
 
         self.setWindowTitle(f"Doklad {view_model.doklad.cislo}")
         self.setProperty("class", "doklad-detail")
@@ -313,9 +319,10 @@ class DokladDetailDialog(QDialog):
             self._splatnost_display,
         )
 
+        self._partner_display = self._form_value(item.partner_nazev or "—")
         form.addRow(
             self._form_label("Partner:"),
-            self._form_value(item.partner_nazev or "—"),
+            self._partner_display,
         )
         self._vs_display = self._form_value(item.variabilni_symbol or "—")
         form.addRow(
@@ -429,6 +436,15 @@ class DokladDetailDialog(QDialog):
         )
         self._splatnost_edit.setVisible(False)
         right_layout.addWidget(self._splatnost_edit)
+
+        # Partner edit
+        self._partner_edit = PartnerSelector(self)
+        self._partner_edit.set_items(self._partner_items)
+        self._partner_edit.new_partner_requested.connect(
+            self._on_new_partner_edit,
+        )
+        self._partner_edit.setVisible(False)
+        right_layout.addWidget(self._partner_edit)
 
         # K doreseni edit widgety
         self._k_doreseni_check = QCheckBox(
@@ -692,11 +708,24 @@ class DokladDetailDialog(QDialog):
         self._splatnost_edit.inner_widget.setEnabled(
             self._vm.can_edit_splatnost
         )
+        self._partner_edit.set_selected_id(self._vm.draft_partner_id)
         self._k_doreseni_check.setChecked(self._vm.draft_k_doreseni)
         self._poznamka_doreseni_edit.set_value(
             self._vm.draft_poznamka_doreseni or ""
         )
         self._sync_ui()
+
+    def _on_new_partner_edit(self) -> None:
+        """Inline vytvoření partnera z edit módu."""
+        from ui.dialogs.partner_dialog import PartnerDialog
+        dialog = PartnerDialog(parent=self)
+        if dialog.exec() and dialog.result is not None:
+            if callable(self._on_partner_created):
+                new_partner = self._on_partner_created(dialog.result)
+                if new_partner is not None:
+                    self._partner_items.append(new_partner)
+                    self._partner_edit.set_items(self._partner_items)
+                    self._partner_edit.set_selected_id(new_partner.id)
 
     def _on_cancel_edit(self) -> None:
         self._vm.cancel_edit()
@@ -712,6 +741,7 @@ class DokladDetailDialog(QDialog):
         )
         self._vm.set_draft_popis(popis)
         self._vm.set_draft_splatnost(splatnost)
+        self._vm.set_draft_partner_id(self._partner_edit.selected_id())
 
         if self._is_novy():
             flag = self._k_doreseni_check.isChecked()
@@ -974,7 +1004,7 @@ class DokladDetailDialog(QDialog):
         self._stav_badge.setText(stav_display_text(item.stav))
         self._stav_badge.set_variant(badge_variant_for_stav(item.stav))
 
-        # Splatnost + popis
+        # Splatnost + popis + partner
         splatnost_text = (
             _format_date_long(item.datum_splatnosti)
             if item.datum_splatnosti is not None
@@ -982,6 +1012,7 @@ class DokladDetailDialog(QDialog):
         )
         self._splatnost_display.setText(splatnost_text)
         self._popis_display.setText(item.popis or "—")
+        self._partner_display.setText(item.partner_nazev or "—")
         self._vs_display.setText(item.variabilni_symbol or "—")
 
         # Zbyva uhradit
@@ -1017,6 +1048,7 @@ class DokladDetailDialog(QDialog):
         edit = self._vm.edit_mode
         self._popis_edit.setVisible(edit)
         self._splatnost_edit.setVisible(edit)
+        self._partner_edit.setVisible(edit)
         self._popis_display.setVisible(not edit)
         self._splatnost_display.setVisible(not edit)
         self._actions_row.setVisible(not edit)

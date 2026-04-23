@@ -59,6 +59,7 @@ class DokladDetailViewModel:
         self._draft_splatnost: date | None = doklad.datum_splatnosti
         self._draft_k_doreseni: bool = doklad.k_doreseni
         self._draft_poznamka_doreseni: str | None = doklad.poznamka_doreseni
+        self._draft_partner_id: int | None = doklad.partner_id
         self._error: str | None = None
         self._deleted: bool = False
 
@@ -145,6 +146,7 @@ class DokladDetailViewModel:
         self._draft_splatnost = self._doklad.datum_splatnosti
         self._draft_k_doreseni = self._doklad.k_doreseni
         self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
+        self._draft_partner_id = self._doklad.partner_id
         self._error = None
 
     def cancel_edit(self) -> None:
@@ -154,6 +156,7 @@ class DokladDetailViewModel:
         self._draft_splatnost = self._doklad.datum_splatnosti
         self._draft_k_doreseni = self._doklad.k_doreseni
         self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
+        self._draft_partner_id = self._doklad.partner_id
         self._error = None
 
     def set_draft_popis(self, popis: str | None) -> None:
@@ -168,6 +171,13 @@ class DokladDetailViewModel:
     def set_draft_poznamka_doreseni(self, poznamka: str | None) -> None:
         self._draft_poznamka_doreseni = poznamka
 
+    @property
+    def draft_partner_id(self) -> int | None:
+        return self._draft_partner_id
+
+    def set_draft_partner_id(self, partner_id: int | None) -> None:
+        self._draft_partner_id = partner_id
+
     def save_edit(self) -> DokladyListItem | None:
         """Uloží draft přes DokladActionsCommand.
 
@@ -177,6 +187,12 @@ class DokladDetailViewModel:
         je stejná jako stávající).
         """
         try:
+            # Partner — jen pokud se změnil
+            _partner_arg = (
+                self._draft_partner_id
+                if self._draft_partner_id != self._doklad.partner_id
+                else ...
+            )
             if self._doklad.stav == StavDokladu.NOVY:
                 item = self._actions.upravit_pole_novy_dokladu(
                     self._doklad.id,
@@ -184,12 +200,14 @@ class DokladDetailViewModel:
                     splatnost=self._draft_splatnost,
                     k_doreseni=self._draft_k_doreseni,
                     poznamka_doreseni=self._draft_poznamka_doreseni,
+                    partner_id=_partner_arg,
                 )
             else:
                 item = self._actions.upravit_popis_a_splatnost(
                     self._doklad.id,
                     popis=self._draft_popis,
                     splatnost=self._draft_splatnost,
+                    partner_id=_partner_arg,
                 )
             self._doklad = item
             self._edit_mode = False

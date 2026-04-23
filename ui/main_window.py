@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         uow_factory: object = None,
         partner_items_loader: object = None,
         on_partner_created: object = None,
+        default_datum_loader: object = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -165,6 +166,7 @@ class MainWindow(QMainWindow):
         self._uow_factory = uow_factory
         self._partner_items_loader = partner_items_loader
         self._on_partner_created = on_partner_created
+        self._default_datum_loader = default_datum_loader
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -240,6 +242,7 @@ class MainWindow(QMainWindow):
                 uow_factory=self._uow_factory,
                 partner_items_loader=self._partner_items_loader,
                 on_partner_created=self._on_partner_created,
+                default_datum_loader=self._default_datum_loader,
                 preset_typ=typ,
                 preset_title=title,
                 parent=self._stack,
@@ -310,7 +313,11 @@ class MainWindow(QMainWindow):
         # 8. Nahrát doklady page (Fáze 12)
         if self._ocr_inbox_vm is not None:
             nahrat_page: QWidget = NahratDokladyPage(
-                self._ocr_inbox_vm, parent=self._stack,
+                self._ocr_inbox_vm,
+                default_datum_loader=self._default_datum_loader,
+                partner_items_loader=self._partner_items_loader,
+                on_partner_created=self._on_partner_created,
+                parent=self._stack,
             )
         else:
             nahrat_page = PlaceholderPage(
@@ -396,6 +403,7 @@ class MainWindow(QMainWindow):
             uow_factory=self._uow_factory,
             partner_items_loader=self._partner_items_loader,
             on_partner_created=self._on_partner_created,
+            default_datum_loader=self._default_datum_loader,
             parent=self._stack,
         )
         self._add_page("_doklady_all", self._all_doklady_page)
@@ -468,6 +476,7 @@ class MainWindow(QMainWindow):
             doklad = repo.get_by_id(doklad_id)
         item = DokladyListItem.from_domain(doklad)
         vm = self._detail_vm_factory(item)
+        _p_items = self._partner_items_loader() if callable(self._partner_items_loader) else []
         dialog = DokladDetailDialog(
             vm,
             priloha_loader=self._priloha_loader,
@@ -476,6 +485,8 @@ class MainWindow(QMainWindow):
             uhrazeno_query=self._uhrazeno_query,
             ucetni_zapisy_query=self._ucetni_zapisy_query,
             uow_factory=self._uow_factory,
+            partner_items=_p_items,
+            on_partner_created=self._on_partner_created,
             parent=self,
         )
         dialog.exec()

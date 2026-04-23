@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
 from domain.doklady.typy import TypDokladu
 from domain.shared.money import Money
 from services.queries.ocr_inbox import OcrInboxItem
+from services.queries.partneri_list import PartneriListItem
 from ui.design_tokens import Colors, Spacing
 from ui.widgets.labeled_inputs import (
     LabeledComboBox,
@@ -31,6 +32,7 @@ from ui.widgets.labeled_inputs import (
     LabeledMoneyEdit,
     LabeledTextEdit,
 )
+from ui.widgets.partner_selector import PartnerSelector
 from ui.widgets.pdf_viewer import PdfViewerWidget
 
 
@@ -41,11 +43,17 @@ class OcrUploadDetailDialog(QDialog):
         self,
         item: OcrInboxItem,
         file_path: str | None = None,
+        default_datum_loader: object = None,
+        partner_items: list[PartneriListItem] | None = None,
+        on_partner_created: object = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._item = item
         self._file_path = file_path
+        self._default_datum_loader = default_datum_loader
+        self._partner_items = partner_items or []
+        self._on_partner_created = on_partner_created
         self._result_action: str | None = None  # "approve" | "reject" | None
 
         self.setWindowTitle(f"Detail: {item.file_name}")
@@ -54,6 +62,7 @@ class OcrUploadDetailDialog(QDialog):
         self._pdf_viewer: PdfViewerWidget
         self._cislo_input: LabeledLineEdit
         self._typ_combo: LabeledComboBox
+        self._partner_selector: PartnerSelector
         self._datum_input: LabeledDateEdit
         self._castka_input: LabeledMoneyEdit
         self._dodavatel_input: LabeledLineEdit
@@ -89,6 +98,10 @@ class OcrUploadDetailDialog(QDialog):
     @property
     def popis(self) -> str:
         return self._popis_input.value().strip()
+
+    @property
+    def partner_id(self) -> int | None:
+        return self._partner_selector.selected_id()
 
     @property
     def variabilni_symbol(self) -> str | None:
@@ -143,6 +156,13 @@ class OcrUploadDetailDialog(QDialog):
 
         self._dodavatel_input = LabeledLineEdit("Dodavatel", max_length=200)
         right_layout.addWidget(self._dodavatel_input)
+
+        self._partner_selector = PartnerSelector(right)
+        self._partner_selector.set_items(self._partner_items)
+        self._partner_selector.new_partner_requested.connect(
+            self._on_new_partner,
+        )
+        right_layout.addWidget(self._partner_selector)
 
         self._datum_input = LabeledDateEdit("Datum vystavení")
         right_layout.addWidget(self._datum_input)
@@ -218,8 +238,16 @@ class OcrUploadDetailDialog(QDialog):
             except ValueError:
                 pass
 
+        # Fallback datum: poslední doklad z DB, nebo date.today()
+        fallback_datum = date.today()
+        if callable(self._default_datum_loader):
+            try:
+                fallback_datum = self._default_datum_loader()
+            except Exception:  # noqa: BLE001
+                pass
+
         # Cislo — rok z datum_vystaveni faktury, ne z dneška
-        rok = item.parsed_datum.year if item.parsed_datum else date.today().year
+        rok = item.parsed_datum.year if item.parsed_datum else fallback_datum.year
         if item.parsed_cislo:
             self._cislo_input.set_value(item.parsed_cislo)
         else:
@@ -235,7 +263,7 @@ class OcrUploadDetailDialog(QDialog):
         if item.parsed_datum:
             self._datum_input.set_value(item.parsed_datum)
         else:
-            self._datum_input.set_value(date.today())
+            self._datum_input.set_value(fallback_datum)
 
         # Castka
         if item.parsed_castka:
@@ -291,6 +319,18 @@ class OcrUploadDetailDialog(QDialog):
                 self._cislo_input.set_value(new)
 
         self._datum_input.date_widget.textChanged.connect(_on_datum_changed)
+
+    def _on_new_partner(self) -> None:
+        """Inline vytvoření partnera."""
+        from ui.dialogs.partner_dialog import PartnerDialog
+        dialog = PartnerDialog(parent=self)
+        if dialog.exec() and dialog.result is not None:
+            if callable(self._on_partner_created):
+                new_partner = self._on_partner_created(dialog.result)
+                if new_partner is not None:
+                    self._partner_items.append(new_partner)
+                    self._partner_selector.set_items(self._partner_items)
+                    self._partner_selector.set_selected_id(new_partner.id)
 
     def _on_approve(self) -> None:
         self._result_action = "approve"

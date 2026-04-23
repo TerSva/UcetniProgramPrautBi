@@ -106,6 +106,7 @@ class DokladActionsCommand:
         doklad_id: int,
         popis: str | None,
         splatnost: date | None,
+        partner_id: object = ...,
     ) -> DokladyListItem:
         """Atomicky upraví popis + splatnost.
 
@@ -134,6 +135,10 @@ class DokladActionsCommand:
             if splatnost != doklad.datum_splatnosti:
                 doklad.uprav_splatnost(splatnost)
 
+            # Partner — sentinel ... = nezměněno
+            if partner_id is not ...:
+                doklad.uprav_partner(partner_id)
+
             repo.update(doklad)
             uow.commit()
         return DokladyListItem.from_domain(doklad)
@@ -145,6 +150,7 @@ class DokladActionsCommand:
         splatnost: date | None,
         k_doreseni: bool,
         poznamka_doreseni: str | None,
+        partner_id: object = ...,
     ) -> DokladyListItem:
         """Atomicky upraví všechna editovatelná pole NOVY dokladu.
 
@@ -179,6 +185,10 @@ class DokladActionsCommand:
                 doklad.oznac_k_doreseni(poznamka_doreseni)
             else:
                 doklad.dores()
+
+            # Partner — sentinel ... = nezměněno
+            if partner_id is not ...:
+                doklad.uprav_partner(partner_id)
 
             repo.update(doklad)
             uow.commit()

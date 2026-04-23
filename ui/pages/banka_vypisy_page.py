@@ -290,6 +290,18 @@ class BankaVypisyPage(QWidget):
         self._ucet_combo.combo_widget.blockSignals(False)
         self._refresh_vypisy()
 
+        # Auto-select: obnovit předchozí výběr nebo první výpis
+        vypisy = self._vm.vypisy
+        if vypisy:
+            prev_id = self._vm.selected_vypis_id
+            target_row = 0
+            if prev_id is not None:
+                for i, v in enumerate(vypisy):
+                    if v.id == prev_id:
+                        target_row = i
+                        break
+            self._vypisy_table.selectRow(target_row)
+
     def _on_ucet_changed(self, ucet_id: object) -> None:
         self._vm.select_ucet(ucet_id)
         self._refresh_vypisy()

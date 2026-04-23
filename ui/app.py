@@ -441,6 +441,18 @@ def run(db_path: Path | None = None) -> int:
     def _ucetni_zapisy_query(doklad_id: int):
         return _ucetni_zapisy_q.list_by_doklad(doklad_id)
 
+    def _default_datum_loader():
+        """Vrátí datum posledního vytvořeného dokladu, nebo date.today()."""
+        from datetime import date as _date
+        uow = uow_factory()
+        with uow:
+            row = uow.connection.execute(
+                "SELECT datum_vystaveni FROM doklady ORDER BY id DESC LIMIT 1",
+            ).fetchone()
+            if row and row["datum_vystaveni"]:
+                return _date.fromisoformat(row["datum_vystaveni"])
+        return _date.today()
+
     # PDF parser pro auto-fill ve formuláři nového dokladu
     from infrastructure.ocr.ocr_engine import OcrEngine
     from infrastructure.ocr.invoice_parser import InvoiceParser
@@ -519,6 +531,7 @@ def run(db_path: Path | None = None) -> int:
         uow_factory=uow_factory,
         partner_items_loader=_partner_items_loader,
         on_partner_created=_on_partner_created,
+        default_datum_loader=_default_datum_loader,
     )
     window.show()
 
