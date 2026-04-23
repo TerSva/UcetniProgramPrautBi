@@ -591,25 +591,39 @@ class DokladDetailDialog(QDialog):
     # ─── PDF loading ─────────────────────────────────────────────
 
     def _load_pdf(self) -> None:
-        """Nacte PDF prilohu pro doklad."""
+        """Nacte PDF nebo obrazkovou prilohu pro doklad."""
         if self._priloha_loader is None or self._priloha_full_path is None:
             self._pdf_viewer.setVisible(False)
             self._upload_zone.setVisible(True)
             return
 
         prilohy = self._priloha_loader(self._vm.doklad.id)
-        pdf_priloha = next(
+
+        _IMAGE_MIMES = {"image/png", "image/jpeg", "image/jpg"}
+
+        # Preferuj PDF, fallback na obrázek
+        priloha = next(
             (p for p in prilohy if p.mime_type == "application/pdf"), None,
         )
-        if pdf_priloha is None:
+        is_image = False
+        if priloha is None:
+            priloha = next(
+                (p for p in prilohy if p.mime_type in _IMAGE_MIMES), None,
+            )
+            is_image = priloha is not None
+
+        if priloha is None:
             self._pdf_viewer.setVisible(False)
             self._upload_zone.setVisible(True)
             return
 
-        full = self._priloha_full_path(pdf_priloha.relativni_cesta)
+        full = self._priloha_full_path(priloha.relativni_cesta)
         self._pdf_viewer.setVisible(True)
         self._upload_zone.setVisible(False)
-        self._pdf_viewer.load_pdf(full)
+        if is_image:
+            self._pdf_viewer.load_image(full)
+        else:
+            self._pdf_viewer.load_pdf(full)
 
     def _on_pdf_uploaded(self, path_str: str) -> None:
         """Upload PDF k dokladu."""

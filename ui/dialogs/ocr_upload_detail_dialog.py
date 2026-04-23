@@ -63,6 +63,7 @@ class OcrUploadDetailDialog(QDialog):
 
         self._build_ui()
         self._populate()
+        self._wire_datum_to_cislo()
 
     @property
     def result_action(self) -> str | None:
@@ -74,7 +75,7 @@ class OcrUploadDetailDialog(QDialog):
 
     @property
     def typ(self) -> TypDokladu:
-        val = self._typ_combo.current_data()
+        val = self._typ_combo.value()
         return val if val else TypDokladu.FAKTURA_PRIJATA
 
     @property
@@ -213,7 +214,7 @@ class OcrUploadDetailDialog(QDialog):
         if item.parsed_typ:
             try:
                 typ = TypDokladu(item.parsed_typ)
-                self._typ_combo.set_current_data(typ)
+                self._typ_combo.set_value(typ)
             except ValueError:
                 pass
 
@@ -270,6 +271,26 @@ class OcrUploadDetailDialog(QDialog):
             self._pdf_viewer.load_image(path)
         else:
             self._pdf_viewer.set_placeholder(f"Nepodporovaný formát: {suffix}")
+
+    def _wire_datum_to_cislo(self) -> None:
+        """Při změně data aktualizuj rok v čísle dokladu."""
+        import re
+
+        def _on_datum_changed(_text: str) -> None:
+            d = self._datum_input.value()
+            if d is None:
+                return
+            cislo = self._cislo_input.value()
+            # Nahraď rok v patternu TYP-RRRR-NNN
+            new = re.sub(
+                r"^([A-Z]{2})-\d{4}-",
+                rf"\1-{d.year}-",
+                cislo,
+            )
+            if new != cislo:
+                self._cislo_input.set_value(new)
+
+        self._datum_input.date_widget.textChanged.connect(_on_datum_changed)
 
     def _on_approve(self) -> None:
         self._result_action = "approve"

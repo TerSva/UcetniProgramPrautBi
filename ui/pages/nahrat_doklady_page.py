@@ -335,7 +335,7 @@ class NahratDokladyPage(QWidget):
 
         castka = item.parsed_castka or Money(0)
         datum = item.parsed_datum or date.today()
-        cislo = f"FP-{datum.year}-{upload_id:04d}"
+        cislo = f"{typ.value}-{datum.year}-{upload_id:04d}"
 
         # Smart popis: dodavatel + cislo, fallback na filename
         popis = _smart_popis(item.parsed_dodavatel, item.parsed_cislo, item.file_name)
@@ -471,24 +471,29 @@ class NahratDokladyPage(QWidget):
         if not dlg.exec():
             return  # Closed without action
 
-        if dlg.result_action == "approve":
-            self._vm.approve(
-                upload_id=item.id,
-                typ=dlg.typ,
-                cislo=dlg.cislo,
-                datum_vystaveni=dlg.datum_vystaveni,
-                castka_celkem=dlg.castka_celkem,
-                popis=dlg.popis,
-                k_doreseni=True,
-                variabilni_symbol=dlg.variabilni_symbol,
-                is_reverse_charge=item.parsed_is_reverse_charge,
-            )
-            if self._vm.error:
-                self._show_error(self._vm.error)
-            else:
-                self._hide_error()
-        elif dlg.result_action == "reject":
-            self._vm.reject(item.id)
+        try:
+            if dlg.result_action == "approve":
+                self._vm.approve(
+                    upload_id=item.id,
+                    typ=dlg.typ,
+                    cislo=dlg.cislo,
+                    datum_vystaveni=dlg.datum_vystaveni,
+                    castka_celkem=dlg.castka_celkem,
+                    popis=dlg.popis or None,
+                    k_doreseni=True,
+                    variabilni_symbol=dlg.variabilni_symbol,
+                    is_reverse_charge=item.parsed_is_reverse_charge,
+                )
+                if self._vm.error:
+                    self._show_error(self._vm.error)
+                else:
+                    self._hide_error()
+            elif dlg.result_action == "reject":
+                self._vm.reject(item.id)
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+            traceback.print_exc()
+            self._show_error(f"Chyba: {exc}")
 
         self._refresh()
 

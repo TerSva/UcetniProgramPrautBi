@@ -62,13 +62,18 @@ class PrilohaCommands:
                 rok=doklad.datum_vystaveni.year,
             )
 
+            import mimetypes
+            mime, _ = mimetypes.guess_type(original_name)
+            if mime is None:
+                mime = "application/pdf"
+
             priloha = PrilohaDokladu(
                 id=None,
                 doklad_id=doklad_id,
                 nazev_souboru=original_name,
                 relativni_cesta=rel_path,
                 velikost_bytes=size,
-                mime_type="application/pdf",
+                mime_type=mime,
                 vytvoreno=datetime.now(),
             )
             saved = prepo.add(priloha)
