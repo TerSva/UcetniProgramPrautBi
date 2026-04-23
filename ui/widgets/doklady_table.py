@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.doklady.typy import Mena, StavDokladu
+from domain.doklady.typy import Mena, StavDokladu, TypDokladu
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors
 from ui.widgets.badge import (
@@ -206,6 +206,8 @@ class DokladyTableModel(QAbstractTableModel):
                     ).replace(",", "\u00a0").replace(".", ",")
                 return item.castka_celkem.format_cz()
             if col == _COL_UHRAZENO:
+                if item.typ not in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.FAKTURA_VYDANA):
+                    return "—"
                 return _UHRAZENO_DISPLAY.get(item.stav, "—")
             if col == _COL_STAV:
                 return stav_display_text(item.stav)
@@ -220,6 +222,8 @@ class DokladyTableModel(QAbstractTableModel):
                 variant = badge_variant_for_typ(item.typ)
                 return QBrush(QColor(_VARIANT_TEXT_COLOR[variant]))
             if col == _COL_UHRAZENO:
+                if item.typ not in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.FAKTURA_VYDANA):
+                    return QBrush(QColor(Colors.GRAY_400))
                 color = _UHRAZENO_COLOR.get(item.stav, Colors.GRAY_700)
                 return QBrush(QColor(color))
             if col == _COL_STAV:

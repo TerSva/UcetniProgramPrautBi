@@ -39,7 +39,7 @@ from PyQt6.QtWidgets import (
 )
 
 from domain.doklady.priloha import PrilohaDokladu
-from domain.doklady.typy import DphRezim, Mena, StavDokladu
+from domain.doklady.typy import DphRezim, Mena, StavDokladu, TypDokladu
 from domain.shared.money import Money
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors, Spacing
@@ -828,6 +828,13 @@ class DokladDetailDialog(QDialog):
     def _update_zbyva_uhradit(self) -> None:
         """Vypocte a zobrazi 'Zbyva uhradit'."""
         item = self._vm.doklad
+
+        # Úhrada se sleduje jen u faktur
+        is_invoice = item.typ in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.FAKTURA_VYDANA)
+        self._zbyva_uhradit_label.setVisible(is_invoice)
+        self._zbyva_label.setVisible(is_invoice)
+        if not is_invoice:
+            return
 
         if item.stav in (StavDokladu.UHRAZENY,):
             self._zbyva_label.setText("Uhrazeno \u2713")
