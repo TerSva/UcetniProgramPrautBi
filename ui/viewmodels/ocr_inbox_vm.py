@@ -56,17 +56,29 @@ class OcrInboxViewModel:
         except Exception as exc:  # noqa: BLE001
             self._error = str(exc) or exc.__class__.__name__
 
-    def upload_files(self, paths: list[Path]) -> list[int]:
-        """Nahraje a zpracuje soubory. Vrátí upload_ids."""
+    def upload_files(
+        self, paths: list[Path],
+    ) -> tuple[list[int], list[str], list[str]]:
+        """Nahraje a zpracuje soubory.
+
+        Returns:
+            Tuple (upload_ids, duplicate_names, approved_names).
+        """
         ids: list[int] = []
+        duplicates: list[str] = []
+        approved: list[str] = []
         for p in paths:
             try:
-                uid = self._upload_cmd.upload_and_process(p)
+                uid, status = self._upload_cmd.upload_and_process(p)
                 ids.append(uid)
+                if status == "duplicate":
+                    duplicates.append(p.name)
+                elif status == "approved":
+                    approved.append(p.name)
             except Exception as exc:  # noqa: BLE001
                 self._error = f"Chyba při nahrávání {p.name}: {exc}"
         self.load()
-        return ids
+        return ids, duplicates, approved
 
     def approve(
         self,

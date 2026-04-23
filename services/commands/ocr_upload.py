@@ -46,11 +46,11 @@ class OcrUploadCommand:
         self._parser = parser or InvoiceParser()
         self._priloha_cmd = priloha_commands
 
-    def upload_file(self, source_path: Path) -> int:
+    def upload_file(self, source_path: Path) -> tuple[int, bool]:
         """Nahraje soubor, spočítá hash, vytvoří OcrUpload záznam.
 
         Returns:
-            ID nového uploadu.
+            Tuple (upload_id, is_duplicate).
         """
         # Compute hash
         file_hash = self._compute_hash(source_path)
@@ -61,7 +61,7 @@ class OcrUploadCommand:
             repo = SqliteOcrUploadRepository(uow)
             existing = repo.get_by_hash(file_hash)
             if existing is not None:
-                return existing.id
+                return existing.id, True
 
             # Copy file to upload dir
             self._upload_dir.mkdir(parents=True, exist_ok=True)
@@ -81,7 +81,7 @@ class OcrUploadCommand:
             )
             repo.add(upload)
             uow.commit()
-            return upload.id
+            return upload.id, False
 
     def process_ocr(self, upload_id: int) -> None:
         """Spustí OCR + parsing na nahraném souboru."""
@@ -121,11 +121,42 @@ class OcrUploadCommand:
             repo.update(upload)
             uow.commit()
 
-    def upload_and_process(self, source_path: Path) -> int:
-        """Nahraje a ihned zpracuje soubor. Vrátí upload_id."""
-        upload_id = self.upload_file(source_path)
-        self.process_ocr(upload_id)
-        return upload_id
+    def upload_and_process(self, source_path: Path) -> tuple[int, str]:
+        """Nahraje a ihned zpracuje soubor.
+
+        Returns:
+            Tuple (upload_id, status):
+              - "new"       — nový upload, zpracován
+              - "duplicate" — soubor už je ve frontě (zpracovany)
+              - "requeued"  — zamítnutý soubor znovu zařazen
+              - "approved"  — soubor už byl schválen jako doklad
+        """
+        upload_id, is_duplicate = self.upload_file(source_path)
+        if not is_duplicate:
+            self.process_ocr(upload_id)
+            return upload_id, "new"
+
+        # Duplikát — rozhoduj podle stavu existujícího uploadu
+        uow = self._uow_factory()
+        with uow:
+            repo = SqliteOcrUploadRepository(uow)
+            existing = repo.get(upload_id)
+            if existing is None:
+                return upload_id, "duplicate"
+
+            if existing.stav == StavUploadu.ZAMITNUTY:
+                # Resetuj a znovu zpracuj
+                existing.resetuj_pro_opakovanou_nahrku()
+                repo.update(existing)
+                uow.commit()
+                self.process_ocr(upload_id)
+                return upload_id, "requeued"
+
+            if existing.stav == StavUploadu.SCHVALENY:
+                return upload_id, "approved"
+
+            # NAHRANY nebo ZPRACOVANY — už je ve frontě
+            return upload_id, "duplicate"
 
     def approve(
         self,

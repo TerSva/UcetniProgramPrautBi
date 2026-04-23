@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -260,11 +261,29 @@ class NahratDokladyPage(QWidget):
         """Zpracuje nahrané soubory."""
         if self._vm is None:
             return
-        self._vm.upload_files(paths)
+        _ids, duplicates, approved = self._vm.upload_files(paths)
         if self._vm.error:
             self._show_error(self._vm.error)
         else:
             self._hide_error()
+
+        msgs: list[str] = []
+        if duplicates:
+            names = ", ".join(duplicates)
+            msgs.append(
+                f"Tyto soubory už čekají na zpracování:\n{names}"
+            )
+        if approved:
+            names = ", ".join(approved)
+            msgs.append(
+                f"Tyto soubory už byly schváleny jako doklad:\n{names}"
+            )
+        if msgs:
+            QMessageBox.information(
+                self,
+                "Duplicitní soubory",
+                "\n\n".join(msgs),
+            )
         self._refresh()
 
     def _on_batch_approve(self) -> None:

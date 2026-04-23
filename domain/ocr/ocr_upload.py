@@ -91,3 +91,16 @@ class OcrUpload:
         self.stav = StavUploadu.ZPRACOVANY
         self.ocr_method = "failed"
         self.ocr_confidence = 0
+
+    def resetuj_pro_opakovanou_nahrku(self) -> None:
+        """Reset ZAMITNUTY → NAHRANY pro opětovné zpracování."""
+        if self.stav != StavUploadu.ZAMITNUTY:
+            raise ValidationError(
+                f"Nelze resetovat upload ve stavu {self.stav.value}."
+            )
+        self.stav = StavUploadu.NAHRANY
+        self.ocr_text = None
+        self.ocr_method = None
+        self.ocr_confidence = None
+        self.parsed_data = None
+        self.error = None
