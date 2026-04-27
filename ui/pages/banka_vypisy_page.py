@@ -448,7 +448,11 @@ class BankaVypisyPage(QWidget):
         self._refresh_transakce()
 
     def _on_sparovat(self, tx_id: int) -> None:
-        """Otevře dialog pro ruční párování transakce s dokladem."""
+        """Otevře dialog pro ruční párování transakce s dokladem.
+
+        Po výběru kandidáta otevře dialog zaúčtování úhrady, kde uživatel
+        zkontroluje a potvrdí účty (předvyplněné z původního zaúčtování).
+        """
         if self._vm.neuhrazene_query is None:
             QMessageBox.warning(
                 self, "Chyba", "Párování není nakonfigurováno.",
@@ -473,19 +477,89 @@ class BankaVypisyPage(QWidget):
         if doklad_id is None:
             return
 
-        result = self._vm.sparovat_platbu(tx_id, doklad_id)
-        if result is None:
-            QMessageBox.warning(
-                self, "Chyba", self._vm.error or "Párování selhalo.",
-            )
+        # Otevři dialog zaúčtování úhrady — předvyplň reálné účty
+        if not self._open_zauctovat_uhradu(tx_id, doklad_id, tx_item):
             return
 
         msg = "Platba úspěšně spárována a zaúčtována."
-        if result.kurzovy_rozdil is not None:
-            msg += f"\nKurzový rozdíl: {result.kurzovy_rozdil.format_cz()}"
-        QMessageBox.information(self, "Spárováno", msg)
         self._refresh_transakce()
         self._load()
+        QMessageBox.information(self, "Spárováno", msg)
+
+    def _open_zauctovat_uhradu(
+        self,
+        tx_id: int,
+        doklad_id: int,
+        tx_item,
+    ) -> bool:
+        """Načte podklady, otevře ZauctovatUhraduDialog a spáruje.
+
+        Vrací True když všechno proběhlo, False při zrušení/chybě.
+        """
+        from services.commands.sparovat_platbu_dokladem import (
+            _najdi_ucet_zavazku,
+        )
+        from infrastructure.database.repositories.uctova_osnova_repository import (
+            SqliteUctovaOsnovaRepository,
+        )
+        from infrastructure.database.repositories.doklady_repository import (
+            SqliteDokladyRepository,
+        )
+        from services.queries.uctova_osnova import UcetItem
+        from ui.dialogs.zauctovat_uhradu_dialog import ZauctovatUhraduDialog
+        from domain.doklady.typy import TypDokladu
+
+        uow_factory = self._vm._uow_factory
+        if uow_factory is None:
+            QMessageBox.warning(self, "Chyba", "Funkce není dostupná.")
+            return False
+
+        uow = uow_factory()
+        with uow:
+            doklady_repo = SqliteDokladyRepository(uow)
+            doklad = doklady_repo.get_by_id(doklad_id)
+            sloupec = (
+                "dal_ucet" if doklad.typ == TypDokladu.FAKTURA_PRIJATA
+                else "md_ucet"
+            )
+            ucet_protistrany = _najdi_ucet_zavazku(uow, doklad_id, sloupec)
+
+            osnova_repo = SqliteUctovaOsnovaRepository(uow)
+            ucty_domain = osnova_repo.list_all(jen_aktivni=True)
+        ucty = [UcetItem.from_domain(u) for u in ucty_domain]
+
+        ucet_221 = self._vm.get_ucet_kod_for_vypis() or "221"
+
+        zdlg = ZauctovatUhraduDialog(
+            doklad_cislo=doklad.cislo,
+            doklad_typ=doklad.typ,
+            doklad_castka=doklad.castka_celkem,
+            transakce=tx_item,
+            ucty=ucty,
+            ucet_protistrany=ucet_protistrany,
+            ucet_221=ucet_221,
+            parent=self,
+        )
+        if not zdlg.exec():
+            return False
+
+        if self._vm._sparovat_cmd is None:
+            QMessageBox.warning(
+                self, "Chyba", "Příkaz pro párování není nakonfigurován.",
+            )
+            return False
+        try:
+            self._vm._sparovat_cmd.execute(
+                tx_id, doklad_id,
+                md_ucet_override=zdlg.md_ucet,
+                dal_ucet_override=zdlg.dal_ucet,
+                popis_override=zdlg.popis or None,
+                rozdil_zauctovat=zdlg.zauctovat_rozdil,
+            )
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.warning(self, "Chyba", str(exc))
+            return False
+        return True
 
     def _on_zauctovat_tx(self, tx_id: int) -> None:
         """Otevře dialog pro přímé zaúčtování transakce."""

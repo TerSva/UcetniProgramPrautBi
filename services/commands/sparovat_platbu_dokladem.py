@@ -1,12 +1,20 @@
 """SparovatPlatbuDoklademCommand — spáruje bankovní transakci s dokladem.
 
-Vytvoří účetní zápisy na BV doklad:
-  FP úhrada: MD 321 / Dal 221.xxx
-  FV úhrada: MD 221.xxx / Dal 311
+Vytvoří účetní zápisy na BV doklad. Účet závazku/pohledávky se
+převezme z původního zaúčtování dokladu (libovolný účet třídy 3 —
+321, 379, 365, 311, …), případně lze předat explicitně přes
+``md_ucet_override`` / ``dal_ucet_override`` (z dialogu zaúčtování).
+
+  FP úhrada: MD <ucet_zavazku> / Dal 221.xxx
+  FV úhrada: MD 221.xxx / Dal <ucet_pohledavky>
 
 Kurzové rozdíly (pokud doklad v cizí měně):
-  Ztráta: MD 563 / Dal 321 (nebo 311)
-  Zisk: MD 321 (nebo 311) / Dal 663
+  Ztráta: MD 563 / Dal <ucet_protistrany>
+  Zisk:   MD <ucet_protistrany> / Dal 663
+
+Rozdíl částek (pokud uživatel zaškrtl, jen CZK doklady):
+  Zaplaceno víc:  MD 568 / Dal <ucet_protistrany>
+  Zaplaceno méně: MD <ucet_protistrany> / Dal 663
 """
 
 from __future__ import annotations
@@ -55,14 +63,21 @@ class SparovatPlatbuDoklademCommand:
         self,
         transakce_id: int,
         doklad_id: int,
+        md_ucet_override: str | None = None,
+        dal_ucet_override: str | None = None,
+        popis_override: str | None = None,
+        rozdil_zauctovat: bool = False,
     ) -> SparovaniResult:
         """Spáruje transakci s dokladem.
 
         1. Ověří stav transakce (NESPAROVANO) a dokladu (ZAUCTOVANY/CASTECNE)
         2. Zjistí BV doklad z výpisu + účet 221.xxx z bankovního účtu
-        3. Vytvoří účetní zápis MD 321/Dal 221 (FP) nebo MD 221/Dal 311 (FV)
+        3. Vytvoří účetní zápis MD/Dal — buď z overrides (z dialogu)
+           nebo z původního zaúčtování dokladu (účet třídy 3)
         4. Řeší kurzové rozdíly pro cizí měny
-        5. Změní stav dokladu na UHRAZENY, transakci na SPAROVANO
+        5. Pokud rozdil_zauctovat=True a tx_castka != doklad částka,
+           přidá řádek MD/Dal 568/663 pro rozdíl
+        6. Změní stav dokladu na UHRAZENY, transakci na SPAROVANO
         """
         uow = self._uow_factory()
         zaznam_ids: list[int] = []
@@ -124,17 +139,29 @@ class SparovatPlatbuDoklademCommand:
                 else Money(-tx.castka.to_halire())
             )
 
-            # Účty podle typu dokladu — analytický účet z původního zaúčtování
+            # Účty podle typu dokladu — preferuj override (z dialogu),
+            # jinak najdi reálný účet závazku/pohledávky z původního
+            # zaúčtování (jakýkoli účet třídy 3 — 321, 379, 365, …)
             if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
-                ucet_321 = self._find_analyticky_ucet(
-                    uow, doklad_id, "dal_ucet", "321",
-                )
-                md_ucet, dal_ucet = ucet_321, ucet_221
+                if md_ucet_override and dal_ucet_override:
+                    md_ucet, dal_ucet = md_ucet_override, dal_ucet_override
+                else:
+                    ucet_zavazku = _najdi_ucet_zavazku(
+                        uow, doklad_id, "dal_ucet",
+                    ) or "321"
+                    md_ucet, dal_ucet = ucet_zavazku, ucet_221
+                ucet_protistrany = md_ucet
             else:
-                ucet_311 = self._find_analyticky_ucet(
-                    uow, doklad_id, "md_ucet", "311",
-                )
-                md_ucet, dal_ucet = ucet_221, ucet_311
+                if md_ucet_override and dal_ucet_override:
+                    md_ucet, dal_ucet = md_ucet_override, dal_ucet_override
+                else:
+                    ucet_pohledavky = _najdi_ucet_zavazku(
+                        uow, doklad_id, "md_ucet",
+                    ) or "311"
+                    md_ucet, dal_ucet = ucet_221, ucet_pohledavky
+                ucet_protistrany = dal_ucet
+
+            popis_zapisu = popis_override or f"Úhrada {doklad.cislo}"
 
             # Hlavní účetní zápis
             zaznam = UcetniZaznam(
@@ -143,7 +170,7 @@ class SparovatPlatbuDoklademCommand:
                 md_ucet=md_ucet,
                 dal_ucet=dal_ucet,
                 castka=tx_castka,
-                popis=f"Úhrada {doklad.cislo}",
+                popis=popis_zapisu,
             )
             zapis_id = denik_repo.add(zaznam)
             zaznam_ids.append(zapis_id)
@@ -174,7 +201,7 @@ class SparovatPlatbuDoklademCommand:
                             doklad_id=bv_doklad_id,
                             datum=tx.datum_zauctovani,
                             md_ucet="563",
-                            dal_ucet=md_ucet if doklad.typ == TypDokladu.FAKTURA_PRIJATA else dal_ucet,
+                            dal_ucet=ucet_protistrany,
                             castka=abs_rozdil,
                             popis=f"Kurzová ztráta {doklad.cislo}",
                         )
@@ -183,13 +210,48 @@ class SparovatPlatbuDoklademCommand:
                         kurz_zaznam = UcetniZaznam(
                             doklad_id=bv_doklad_id,
                             datum=tx.datum_zauctovani,
-                            md_ucet=md_ucet if doklad.typ == TypDokladu.FAKTURA_PRIJATA else dal_ucet,
+                            md_ucet=ucet_protistrany,
                             dal_ucet="663",
                             castka=abs_rozdil,
                             popis=f"Kurzový zisk {doklad.cislo}",
                         )
                     kurz_id = denik_repo.add(kurz_zaznam)
                     zaznam_ids.append(kurz_id)
+
+            # Rozdíl mezi částkou transakce a dokladem (CZK doklady)
+            # — uživatel v dialogu zaškrtl "Přidat řádek pro rozdíl"
+            elif rozdil_zauctovat and doklad.mena.value == "CZK":
+                rozdil = tx_castka - doklad.castka_celkem
+                if rozdil != Money.zero():
+                    abs_rozdil = (
+                        rozdil
+                        if rozdil.is_positive
+                        else Money(-rozdil.to_halire())
+                    )
+                    if rozdil.is_positive:
+                        # Zaplaceno víc → ztráta (568) na MD,
+                        # protistranový účet (321/311/…) na Dal
+                        rozdil_zaznam = UcetniZaznam(
+                            doklad_id=bv_doklad_id,
+                            datum=tx.datum_zauctovani,
+                            md_ucet="568",
+                            dal_ucet=ucet_protistrany,
+                            castka=abs_rozdil,
+                            popis=f"Rozdíl úhrady {doklad.cislo}",
+                        )
+                    else:
+                        # Zaplaceno méně → zisk (663) na Dal,
+                        # protistranový účet na MD (doplatek závazku/pohl.)
+                        rozdil_zaznam = UcetniZaznam(
+                            doklad_id=bv_doklad_id,
+                            datum=tx.datum_zauctovani,
+                            md_ucet=ucet_protistrany,
+                            dal_ucet="663",
+                            castka=abs_rozdil,
+                            popis=f"Rozdíl úhrady {doklad.cislo}",
+                        )
+                    rozdil_id = denik_repo.add(rozdil_zaznam)
+                    zaznam_ids.append(rozdil_id)
 
             # Spáruj transakci
             tx.sparuj(doklad_id)
@@ -208,18 +270,29 @@ class SparovatPlatbuDoklademCommand:
             doklad_uhrazen=True,
         )
 
-    @staticmethod
-    def _find_analyticky_ucet(
-        uow: SqliteUnitOfWork,
-        doklad_id: int,
-        sloupec: str,
-        synteticky: str,
-    ) -> str:
-        """Najde analytický účet z existujícího zaúčtování dokladu."""
-        row = uow.connection.execute(
-            f"SELECT {sloupec} FROM ucetni_zaznamy "  # noqa: S608
-            f"WHERE doklad_id = ? AND {sloupec} LIKE ? "
-            "ORDER BY id LIMIT 1",
-            (doklad_id, f"{synteticky}%"),
-        ).fetchone()
-        return row[0] if row else synteticky
+
+def _najdi_ucet_zavazku(
+    uow: SqliteUnitOfWork,
+    doklad_id: int,
+    sloupec: str,
+) -> str | None:
+    """Najde reálný účet závazku/pohledávky z původního zaúčtování dokladu.
+
+    Hledá libovolný účet třídy 3 (321, 379, 365, 311, 315, …) — třída 3
+    obsahuje zúčtovací vztahy (pohledávky a závazky).
+
+    Pro FP (úhrada závazku) se volá s ``sloupec="dal_ucet"`` — strana
+    Dal původního zaúčtování drží závazek (např. ``Dal 379.100``).
+    Pro FV (úhrada pohledávky) se volá s ``sloupec="md_ucet"`` — strana
+    MD drží pohledávku (např. ``MD 311``).
+
+    Vrátí ``None``, pokud nenajde žádný takový účet (volající si pak
+    zvolí default 321/311).
+    """
+    row = uow.connection.execute(
+        f"SELECT {sloupec} FROM ucetni_zaznamy "  # noqa: S608
+        f"WHERE doklad_id = ? AND {sloupec} LIKE '3%' "
+        "ORDER BY id LIMIT 1",
+        (doklad_id,),
+    ).fetchone()
+    return row[0] if row else None

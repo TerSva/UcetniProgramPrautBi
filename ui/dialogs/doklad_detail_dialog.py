@@ -849,8 +849,10 @@ class DokladDetailDialog(QDialog):
         from services.queries.banka import BankovniTransakceQuery
         from services.commands.sparovat_platbu_dokladem import (
             SparovatPlatbuDoklademCommand,
+            _najdi_ucet_zavazku,
         )
         from ui.dialogs.uhrada_z_banky_dialog import UhradaZBankyDialog
+        from ui.dialogs.zauctovat_uhradu_dialog import ZauctovatUhraduDialog
         from PyQt6.QtWidgets import QMessageBox
 
         if self._uow_factory is None:
@@ -867,9 +869,80 @@ class DokladDetailDialog(QDialog):
         if tx_id is None:
             return
 
+        # Otevři dialog zaúčtování úhrady — předvyplň reálné účty
+        # z původního zaúčtování dokladu a bankovní účet z výpisu
+        from datetime import date as _date
+        from domain.banka.bankovni_transakce import StavTransakce
+        from domain.doklady.typy import TypDokladu
+        from domain.shared.money import Money
+        from infrastructure.database.repositories.uctova_osnova_repository import (
+            SqliteUctovaOsnovaRepository,
+        )
+        from services.queries.banka import TransakceListItem
+        from services.queries.uctova_osnova import UcetItem
+
+        uow = self._uow_factory()
+        with uow:
+            sloupec = (
+                "dal_ucet" if item.typ == TypDokladu.FAKTURA_PRIJATA
+                else "md_ucet"
+            )
+            ucet_protistrany = _najdi_ucet_zavazku(uow, item.id, sloupec)
+
+            # Bankovní účet z výpisu (přes transakci) + data transakce
+            row = uow.connection.execute(
+                """
+                SELECT bu.ucet_kod, bt.*
+                FROM bankovni_transakce bt
+                JOIN bankovni_vypisy bv ON bv.id = bt.bankovni_vypis_id
+                JOIN bankovni_ucty bu ON bu.id = bv.bankovni_ucet_id
+                WHERE bt.id = ?
+                """,
+                (tx_id,),
+            ).fetchone()
+            if row is None:
+                self._show_error("Transakce nebyla nalezena.")
+                return
+            ucet_221 = row["ucet_kod"]
+            tx_item = TransakceListItem(
+                id=row["id"],
+                datum_transakce=_date.fromisoformat(row["datum_transakce"]),
+                datum_zauctovani=_date.fromisoformat(row["datum_zauctovani"]),
+                castka=Money(row["castka"]),
+                smer=row["smer"],
+                variabilni_symbol=row["variabilni_symbol"],
+                protiucet=row["protiucet"],
+                popis=row["popis"],
+                stav=StavTransakce(row["stav"]),
+            )
+
+            # Účtová osnova
+            osnova_repo = SqliteUctovaOsnovaRepository(uow)
+            ucty_domain = osnova_repo.list_all(jen_aktivni=True)
+        ucty = [UcetItem.from_domain(u) for u in ucty_domain]
+
+        zdlg = ZauctovatUhraduDialog(
+            doklad_cislo=item.cislo,
+            doklad_typ=item.typ,
+            doklad_castka=item.castka_celkem,
+            transakce=tx_item,
+            ucty=ucty,
+            ucet_protistrany=ucet_protistrany,
+            ucet_221=ucet_221,
+            parent=self,
+        )
+        if not zdlg.exec():
+            return
+
         cmd = SparovatPlatbuDoklademCommand(uow_factory=self._uow_factory)
         try:
-            result = cmd.execute(tx_id, item.id)
+            result = cmd.execute(
+                tx_id, item.id,
+                md_ucet_override=zdlg.md_ucet,
+                dal_ucet_override=zdlg.dal_ucet,
+                popis_override=zdlg.popis or None,
+                rozdil_zauctovat=zdlg.zauctovat_rozdil,
+            )
             msg = f"Doklad {item.cislo} úspěšně uhrazen z banky."
             if result.kurzovy_rozdil:
                 msg += f"\nKurzový rozdíl: {result.kurzovy_rozdil.format_cz()}"
