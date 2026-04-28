@@ -4,9 +4,13 @@ Rozvaha (zkrácený rozsah pro mikro ÚJ dle vyhlášky 500/2002 Sb. přílohy 1
 VZZ druhové členění (příloha 2), Předvaha, Hlavní kniha (syntetika
 i analytika), Saldokonto, DPH přehled, Pokladní kniha.
 
-Všechny dotazy ignorují storno zápisy (je_storno = 0). Počáteční stavy
-se berou z tabulky pocatecni_stavy (rok=N). Pro PRAUT 2025 = první rok,
-PS = 0 všude.
+Storno protizápisy (``je_storno = 1``) jsou součástí obratů — při stornu
+se doklad neztratí, ale obě strany zápisu se vyrovnají (originál i jeho
+opačný protizápis), takže netto efekt je 0. To zajišťuje, že rozvaha
+po stornu bilancuje a předvaha sedí na nulu na dotčených účtech.
+
+Počáteční stavy se berou z tabulky ``pocatecni_stavy`` (rok=N). Pro PRAUT
+2025 = první rok, PS = 0 všude.
 """
 
 from __future__ import annotations
@@ -402,16 +406,15 @@ class VykazyQuery:
 
             ps_signed = ps_md - ps_dal  # pozitivní = MD strana
 
-            # Pohyby
+            # Pohyby — vč. storno protizápisů, ať jsou v auditu vidět.
             zaznamy = conn.execute(
                 """
                 SELECT uz.datum, uz.castka, uz.popis,
-                       uz.md_ucet, uz.dal_ucet,
+                       uz.md_ucet, uz.dal_ucet, uz.je_storno,
                        d.cislo AS doklad_cislo
                 FROM ucetni_zaznamy uz
                 JOIN doklady d ON d.id = uz.doklad_id
-                WHERE uz.je_storno = 0
-                  AND uz.datum >= ? AND uz.datum <= ?
+                WHERE uz.datum >= ? AND uz.datum <= ?
                   AND (uz.md_ucet LIKE ? OR uz.dal_ucet LIKE ?)
                 ORDER BY uz.datum, uz.id
                 """,
@@ -470,12 +473,10 @@ class VykazyQuery:
                 FROM uctova_osnova u
                 WHERE u.cislo IN (
                     SELECT md_ucet FROM ucetni_zaznamy
-                    WHERE je_storno = 0
-                      AND datum >= ? AND datum <= ?
+                    WHERE datum >= ? AND datum <= ?
                     UNION
                     SELECT dal_ucet FROM ucetni_zaznamy
-                    WHERE je_storno = 0
-                      AND datum >= ? AND datum <= ?
+                    WHERE datum >= ? AND datum <= ?
                     UNION
                     SELECT ucet_kod FROM pocatecni_stavy WHERE rok = ?
                 )
@@ -775,13 +776,14 @@ class VykazyQuery:
                 else:
                     data[r["ucet_kod"]]["ps_dal"] = r["s"] or 0
 
-            # Obraty
+            # Obraty — vč. storno protizápisů (originál + protizápis se
+            # navzájem ruší, netto = 0, ale obraty na obou stranách jsou
+            # potřeba pro správný součet a bilancování rozvahy).
             obraty_md = conn.execute(
                 """
                 SELECT md_ucet, SUM(castka) AS s
                 FROM ucetni_zaznamy
-                WHERE je_storno = 0
-                  AND datum >= ? AND datum <= ?
+                WHERE datum >= ? AND datum <= ?
                 GROUP BY md_ucet
                 """,
                 (od.isoformat(), do.isoformat()),
@@ -795,8 +797,7 @@ class VykazyQuery:
                 """
                 SELECT dal_ucet, SUM(castka) AS s
                 FROM ucetni_zaznamy
-                WHERE je_storno = 0
-                  AND datum >= ? AND datum <= ?
+                WHERE datum >= ? AND datum <= ?
                 GROUP BY dal_ucet
                 """,
                 (od.isoformat(), do.isoformat()),

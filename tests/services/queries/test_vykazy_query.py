@@ -491,3 +491,80 @@ class TestPdfExport:
         )
         assert output.exists()
         assert output.stat().st_size > 1000
+
+
+# ────────────────────────────────────────────────────────────
+# Storno integrace — výkazy musí zahrnout protizápisy
+# ────────────────────────────────────────────────────────────
+
+class TestStornoIntegrace:
+    """Po stornu musí výkazy automaticky promítnout opravu.
+
+    Bug fix: dříve filtr ``je_storno = 0`` v _nacti_obraty_a_ps způsobil,
+    že po stornu rozvaha nebilancovala — originál se počítal, protizápis
+    ne, takže saldo účtu nebylo 0 ani po vyrovnání.
+    """
+
+    def test_rozvaha_bilancuje_po_stornu(
+        self, service_factories, vykazy_query, zauctovani,
+    ):
+        """Vytvoříme chybný zápis přes závěrkový účet 701, pak ho
+        stornujeme — rozvaha musí pak bilancovat."""
+        # Chybný zápis: MD 411 / Dal 701 (analog Tereziina ID-2025-003)
+        d = _vytvor_doklad(
+            service_factories, "ID-CHYBA", TypDokladu.INTERNI_DOKLAD,
+            date(2025, 6, 1), "10",
+        )
+        zauctovani.zauctuj_doklad(d, UctovyPredpis(
+            doklad_id=d,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=d, datum=date(2025, 6, 1),
+                    md_ucet="411", dal_ucet="701",
+                    castka=Money.from_koruny("10"),
+                    popis="Chybný zápis",
+                ),
+            ),
+        ))
+
+        # Před stornem: rozvaha NEbilancuje (kvůli 701 saldu)
+        a_pre, p_pre = vykazy_query.get_bilancni_kontrola(2025)
+        assert a_pre != p_pre, "Test setup: chybný zápis musí způsobit nebilanci"
+        assert vykazy_query.get_zaverkove_saldo(2025) != Money.zero()
+
+        # Storno se správným datem
+        zauctovani.stornuj_doklad(d, datum=date(2025, 6, 1))
+
+        # Po stornu: rozvaha bilancuje + 701 saldo = 0
+        a, p = vykazy_query.get_bilancni_kontrola(2025)
+        assert a == p, f"Po stornu rozvaha nesedí: A={a}, P={p}"
+        assert vykazy_query.get_zaverkove_saldo(2025) == Money.zero()
+
+    def test_predvaha_zahrnuje_storno(
+        self, service_factories, vykazy_query, zauctovani,
+    ):
+        """Storno se zobrazí v předvaze jako Dal obrat na MD účtu originálu
+        (a opačně) → MD = Dal pro daný účet."""
+        d = _vytvor_doklad(
+            service_factories, "FV-PRED", TypDokladu.FAKTURA_VYDANA,
+            date(2025, 7, 1), "1000",
+        )
+        zauctovani.zauctuj_doklad(d, UctovyPredpis(
+            doklad_id=d,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=d, datum=date(2025, 7, 1),
+                    md_ucet="311", dal_ucet="601",
+                    castka=Money.from_koruny("1000"),
+                    popis="Tržba",
+                ),
+            ),
+        ))
+        zauctovani.stornuj_doklad(d, datum=date(2025, 7, 1))
+
+        radky = vykazy_query.get_predvaha(2025)
+        r311 = next(r for r in radky if r.ucet == "311")
+        r601 = next(r for r in radky if r.ucet == "601")
+        # Po stornu: obraty MD == Dal na obou účtech
+        assert r311.obrat_md == r311.obrat_dal == Money.from_koruny("1000")
+        assert r601.obrat_md == r601.obrat_dal == Money.from_koruny("1000")
