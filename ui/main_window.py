@@ -37,6 +37,7 @@ from ui.pages import (
     PlaceholderPage,
     PocatecniStavyPage,
     UcetniDenikPage,
+    VykazyPage,
 )
 from ui.viewmodels import (
     ChartOfAccountsViewModel,
@@ -70,12 +71,7 @@ _DOKLADY_TYP_PAGES: tuple[tuple[str, TypDokladu, str], ...] = (
 _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
     # banka — replaced by BankaImportPage + BankaVypisyPage in Fáze 13
     # ucetni_denik — replaced by real UcetniDenikPage
-    (
-        "vykazy", "Výkazy",
-        "Rozvaha, výkaz zisku a ztráty — PDF export.",
-        15, "Výkazy + PDF export",
-    ),
-    # DPH page — replaced by real DphPage in Fáze 11
+    # vykazy — replaced by real VykazyPage in Fáze 15
     (
         "saldokonto", "Saldokonto",
         "Pohledávky a závazky podle partnerů.",
@@ -128,6 +124,8 @@ class MainWindow(QMainWindow):
         partner_items_loader: object = None,
         on_partner_created: object = None,
         default_datum_loader: object = None,
+        vykazy_query: object = None,
+        export_pdf_fn: object = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -167,6 +165,8 @@ class MainWindow(QMainWindow):
         self._partner_items_loader = partner_items_loader
         self._on_partner_created = on_partner_created
         self._default_datum_loader = default_datum_loader
+        self._vykazy_query = vykazy_query
+        self._export_pdf_fn = export_pdf_fn
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -374,6 +374,39 @@ class MainWindow(QMainWindow):
                 parent=self._stack,
             )
         self._add_page("ucetni_denik", denik_page)
+
+        # 11a. Výkazy page (Fáze 15)
+        if self._vykazy_query is not None:
+            from services.queries.vykazy_query import VykazyQuery as _VQ
+            assert isinstance(self._vykazy_query, _VQ)
+            firma_nazev = "PRAUT s.r.o."
+            rok_default = 2025
+            try:
+                from ui.viewmodels.nastaveni_vm import NastaveniViewModel as _NVM
+                if isinstance(self._nastaveni_vm, _NVM):
+                    self._nastaveni_vm.load()
+                    if self._nastaveni_vm.firma is not None:
+                        firma_nazev = self._nastaveni_vm.firma.nazev
+                        rok_default = self._nastaveni_vm.firma.rok_zacatku_uctovani
+            except Exception:  # noqa: BLE001
+                pass
+            export_fn = self._export_pdf_fn if callable(self._export_pdf_fn) else None
+            vykazy_page: QWidget = VykazyPage(
+                vykazy_query=self._vykazy_query,
+                rok_default=rok_default,
+                firma_nazev=firma_nazev,
+                export_pdf_fn=export_fn,
+                parent=self._stack,
+            )
+        else:
+            vykazy_page = PlaceholderPage(
+                title="Výkazy",
+                subtitle="Rozvaha, výkaz zisku a ztráty — PDF export.",
+                phase_number=15,
+                phase_name="Výkazy + PDF export",
+                parent=self._stack,
+            )
+        self._add_page("vykazy", vykazy_page)
 
         # 11. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:

@@ -68,6 +68,7 @@ from services.queries.banka import (
     BankovniVypisyQuery,
 )
 from services.queries.neuhrazene_doklady import NeuhrazeneDokladyQuery
+from services.queries.vykazy_query import VykazyQuery
 from services.zauctovani_service import ZauctovaniDokladuService
 from ui.main_window import MainWindow
 from ui.theme import build_stylesheet
@@ -400,6 +401,27 @@ def run(db_path: Path | None = None) -> int:
     import_vypisu_vm = _build_import_vypisu_vm(factory)
     bankovni_vypisy_vm = _build_bankovni_vypisy_vm(factory)
 
+    # VykazyQuery + PDF export (Fáze 15)
+    _vykazy_query = VykazyQuery(uow_factory=lambda: SqliteUnitOfWork(factory))
+
+    def _export_pdf_fn(rok: int, path: Path) -> None:
+        from services.export.pdf_export import export_vykazy_pdf
+        firma_nazev = "PRAUT s.r.o."
+        firma_ico = "22545107"
+        if nastaveni_vm is not None:
+            nastaveni_vm.load()
+            if nastaveni_vm.firma is not None:
+                firma_nazev = nastaveni_vm.firma.nazev
+                if nastaveni_vm.firma.ico:
+                    firma_ico = nastaveni_vm.firma.ico
+        export_vykazy_pdf(
+            vykazy_query=_vykazy_query,
+            rok=rok,
+            output_path=path,
+            firma_nazev=firma_nazev,
+            firma_ico=firma_ico,
+        )
+
     # Účetní deník VM
     from ui.viewmodels.ucetni_denik_vm import UcetniDenikViewModel
     _denik_rok = None
@@ -532,6 +554,8 @@ def run(db_path: Path | None = None) -> int:
         partner_items_loader=_partner_items_loader,
         on_partner_created=_on_partner_created,
         default_datum_loader=_default_datum_loader,
+        vykazy_query=_vykazy_query,
+        export_pdf_fn=_export_pdf_fn,
     )
     window.show()
 

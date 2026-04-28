@@ -12,6 +12,7 @@ from ui.pages.partneri_page import PartneriPage
 from ui.pages.placeholder_page import PlaceholderPage
 from ui.pages.pocatecni_stavy_page import PocatecniStavyPage
 from ui.pages.ucetni_denik_page import UcetniDenikPage
+from ui.pages.vykazy_page import VykazyPage
 
 __all__ = [
     "BankaImportPage",
@@ -26,4 +27,5 @@ __all__ = [
     "PlaceholderPage",
     "PocatecniStavyPage",
     "UcetniDenikPage",
+    "VykazyPage",
 ]
