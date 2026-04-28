@@ -502,6 +502,10 @@ class VykazyPage(QWidget):
             f"Obrat Dal: {kniha.obrat_dal.format_cz()}   "
             f"KZ: {kniha.koncovy_zustatek.format_cz()}"
         )
+        # clearContents — bez něj zůstávaly buňky s hodnotami z předchozího
+        # účtu, protože _set_money_cell jsme volali jen pro nenulové hodnoty
+        # a starý QTableWidgetItem v buňce přežil přepnutí účtu.
+        self._kniha_table.clearContents()
         self._kniha_table.setRowCount(len(kniha.radky))
         for i, r in enumerate(kniha.radky):
             _set_text_cell(self._kniha_table, i, 0, _format_date(r.datum))
@@ -690,6 +694,7 @@ class VykazyPage(QWidget):
             f"Konečný stav: {kniha.koncovy_stav.format_cz()}"
         )
 
+        self._pokladna_table.clearContents()
         self._pokladna_table.setRowCount(len(kniha.radky))
         for i, r in enumerate(kniha.radky):
             _set_text_cell(self._pokladna_table, i, 0, _format_date(r.datum))
