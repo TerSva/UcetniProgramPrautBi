@@ -78,6 +78,7 @@ class UctovyPredpis:
         cls,
         originaly: tuple[UcetniZaznam, ...],
         datum: date,
+        popis_override: str | None = None,
     ) -> UctovyPredpis:
         """Factory pro opravný (storno) předpis.
 
@@ -85,8 +86,12 @@ class UctovyPredpis:
           * prohozenými MD ↔ Dal,
           * shodnou kladnou částkou (Varianta A — ne červený zápis),
           * ``je_storno=True`` + ``stornuje_zaznam_id = originaly[i].id``,
-          * datum = ``datum`` (typicky dnešek, ne datum originálu — storno
-            je vlastní účetní událost).
+          * datum = ``datum``.
+
+        Args:
+            popis_override: pokud je vyplněn, použije se jako popis storno
+                zápisů (např. uživatelská poznámka "Duplicitní zaúčtování").
+                Bez něj popis = "Storno: {orig.popis}" / "Storno".
 
         Pre-condition: všechny originály musí mít stejný ``doklad_id``
         a musí být už persistované (``id is not None``). Originály smí být
@@ -122,6 +127,12 @@ class UctovyPredpis:
                 )
 
         doklad_id = originaly[0].doklad_id
+
+        def _popis_for(orig: UcetniZaznam) -> str:
+            if popis_override is not None and popis_override.strip():
+                return f"Storno: {popis_override.strip()}"
+            return f"Storno: {orig.popis}" if orig.popis else "Storno"
+
         storno_zaznamy = tuple(
             UcetniZaznam(
                 doklad_id=z.doklad_id,
@@ -129,7 +140,7 @@ class UctovyPredpis:
                 md_ucet=z.dal_ucet,   # prohozené strany
                 dal_ucet=z.md_ucet,
                 castka=z.castka,
-                popis=f"Storno: {z.popis}" if z.popis else "Storno",
+                popis=_popis_for(z),
                 je_storno=True,
                 stornuje_zaznam_id=z.id,
             )

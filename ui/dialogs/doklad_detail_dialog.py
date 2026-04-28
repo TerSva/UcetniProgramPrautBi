@@ -48,6 +48,7 @@ from domain.shared.money import Money
 from services.queries.doklady_list import DokladyListItem
 from ui.design_tokens import Colors, Spacing
 from ui.dialogs.confirm_dialog import ConfirmDialog
+from ui.dialogs.storno_dialog import StornoDialog
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.widgets.badge import (
     Badge,
@@ -803,23 +804,15 @@ class DokladDetailDialog(QDialog):
             self._sync_ui()
 
     def _on_storno(self) -> None:
-        ok = ConfirmDialog.ask(
+        result = StornoDialog.ask(
             self,
-            title="Stornovat doklad",
-            message=(
-                f"Opravdu chcete stornovat doklad "
-                f"{self._vm.doklad.cislo}?\n"
-                "Vytvoří se opravný účetní předpis (protizápis), "
-                "který anuluje dopad původního zaúčtování "
-                "v Předvaze, Hlavní knize a v KPI na Dashboardu. "
-                "Akce je nevratná."
-            ),
-            confirm_text="Ano, stornovat",
-            destructive=True,
+            cislo_dokladu=self._vm.doklad.cislo,
+            default_datum=self._vm.doklad.datum_vystaveni,
         )
-        if not ok:
+        if result is None:
             return
-        self._vm.stornovat()
+        datum, poznamka = result
+        self._vm.stornovat(datum=datum, poznamka=poznamka)
         if self._vm.error:
             self._show_error(self._vm.error)
         else:

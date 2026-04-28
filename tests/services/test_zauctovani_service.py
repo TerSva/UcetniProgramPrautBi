@@ -327,18 +327,63 @@ class TestStornujDoklad:
             zz = SqliteUcetniDenikRepository(uow2).list_by_doklad(doklad_id)
             assert all(not z.je_storno for z in zz)
 
-    def test_default_datum_dnes(
+    def test_default_datum_je_datum_vystaveni(
         self, service, fv_v_db, service_factories,
     ):
-        """Když se datum nezadá, použije se date.today()."""
+        """Bez explicitního data → použije se datum_vystaveni originálu.
+
+        Důvod: storno musí spadnout do stejného účetního období jako
+        původní doklad. Dnešní datum (date.today()) by mohlo být v jiném
+        roce a způsobilo by neopravitelnou účetní chybu — viz bug
+        s ID-2025-003 stornováným v dubnu 2026 mimo rok 2025.
+        """
+        doklad_id = fv_v_db   # datum_vystaveni = 2026-04-11
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        _, protizapisy = service.stornuj_doklad(doklad_id)
+
+        for p in protizapisy:
+            assert p.datum == date(2026, 4, 11)
+
+    def test_explicitni_datum_prebije_default(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Když UI předá datum, použije se to (ne datum_vystaveni)."""
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        _, protizapisy = service.stornuj_doklad(
+            doklad_id, datum=date(2026, 12, 31),
+        )
+
+        for p in protizapisy:
+            assert p.datum == date(2026, 12, 31)
+
+    def test_poznamka_se_ulozi_do_popisu_storna(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Uživatelská poznámka se promítne do popisu storno zápisů."""
+        doklad_id = fv_v_db
+        service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
+
+        _, protizapisy = service.stornuj_doklad(
+            doklad_id, poznamka="Duplicitní zaúčtování ZK",
+        )
+
+        for p in protizapisy:
+            assert p.popis == "Storno: Duplicitní zaúčtování ZK"
+
+    def test_bez_poznamky_zachova_default_popis(
+        self, service, fv_v_db, service_factories,
+    ):
+        """Bez poznámky zůstává původní 'Storno: {orig.popis}' chování."""
         doklad_id = fv_v_db
         service.zauctuj_doklad(doklad_id, _predpis_fv(doklad_id))
 
         _, protizapisy = service.stornuj_doklad(doklad_id)
 
-        # Všechny protizápisy mají dnešní datum
-        for p in protizapisy:
-            assert p.datum == date.today()
+        popisy = {p.popis for p in protizapisy}
+        assert popisy == {"Storno: Tržba", "Storno: DPH 21%"}
 
     def test_dvoji_storno_idempotence_soucet_nula(
         self, service, fv_v_db, service_factories,

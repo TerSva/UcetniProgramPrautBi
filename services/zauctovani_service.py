@@ -89,6 +89,7 @@ class ZauctovaniDokladuService:
         self,
         doklad_id: int,
         datum: date | None = None,
+        poznamka: str | None = None,
     ) -> Tuple[Doklad, tuple[UcetniZaznam, ...]]:
         """Atomicky stornuje doklad: protizápis + změna stavu.
 
@@ -103,8 +104,12 @@ class ZauctovaniDokladuService:
 
         Args:
             doklad_id: ID dokladu ke stornu.
-            datum: Datum storna (default ``date.today()``). Záměrně NE datum
-                originálního zaúčtování — storno je vlastní účetní událost.
+            datum: Datum storna. Pokud None, použije se ``datum_vystaveni``
+                originálního dokladu — storno tak zůstává ve stejném účetním
+                období jako původní doklad.
+            poznamka: Volitelná uživatelská poznámka. Pokud je vyplněna,
+                uloží se do popisu storno protizápisů ve formátu
+                "Storno: {poznamka}".
 
         Returns:
             ``(Doklad, protizápisy)`` — aktualizovaný doklad a uložené
@@ -115,14 +120,15 @@ class ZauctovaniDokladuService:
             ValidationError: NOVY (použít Smazat), UHRAZENY (nelze),
                 STORNOVANY (už stornovaný — idempotence řešena checkem níže).
         """
-        storno_datum = datum or date.today()
-
         uow = self._uow_factory()
         with uow:
             doklady_repo = self._doklady_repo_factory(uow)
             denik_repo = self._denik_repo_factory(uow)
 
             doklad = doklady_repo.get_by_id(doklad_id)
+
+            # Default datum = datum vystavení originálu (stejné účetní období).
+            storno_datum = datum or doklad.datum_vystaveni
 
             # Idempotence: už stornovaný → vrať stav beze změny.
             if doklad.stav == StavDokladu.STORNOVANY:
@@ -160,7 +166,7 @@ class ZauctovaniDokladuService:
                 )
 
             storno_predpis = UctovyPredpis.storno_z_zaznamu(
-                originaly, datum=storno_datum,
+                originaly, datum=storno_datum, popis_override=poznamka,
             )
             protizapisy = denik_repo.zauctuj(storno_predpis)
 

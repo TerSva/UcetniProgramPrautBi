@@ -221,6 +221,39 @@ class TestStornoZZaznamu:
                 (o1, o2), datum=date(2026, 4, 15),
             )
 
+    def test_popis_override_nahradi_default(self):
+        """popis_override použije zadaný text místo 'Storno: {orig}'."""
+        original = _zaznam(id=10, popis="Tržba")
+        p = UctovyPredpis.storno_z_zaznamu(
+            (original,), datum=date(2026, 4, 15),
+            popis_override="Duplicitní zaúčtování",
+        )
+        assert p.zaznamy[0].popis == "Storno: Duplicitní zaúčtování"
+
+    def test_popis_override_prazdny_string_pouzije_default(self):
+        """Whitespace-only override → použije se default popis."""
+        original = _zaznam(id=10, popis="Tržba")
+        p = UctovyPredpis.storno_z_zaznamu(
+            (original,), datum=date(2026, 4, 15),
+            popis_override="   ",
+        )
+        assert p.zaznamy[0].popis == "Storno: Tržba"
+
+    def test_popis_override_aplikuje_se_na_vsechny_zaznamy(self):
+        """Při více originálech dostanou všechny storno zápisy stejný popis."""
+        originaly = (
+            _zaznam(id=1, md="311", dal="601", castka_halire=1000000,
+                    popis="Tržba"),
+            _zaznam(id=2, md="311", dal="343", castka_halire=210000,
+                    popis="DPH 21%"),
+        )
+        p = UctovyPredpis.storno_z_zaznamu(
+            originaly, datum=date(2026, 4, 15),
+            popis_override="Chybná faktura",
+        )
+        for z in p.zaznamy:
+            assert z.popis == "Storno: Chybná faktura"
+
     def test_uz_stornovany_vyhodi(self):
         original = UcetniZaznam(
             doklad_id=1, datum=date(2026, 4, 1),

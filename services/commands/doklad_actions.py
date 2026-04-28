@@ -44,12 +44,21 @@ class DokladActionsCommand:
 
     # ── State transitions ──────────────────────────────────────────────
 
-    def stornovat(self, doklad_id: int) -> DokladyListItem:
+    def stornovat(
+        self,
+        doklad_id: int,
+        datum: date | None = None,
+        poznamka: str | None = None,
+    ) -> DokladyListItem:
         """Stornuje doklad přes opravný účetní předpis.
 
         Deleguje na ``ZauctovaniDokladuService.stornuj_doklad``, který
         v jedné UoW vytvoří protizápisy + změní stav. Auto-clear ``k_doreseni``
         řeší ``Doklad.stornuj()`` uvnitř service transakce.
+
+        Args:
+            datum: Datum storna; default = ``doklad.datum_vystaveni``.
+            poznamka: Volitelná poznámka uložená do popisu storno zápisů.
 
         Vrácený DTO nese ``datum_storna`` (datum prvního protizápisu) —
         aby UI po stornu mohlo okamžitě zobrazit „Stornováno: {datum}"
@@ -60,7 +69,7 @@ class DokladActionsCommand:
             NotFoundError — doklad neexistuje.
         """
         doklad, protizapisy = self._zauctovani_service.stornuj_doklad(
-            doklad_id
+            doklad_id, datum=datum, poznamka=poznamka,
         )
         datum_storna = protizapisy[0].datum if protizapisy else None
         return DokladyListItem.from_domain(doklad, datum_storna=datum_storna)

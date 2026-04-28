@@ -22,7 +22,12 @@ from services.queries.doklady_list import DokladyListItem
 
 
 class _DokladActionsCommand(Protocol):
-    def stornovat(self, doklad_id: int) -> DokladyListItem: ...
+    def stornovat(
+        self,
+        doklad_id: int,
+        datum: date | None = None,
+        poznamka: str | None = None,
+    ) -> DokladyListItem: ...
     def smazat(self, doklad_id: int) -> None: ...
     def oznac_k_doreseni(
         self, doklad_id: int, poznamka: str | None = None,
@@ -219,9 +224,21 @@ class DokladDetailViewModel:
 
     # ─── Akce (state transitions + flag) ──────────────────────────────
 
-    def stornovat(self) -> DokladyListItem | None:
+    def stornovat(
+        self,
+        datum: date | None = None,
+        poznamka: str | None = None,
+    ) -> DokladyListItem | None:
+        """Stornuje doklad. Default datum = datum_vystaveni originálu.
+
+        Args:
+            datum: Datum storna (None → datum_vystaveni originálu).
+            poznamka: Volitelná poznámka pro popis storno zápisů.
+        """
         try:
-            item = self._actions.stornovat(self._doklad.id)
+            item = self._actions.stornovat(
+                self._doklad.id, datum=datum, poznamka=poznamka,
+            )
             self._doklad = item
             self._edit_mode = False
             self._error = None

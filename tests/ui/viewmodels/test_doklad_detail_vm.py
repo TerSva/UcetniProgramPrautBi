@@ -19,8 +19,15 @@ class _StubActions:
         self.result = result
         self.calls: list[tuple[str, dict]] = []
 
-    def stornovat(self, doklad_id: int) -> DokladyListItem:
-        self.calls.append(("stornovat", {"id": doklad_id}))
+    def stornovat(
+        self,
+        doklad_id: int,
+        datum: date | None = None,
+        poznamka: str | None = None,
+    ) -> DokladyListItem:
+        self.calls.append(("stornovat", {
+            "id": doklad_id, "datum": datum, "poznamka": poznamka,
+        }))
         assert self.result is not None
         return self.result
 
@@ -76,7 +83,7 @@ class _ErrorActions:
     def __init__(self, exc: Exception):
         self.exc = exc
 
-    def stornovat(self, doklad_id):
+    def stornovat(self, doklad_id, datum=None, poznamka=None):
         raise self.exc
 
     def smazat(self, doklad_id):
@@ -229,6 +236,24 @@ class TestAkce:
         vm = DokladDetailViewModel(_item(), _StubActions(result=result))
         vm.stornovat()
         assert vm.doklad is result
+
+    def test_stornovat_predava_datum_a_poznamku(self):
+        """VM předá zadané datum a poznámku do actions command."""
+        result = _item(stav=StavDokladu.STORNOVANY)
+        actions = _StubActions(result=result)
+        vm = DokladDetailViewModel(_item(), actions)
+        vm.stornovat(datum=date(2025, 2, 3), poznamka="Duplicitní zápis")
+        assert actions.calls[0][1]["datum"] == date(2025, 2, 3)
+        assert actions.calls[0][1]["poznamka"] == "Duplicitní zápis"
+
+    def test_stornovat_bez_argumentu_predava_none(self):
+        """Bez datum/poznámky předá None — service si dosadí default."""
+        result = _item(stav=StavDokladu.STORNOVANY)
+        actions = _StubActions(result=result)
+        vm = DokladDetailViewModel(_item(), actions)
+        vm.stornovat()
+        assert actions.calls[0][1]["datum"] is None
+        assert actions.calls[0][1]["poznamka"] is None
 
     def test_stornovat_error(self):
         vm = DokladDetailViewModel(
