@@ -79,6 +79,7 @@ from ui.viewmodels import (
     PartneriViewModel,
 )
 from ui.viewmodels.bankovni_vypisy_vm import BankovniVypisyViewModel
+from ui.viewmodels.dph_vm import DphViewModel
 from ui.viewmodels.doklad_detail_vm import DokladDetailViewModel
 from ui.viewmodels.doklad_form_vm import DokladFormViewModel
 from ui.viewmodels.import_vypisu_vm import ImportVypisuViewModel
@@ -404,6 +405,28 @@ def run(db_path: Path | None = None) -> int:
     # VykazyQuery + PDF export (Fáze 15)
     _vykazy_query = VykazyQuery(uow_factory=lambda: SqliteUnitOfWork(factory))
 
+    # DPH ViewModel (Fáze 11 + identifikovaná osoba)
+    from services.commands.dph_podani import DphPodaniCommand
+    from services.queries.dph_prehled import (
+        DphMesicDetailQuery,
+        DphPrehledQuery,
+        DphPriznaniQuery,
+        ViesQuery,
+    )
+    _dph_uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
+    _dph_prehled = DphPrehledQuery(_dph_uow_factory)
+    _dph_detail = DphMesicDetailQuery(_dph_uow_factory)
+    _dph_podani = DphPodaniCommand(_dph_uow_factory)
+    _dph_priznani = DphPriznaniQuery(_dph_detail)
+    _dph_vies = ViesQuery(_dph_uow_factory)
+    dph_vm = DphViewModel(
+        prehled_query=_dph_prehled,
+        detail_query=_dph_detail,
+        podani_command=_dph_podani,
+        priznani_query=_dph_priznani,
+        vies_query=_dph_vies,
+    )
+
     def _export_pdf_fn(rok: int, path: Path) -> None:
         from services.export.pdf_export import export_vykazy_pdf
         firma_nazev = "PRAUT s.r.o."
@@ -556,6 +579,7 @@ def run(db_path: Path | None = None) -> int:
         default_datum_loader=_default_datum_loader,
         vykazy_query=_vykazy_query,
         export_pdf_fn=_export_pdf_fn,
+        dph_vm=dph_vm,
     )
     window.show()
 

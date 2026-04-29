@@ -516,6 +516,101 @@ def _render_saldokonto(
     """
 
 
+_MESICE_CZ_PDF = [
+    "", "Leden", "Únor", "Březen", "Duben", "Květen", "Červen",
+    "Červenec", "Srpen", "Září", "Říjen", "Listopad", "Prosinec",
+]
+
+
+def _render_dph_priznani_per_mesic(rok: int) -> str:
+    """Sekce DPH přiznání po měsících s řádky EPO formuláře.
+
+    Pro identifikovanou osobu — měsíční rozpis řádků 7, 9, 10, 11,
+    43, 44, 47, 48, 62, 64, 66 zaokrouhlený na celé Kč (formát EPO).
+    Vykreslí se jen měsíce s alespoň jednou RC transakcí.
+    """
+    from services.queries.dph_prehled import (
+        DphMesicDetailQuery,
+        DphPriznaniRadky,
+    )
+    # Volající (export_vykazy_pdf) vloží už spočítané přiznání.
+    # Tato funkce je placeholder — viz _render_dph_priznani(prehledy).
+    return ""
+
+
+def _round_kc(m: Money) -> int:
+    """Zaokrouhlení Money na celé Kč (matematicky, ROUND_HALF_UP)."""
+    from decimal import Decimal, ROUND_HALF_UP, localcontext
+    with localcontext() as ctx:
+        ctx.rounding = ROUND_HALF_UP
+        return int(Decimal(m.to_halire()).scaleb(-2).quantize(Decimal("1")))
+
+
+def _render_dph_priznani(priznani_per_mesic: list) -> str:
+    """Render EPO řádků pro každý měsíc s RC plněním.
+
+    priznani_per_mesic: list[DphPriznaniRadky] — jen měsíce s plněním.
+    """
+    if not priznani_per_mesic:
+        return ""
+
+    sections: list[str] = []
+    for p in priznani_per_mesic:
+        nazev = _MESICE_CZ_PDF[p.mesic]
+        rows = [
+            ("Řádek 7 — Pořízení zboží z JČS",
+             _round_kc(p.radek_7_zbozi_jcs), False),
+            ("Řádek 9 — Přijetí služby z JČS",
+             _round_kc(p.radek_9_sluzby_jcs), False),
+            ("Řádek 10 — Přijetí služby (21 %)",
+             _round_kc(p.radek_10_sluzby_21), False),
+            ("Řádek 11 — Přijetí služby (12 %)",
+             _round_kc(p.radek_11_sluzby_12), False),
+            ("Řádek 43 — DPH základ (21 %)",
+             _round_kc(p.radek_43_zaklad_21), False),
+            ("Řádek 44 — DPH (21 %)",
+             _round_kc(p.radek_44_dph_21), False),
+            ("Řádek 47 — DPH základ (12 %)",
+             _round_kc(p.radek_47_zaklad_12), False),
+            ("Řádek 48 — DPH (12 %)",
+             _round_kc(p.radek_48_dph_12), False),
+            ("Řádek 62 — Celková daň",
+             _round_kc(p.radek_62_celkova_dan), False),
+            ("Řádek 64 — Odpočet (identifikovaná osoba = 0)",
+             _round_kc(p.radek_64_odpocet), False),
+            ("Řádek 66 — Vlastní daňová povinnost",
+             _round_kc(p.radek_66_dan_povinnost), True),
+        ]
+        body = "".join(
+            f'<tr{" class=\"bold\"" if bold else ""}>'
+            f'<td>{escape(label)}</td>'
+            f'<td class="num">{value} Kč</td>'
+            f'</tr>'
+            for label, value, bold in rows
+        )
+        sections.append(
+            f"""
+            <h3 class="section-title">{nazev} {p.rok}</h3>
+            <table>
+                <thead><tr>
+                    <th>Položka</th>
+                    <th class="num">Částka (celé Kč)</th>
+                </tr></thead>
+                <tbody>{body}</tbody>
+            </table>
+            """
+        )
+
+    return f"""
+    <div class="report">
+        <h2 class="report-title">DPH přiznání — řádky EPO formuláře</h2>
+        <p>Měsíční rozpis řádků pro identifikovanou osobu (§6g ZDPH).
+        Hodnoty zaokrouhleny na celé Kč pro formulář EPO.</p>
+        {''.join(sections)}
+    </div>
+    """
+
+
 def _render_dph(prehled: DphPrehled) -> str:
     summary = f"""
     <table>
@@ -650,6 +745,25 @@ def export_vykazy_pdf(
     dph = vykazy_query.get_dph_prehled(rok)
     pokladna = vykazy_query.get_pokladni_kniha(rok)
 
+    # DPH přiznání řádky EPO — pro každý měsíc s RC plněním.
+    from services.queries.dph_prehled import (
+        DphMesicDetailQuery,
+        DphPrehledQuery,
+        DphPriznaniRadky,
+    )
+    uow_factory = vykazy_query._uow_factory  # noqa: SLF001
+    prehled_q = DphPrehledQuery(uow_factory)
+    detail_q = DphMesicDetailQuery(uow_factory)
+    mesicni_prehled = prehled_q.execute(rok)
+    priznani_per_mesic: list[DphPriznaniRadky] = []
+    for m in mesicni_prehled:
+        if m.pocet_transakci == 0:
+            continue
+        transakce = detail_q.execute(rok, m.mesic)
+        priznani_per_mesic.append(
+            DphPriznaniRadky.from_transakce(rok, m.mesic, transakce),
+        )
+
     ucty_s_pohybem = vykazy_query.get_ucty_s_pohybem(rok)
     knihy = tuple(
         vykazy_query.get_hlavni_kniha(cislo, rok) for cislo, _nazev in ucty_s_pohybem
@@ -663,6 +777,7 @@ def export_vykazy_pdf(
         _render_hlavni_kniha(knihy),
         _render_saldokonto(saldo_zavazky, saldo_pohledavky),
         _render_dph(dph),
+        _render_dph_priznani(priznani_per_mesic),
         _render_pokladna(pokladna),
     ]
 

@@ -240,6 +240,14 @@ class ZauctovaniViewModel:
         else:
             self._remove_dph_row()
 
+    def is_doklad_rc(self) -> bool:
+        """Vrací True, pokud doklad má režim DPH = REVERSE_CHARGE.
+
+        Používá se pro varování v UI, když uživatel odškrtne RC checkbox
+        u dokladu, který je RC-flaggovaný.
+        """
+        return self._doklad.dph_rezim == DphRezim.REVERSE_CHARGE
+
     def set_dph_sazba(self, sazba: Decimal) -> None:
         """Změní sazbu DPH a přepočítá DPH řádek."""
         self._dph_sazba = sazba

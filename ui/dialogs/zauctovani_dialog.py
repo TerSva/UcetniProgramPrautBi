@@ -401,6 +401,16 @@ class ZauctovaniDialog(QDialog):
     # ─── Reverse charge ─────────────────────────────────────────
 
     def _on_rc_toggled(self, checked: bool) -> None:
+        # Doklad s dph_rezim=REVERSE_CHARGE — varování při odškrtnutí.
+        # Zobrazí se v error_label, ale neblokuje akci (je to jen varování).
+        if not checked and self._vm.is_doklad_rc():
+            self._error_label.setText(
+                "⚠️ Doklad má režim DPH = Reverse charge. Pokud RC odškrtnete, "
+                "zaúčtování nebude obsahovat DPH řádek 343.100/343.200."
+            )
+            self._error_label.setVisible(True)
+        else:
+            self._error_label.setVisible(False)
         self._dph_sazba_combo.setVisible(checked)
         self._vm.set_reverse_charge(checked)
         self._rebuild_rows()
