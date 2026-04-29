@@ -86,6 +86,36 @@ class TestMenaSection:
         qtbot.addWidget(d)
         assert not d._castka_widget.line_widget.isReadOnly()
 
+    def test_prepocet_je_live_pri_psani_castky(self, qtbot):
+        """Při psaní castka_mena se přepočet provádí live (textChanged),
+        ne až při ztrátě fokusu. Bez toho race condition: uživatel zadá
+        EUR a hned klikne Uložit, CZK pole zůstane prázdné."""
+        vm = _make_vm()
+        d = DokladFormDialog(vm)
+        qtbot.addWidget(d)
+        d._mena_combo_widget.set_value(Mena.EUR)
+        d._kurz_widget.set_value("25")
+        # Simuluj psaní bez ztráty fokusu
+        d._castka_mena_widget.line_widget.setText("100,00")
+        # Auto-přepočet by měl proběhnout bez explicitního volání:
+        assert d._castka_widget.value() == Money(250000)  # 100 * 25 = 2500 Kč
+
+    def test_castka_se_resetuje_pri_invalidnim_vstupu(self, qtbot):
+        """Když castka_mena nebo kurz chybí, hlavní CZK pole se vyčistí —
+        nesmí tam zůstat zastaralá hodnota z předchozího validního stavu."""
+        vm = _make_vm()
+        d = DokladFormDialog(vm)
+        qtbot.addWidget(d)
+        d._mena_combo_widget.set_value(Mena.EUR)
+        d._castka_mena_widget.set_value(Money(1000))
+        d._kurz_widget.set_value("25")
+        d._on_foreign_amount_changed()
+        assert d._castka_widget.value() == Money(25000)
+        # Vymaž kurz → CZK musí zmizet
+        d._kurz_widget.set_value("")
+        d._on_foreign_amount_changed()
+        assert d._castka_widget.value() is None
+
 
 class TestSpolecnikCheckbox:
 

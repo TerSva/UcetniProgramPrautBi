@@ -328,7 +328,7 @@ class DokladFormDialog(QDialog):
         )
         self._auto_cislo_check.setChecked(True)
         root.addWidget(self._auto_cislo_check)
-        self._sync_auto_cislo_visibility()
+        # Sync probíhá AŽ po inicializaci _datum_vystaveni níže (volá ho).
 
         # Datum vystavení + splatnosti (side by side)
         date_row = QHBoxLayout()
@@ -353,6 +353,9 @@ class DokladFormDialog(QDialog):
         date_row.addWidget(self._datum_splatnosti, stretch=1)
 
         root.addLayout(date_row)
+
+        # Sync auto-číslo viditelnosti — teď když _datum_vystaveni existuje
+        self._sync_auto_cislo_visibility()
 
         # Částka
         self._castka_input = LabeledMoneyEdit(
@@ -489,8 +492,10 @@ class DokladFormDialog(QDialog):
             self._on_new_partner,
         )
         self._mena_combo.current_value_changed.connect(self._on_mena_changed)
-        self._castka_mena_input.line_widget.editingFinished.connect(
-            self._on_foreign_amount_changed,
+        # textChanged je live (každý znak) — editingFinished se trigguje
+        # až ztrátou fokusu a vede k race condition při kliku na Uložit.
+        self._castka_mena_input.line_widget.textChanged.connect(
+            lambda _: self._on_foreign_amount_changed(),
         )
         self._kurz_input.text_changed.connect(
             lambda _: self._on_foreign_amount_changed(),
@@ -689,7 +694,10 @@ class DokladFormDialog(QDialog):
             self._prepocet_label.setText(f"= {czk.format_cz()}")
             self._castka_input.set_value(czk)
         else:
+            # Bez validních vstupů resetuj přepočet i hlavní pole, aby
+            # tam nezůstávala zastaralá hodnota z předchozího editu.
             self._prepocet_label.setText("= ? Kč")
+            self._castka_input.set_value(None)
 
     def _on_spolecnik_toggled(self, checked: bool) -> None:
         self._spolecnik_combo.setVisible(checked)
@@ -760,6 +768,14 @@ class DokladFormDialog(QDialog):
         self._castka_mena_input.set_error(None)
         self._kurz_input.set_error(None)
         self._error_label.setVisible(False)
+
+        # Safety net: pokud je vybraná cizí měna, vynuť přepočet před
+        # čtením castka_input. Bez toho může submit chytit prázdnou
+        # CZK hodnotu (Qt někdy nestihne dispatch editingFinished před
+        # naším handlerem, navíc setText přes set_value může zaostávat).
+        mena_pre = cast(Mena | None, self._mena_combo.value()) or Mena.CZK
+        if mena_pre != Mena.CZK:
+            self._on_foreign_amount_changed()
 
         typ = cast(TypDokladu | None, self._typ_combo.value())
         cislo = self._cislo_input.value().strip()
