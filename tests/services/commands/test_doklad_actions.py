@@ -311,3 +311,101 @@ class TestUpravitPoleNovyDokladu:
                 k_doreseni=False,
                 poznamka_doreseni=None,
             )
+
+
+class TestUpravitDatumVystaveni:
+    """Fáze 16: změna datum_vystaveni propíše datum i do účetních zápisů.
+
+    Use case: Tereza zaúčtovala doklad se špatným datem (mimo účetní
+    období), chce ho opravit. Změna musí projít atomicky — doklad i řádky
+    v ucetni_zaznamy ve stejné UoW transakci.
+    """
+
+    def test_zmena_data_se_propise_do_zapisu(self, db_factory):
+        doklad_id = _seed(db_factory, castka="1000")
+        _zauctuj(db_factory, doklad_id, "1000")
+
+        # Před změnou: zápis má datum 2026-03-01
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            zaznamy = SqliteUcetniDenikRepository(uow).list_by_doklad(doklad_id)
+            assert all(z.datum == date(2026, 3, 1) for z in zaznamy)
+
+        cmd = _build(db_factory)
+        cmd.upravit_popis_a_splatnost(
+            doklad_id, popis=None, splatnost=None,
+            datum_vystaveni=date(2025, 12, 31),
+        )
+
+        # Po změně: doklad i zápisy mají nové datum
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            d = SqliteDokladyRepository(uow).get_by_id(doklad_id)
+            assert d.datum_vystaveni == date(2025, 12, 31)
+            zaznamy = SqliteUcetniDenikRepository(uow).list_by_doklad(doklad_id)
+            assert len(zaznamy) > 0
+            assert all(z.datum == date(2025, 12, 31) for z in zaznamy)
+
+    def test_zmena_data_atomicka_pri_chybe(self, db_factory):
+        """Když Doklad.uprav_datum_vystaveni selže, zápisy zůstanou nezměněné."""
+        doklad_id = _seed(
+            db_factory, castka="1000",
+            splatnost=date(2026, 3, 15),
+        )
+        _zauctuj(db_factory, doklad_id, "1000")
+
+        cmd = _build(db_factory)
+        # Pokus o změnu data ZA splatnost → ValidationError
+        with pytest.raises(ValidationError, match="splatnosti"):
+            cmd.upravit_popis_a_splatnost(
+                doklad_id, popis=None, splatnost=date(2026, 3, 15),
+                datum_vystaveni=date(2026, 6, 1),
+            )
+
+        # Doklad ani zápisy se nezměnily
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            d = SqliteDokladyRepository(uow).get_by_id(doklad_id)
+            assert d.datum_vystaveni == date(2026, 3, 1)
+            zaznamy = SqliteUcetniDenikRepository(uow).list_by_doklad(doklad_id)
+            assert all(z.datum == date(2026, 3, 1) for z in zaznamy)
+
+    def test_uhrazeny_doklad_povoleno(self, db_factory):
+        """UHRAZENY je povolený — úhrada má vlastní BV doklad."""
+        doklad_id = _seed(db_factory, castka="1000")
+        _zauctuj(db_factory, doklad_id, "1000")
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            d = repo.get_by_id(doklad_id)
+            d.oznac_uhrazeny()
+            repo.update(d)
+            uow.commit()
+
+        cmd = _build(db_factory)
+        cmd.upravit_popis_a_splatnost(
+            doklad_id, popis=None, splatnost=None,
+            datum_vystaveni=date(2025, 12, 31),
+        )
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            d = SqliteDokladyRepository(uow).get_by_id(doklad_id)
+            assert d.datum_vystaveni == date(2025, 12, 31)
+            zaznamy = SqliteUcetniDenikRepository(uow).list_by_doklad(doklad_id)
+            assert all(z.datum == date(2025, 12, 31) for z in zaznamy)
+
+    def test_zmena_data_pro_novy_doklad_v_pole_novy(self, db_factory):
+        """Změna data funguje i pro NOVY doklad přes upravit_pole_novy_dokladu."""
+        doklad_id = _seed(db_factory, castka="1000")
+
+        cmd = _build(db_factory)
+        cmd.upravit_pole_novy_dokladu(
+            doklad_id, popis="Nový", splatnost=None,
+            k_doreseni=False, poznamka_doreseni=None,
+            datum_vystaveni=date(2025, 12, 31),
+        )
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            d = SqliteDokladyRepository(uow).get_by_id(doklad_id)
+            assert d.datum_vystaveni == date(2025, 12, 31)
+            assert d.popis == "Nový"

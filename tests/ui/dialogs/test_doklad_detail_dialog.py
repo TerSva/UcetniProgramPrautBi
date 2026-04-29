@@ -56,7 +56,12 @@ class _FakeActions:
         self.upravit_pole_novy_last: dict | None = None
         self.raise_on_smazat: Exception | None = None
 
-    def stornovat(self, doklad_id: int) -> DokladyListItem:
+    def stornovat(
+        self,
+        doklad_id: int,
+        datum: date | None = None,
+        poznamka: str | None = None,
+    ) -> DokladyListItem:
         self.storno_called += 1
         self._item = replace(self._item, stav=StavDokladu.STORNOVANY)
         return self._item
@@ -88,11 +93,14 @@ class _FakeActions:
         doklad_id: int,
         popis: str | None,
         splatnost: date | None,
+        partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem:
         self.upravit_called += 1
-        self._item = replace(
-            self._item, popis=popis, datum_splatnosti=splatnost,
-        )
+        kwargs = {"popis": popis, "datum_splatnosti": splatnost}
+        if datum_vystaveni is not None:
+            kwargs["datum_vystaveni"] = datum_vystaveni
+        self._item = replace(self._item, **kwargs)
         return self._item
 
     def upravit_pole_novy_dokladu(
@@ -102,6 +110,8 @@ class _FakeActions:
         splatnost: date | None,
         k_doreseni: bool,
         poznamka_doreseni: str | None,
+        partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem:
         self.upravit_pole_novy_called += 1
         self.upravit_pole_novy_last = {
@@ -110,14 +120,17 @@ class _FakeActions:
             "splatnost": splatnost,
             "k_doreseni": k_doreseni,
             "poznamka_doreseni": poznamka_doreseni,
+            "datum_vystaveni": datum_vystaveni,
         }
-        self._item = replace(
-            self._item,
-            popis=popis,
-            datum_splatnosti=splatnost,
-            k_doreseni=k_doreseni,
-            poznamka_doreseni=poznamka_doreseni,
-        )
+        kwargs = {
+            "popis": popis,
+            "datum_splatnosti": splatnost,
+            "k_doreseni": k_doreseni,
+            "poznamka_doreseni": poznamka_doreseni,
+        }
+        if datum_vystaveni is not None:
+            kwargs["datum_vystaveni"] = datum_vystaveni
+        self._item = replace(self._item, **kwargs)
         return self._item
 
 

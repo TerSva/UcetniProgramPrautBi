@@ -327,6 +327,52 @@ class TestEditace:
         assert d.datum_splatnosti is None
 
 
+class TestEditDatumVystaveni:
+
+    def test_uprav_datum_novy(self):
+        d = _doklad(datum_vystaveni=date(2026, 4, 1))
+        d.uprav_datum_vystaveni(date(2025, 4, 1))
+        assert d.datum_vystaveni == date(2025, 4, 1)
+
+    def test_uprav_datum_zauctovany_povoleno(self):
+        d = _doklad(datum_vystaveni=date(2026, 4, 1))
+        d.zauctuj()
+        d.uprav_datum_vystaveni(date(2025, 12, 31))
+        assert d.datum_vystaveni == date(2025, 12, 31)
+
+    def test_uprav_datum_castecne_uhrazeny_povoleno(self):
+        d = _doklad(datum_vystaveni=date(2026, 4, 1))
+        d.zauctuj()
+        d.oznac_castecne_uhrazeny()
+        d.uprav_datum_vystaveni(date(2025, 5, 1))
+        assert d.datum_vystaveni == date(2025, 5, 1)
+
+    def test_uprav_datum_uhrazeny_povoleno(self):
+        """UHRAZENY je povolený — úhrada (BV) má vlastní datum, oprava
+        data faktury úhradu neovlivní."""
+        d = _doklad(datum_vystaveni=date(2026, 4, 1))
+        d.zauctuj()
+        d.oznac_uhrazeny()
+        d.uprav_datum_vystaveni(date(2025, 12, 31))
+        assert d.datum_vystaveni == date(2025, 12, 31)
+
+    def test_uprav_datum_stornovany_zakazano(self):
+        d = _doklad()
+        d.zauctuj()
+        d.stornuj()
+        with pytest.raises(ValidationError, match="stornovany"):
+            d.uprav_datum_vystaveni(date(2025, 1, 1))
+
+    def test_uprav_datum_po_splatnosti_zakazano(self):
+        d = _doklad(
+            datum_vystaveni=date(2026, 4, 1),
+            datum_splatnosti=date(2026, 5, 1),
+        )
+        # Pokus posunout vystavení AŽ ZA splatnost — invariant zlomený
+        with pytest.raises(ValidationError, match="splatnosti"):
+            d.uprav_datum_vystaveni(date(2026, 6, 1))
+
+
 class TestEquality:
 
     def test_stejne_id_rovny(self):

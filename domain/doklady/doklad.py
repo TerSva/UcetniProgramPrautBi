@@ -427,6 +427,47 @@ class Doklad:
             )
         self._datum_splatnosti = nova_splatnost
 
+    def uprav_datum_vystaveni(self, nove_datum: date) -> None:
+        """Datum vystavení lze měnit ve všech stavech kromě STORNOVANY.
+
+        Pro zaúčtované doklady to volá service vrstva atomicky spolu
+        s UPDATE účetních zápisů (zápis musí mít stejné datum jako doklad).
+        Použití: oprava chyby v zaúčtování (datum mimo účetní období).
+
+        Pro UHRAZENY je povoleno — úhrada (BV doklad) je samostatný
+        účetní doklad s vlastním datem; oprava data faktury úhradu
+        neovlivní.
+
+        Raises:
+            ValidationError: stav je STORNOVANY; nové datum je za
+                splatností; DUZP > rok po novém datu.
+        """
+        if self._stav == StavDokladu.STORNOVANY:
+            raise ValidationError(
+                f"Datum vystavení nelze měnit ve stavu {self._stav.value}."
+            )
+        if not isinstance(nove_datum, date):
+            raise TypeError(
+                f"nove_datum musí být date, dostal {type(nove_datum).__name__}."
+            )
+        if (
+            self._datum_splatnosti is not None
+            and self._datum_splatnosti < nove_datum
+        ):
+            raise ValidationError(
+                f"Datum vystavení ({nove_datum}) by bylo po splatnosti "
+                f"({self._datum_splatnosti}). Nejdřív uprav splatnost."
+            )
+        if (
+            self._datum_zdanitelneho_plneni is not None
+            and self._datum_zdanitelneho_plneni > nove_datum + _MAX_ZP_OFFSET
+        ):
+            raise ValidationError(
+                f"Datum zdanitelného plnění ({self._datum_zdanitelneho_plneni}) "
+                f"by bylo víc než rok po novém datu vystavení ({nove_datum})."
+            )
+        self._datum_vystaveni = nove_datum
+
     # --- Equality / Hash ---
 
     def __eq__(self, other: object) -> bool:

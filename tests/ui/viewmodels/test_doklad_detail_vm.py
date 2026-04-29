@@ -53,9 +53,12 @@ class _StubActions:
         doklad_id: int,
         popis: str | None,
         splatnost: date | None,
+        partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem:
         self.calls.append(("upravit", {
             "id": doklad_id, "popis": popis, "splatnost": splatnost,
+            "partner_id": partner_id, "datum_vystaveni": datum_vystaveni,
         }))
         assert self.result is not None
         return self.result
@@ -67,6 +70,8 @@ class _StubActions:
         splatnost: date | None,
         k_doreseni: bool,
         poznamka_doreseni: str | None,
+        partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem:
         self.calls.append(("upravit_pole_novy", {
             "id": doklad_id,
@@ -74,6 +79,8 @@ class _StubActions:
             "splatnost": splatnost,
             "k_doreseni": k_doreseni,
             "poznamka_doreseni": poznamka_doreseni,
+            "partner_id": partner_id,
+            "datum_vystaveni": datum_vystaveni,
         }))
         assert self.result is not None
         return self.result
@@ -95,11 +102,15 @@ class _ErrorActions:
     def dores(self, doklad_id):
         raise self.exc
 
-    def upravit_popis_a_splatnost(self, doklad_id, popis, splatnost):
+    def upravit_popis_a_splatnost(
+        self, doklad_id, popis, splatnost,
+        partner_id=..., datum_vystaveni=None,
+    ):
         raise self.exc
 
     def upravit_pole_novy_dokladu(
         self, doklad_id, popis, splatnost, k_doreseni, poznamka_doreseni,
+        partner_id=..., datum_vystaveni=None,
     ):
         raise self.exc
 

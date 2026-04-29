@@ -38,6 +38,8 @@ class _DokladActionsCommand(Protocol):
         doklad_id: int,
         popis: str | None,
         splatnost: date | None,
+        partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem: ...
     def upravit_pole_novy_dokladu(
         self,
@@ -46,6 +48,8 @@ class _DokladActionsCommand(Protocol):
         splatnost: date | None,
         k_doreseni: bool,
         poznamka_doreseni: str | None,
+        partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem: ...
 
 
@@ -65,6 +69,7 @@ class DokladDetailViewModel:
         self._draft_k_doreseni: bool = doklad.k_doreseni
         self._draft_poznamka_doreseni: str | None = doklad.poznamka_doreseni
         self._draft_partner_id: int | None = doklad.partner_id
+        self._draft_datum_vystaveni: date = doklad.datum_vystaveni
         self._error: str | None = None
         self._deleted: bool = False
 
@@ -116,6 +121,16 @@ class DokladDetailViewModel:
         return self._doklad.stav == StavDokladu.NOVY
 
     @property
+    def can_edit_datum_vystaveni(self) -> bool:
+        """Datum vystavení editovatelné ve všech stavech kromě STORNOVANY.
+
+        Změna se atomicky propíše i do účetních zápisů. Pro UHRAZENY
+        povoleno — úhrada (BV) je samostatný doklad s vlastním datem,
+        oprava data faktury úhradu neovlivní.
+        """
+        return self._doklad.stav != StavDokladu.STORNOVANY
+
+    @property
     def can_storno(self) -> bool:
         """Stornovat NOVY/ZAUCTOVANY/CASTECNE_UHRAZENY. Ne UHRAZENY/STORNOVANY."""
         return self._doklad.stav in (
@@ -152,6 +167,7 @@ class DokladDetailViewModel:
         self._draft_k_doreseni = self._doklad.k_doreseni
         self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
         self._draft_partner_id = self._doklad.partner_id
+        self._draft_datum_vystaveni = self._doklad.datum_vystaveni
         self._error = None
 
     def cancel_edit(self) -> None:
@@ -162,6 +178,7 @@ class DokladDetailViewModel:
         self._draft_k_doreseni = self._doklad.k_doreseni
         self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
         self._draft_partner_id = self._doklad.partner_id
+        self._draft_datum_vystaveni = self._doklad.datum_vystaveni
         self._error = None
 
     def set_draft_popis(self, popis: str | None) -> None:
@@ -183,6 +200,13 @@ class DokladDetailViewModel:
     def set_draft_partner_id(self, partner_id: int | None) -> None:
         self._draft_partner_id = partner_id
 
+    @property
+    def draft_datum_vystaveni(self) -> date:
+        return self._draft_datum_vystaveni
+
+    def set_draft_datum_vystaveni(self, datum: date) -> None:
+        self._draft_datum_vystaveni = datum
+
     def save_edit(self) -> DokladyListItem | None:
         """Uloží draft přes DokladActionsCommand.
 
@@ -198,6 +222,13 @@ class DokladDetailViewModel:
                 if self._draft_partner_id != self._doklad.partner_id
                 else ...
             )
+            # Datum vystavení — None pokud se nezměnilo (action command
+            # to ponechá beze změny + zápisy se neaktualizují)
+            _datum_arg = (
+                self._draft_datum_vystaveni
+                if self._draft_datum_vystaveni != self._doklad.datum_vystaveni
+                else None
+            )
             if self._doklad.stav == StavDokladu.NOVY:
                 item = self._actions.upravit_pole_novy_dokladu(
                     self._doklad.id,
@@ -206,6 +237,7 @@ class DokladDetailViewModel:
                     k_doreseni=self._draft_k_doreseni,
                     poznamka_doreseni=self._draft_poznamka_doreseni,
                     partner_id=_partner_arg,
+                    datum_vystaveni=_datum_arg,
                 )
             else:
                 item = self._actions.upravit_popis_a_splatnost(
@@ -213,6 +245,7 @@ class DokladDetailViewModel:
                     popis=self._draft_popis,
                     splatnost=self._draft_splatnost,
                     partner_id=_partner_arg,
+                    datum_vystaveni=_datum_arg,
                 )
             self._doklad = item
             self._edit_mode = False

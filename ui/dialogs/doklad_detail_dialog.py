@@ -139,6 +139,7 @@ class DokladDetailDialog(QDialog):
         self._popis_display: QLabel
         self._splatnost_display: QLabel
         self._popis_edit: LabeledTextEdit
+        self._datum_vystaveni_edit: LabeledDateEdit
         self._splatnost_edit: LabeledDateEdit
         self._k_doreseni_check: QCheckBox
         self._poznamka_doreseni_edit: LabeledTextEdit
@@ -309,9 +310,13 @@ class DokladDetailDialog(QDialog):
         form.setVerticalSpacing(Spacing.S2)
         form.setLabelAlignment(Qt.AlignmentFlag.AlignRight)
 
+        self._datum_vystaveni_label = self._form_label("Datum vystavení:")
+        self._datum_vystaveni_display = self._form_value(
+            _format_date_long(item.datum_vystaveni)
+        )
         form.addRow(
-            self._form_label("Datum vystavení:"),
-            self._form_value(_format_date_long(item.datum_vystaveni)),
+            self._datum_vystaveni_label,
+            self._datum_vystaveni_display,
         )
 
         self._splatnost_display = self._form_value("—")
@@ -431,6 +436,12 @@ class DokladDetailDialog(QDialog):
         )
         self._popis_edit.setVisible(False)
         right_layout.addWidget(self._popis_edit)
+
+        self._datum_vystaveni_edit = LabeledDateEdit(
+            "Datum vystavení", parent=self,
+        )
+        self._datum_vystaveni_edit.setVisible(False)
+        right_layout.addWidget(self._datum_vystaveni_edit)
 
         self._splatnost_edit = LabeledDateEdit(
             "Datum splatnosti", clearable=True, parent=self,
@@ -705,6 +716,10 @@ class DokladDetailDialog(QDialog):
     def _on_edit(self) -> None:
         self._vm.enter_edit()
         self._popis_edit.set_value(self._vm.draft_popis or "")
+        self._datum_vystaveni_edit.set_value(self._vm.draft_datum_vystaveni)
+        self._datum_vystaveni_edit.inner_widget.setEnabled(
+            self._vm.can_edit_datum_vystaveni
+        )
         self._splatnost_edit.set_value(self._vm.draft_splatnost)
         self._splatnost_edit.inner_widget.setEnabled(
             self._vm.can_edit_splatnost
@@ -740,7 +755,12 @@ class DokladDetailDialog(QDialog):
             if self._vm.can_edit_splatnost
             else self._vm.doklad.datum_splatnosti
         )
+        # Datum vystavení — pokud uživatel mazal, fallback na původní
+        novy_datum = self._datum_vystaveni_edit.value()
+        if novy_datum is None or not self._vm.can_edit_datum_vystaveni:
+            novy_datum = self._vm.doklad.datum_vystaveni
         self._vm.set_draft_popis(popis)
+        self._vm.set_draft_datum_vystaveni(novy_datum)
         self._vm.set_draft_splatnost(splatnost)
         self._vm.set_draft_partner_id(self._partner_edit.selected_id())
 
@@ -1076,6 +1096,9 @@ class DokladDetailDialog(QDialog):
             if item.datum_splatnosti is not None
             else "—"
         )
+        self._datum_vystaveni_display.setText(
+            _format_date_long(item.datum_vystaveni)
+        )
         self._splatnost_display.setText(splatnost_text)
         self._popis_display.setText(item.popis or "—")
         self._partner_display.setText(item.partner_nazev or "—")
@@ -1113,9 +1136,11 @@ class DokladDetailDialog(QDialog):
         # Edit mode: toggle sets
         edit = self._vm.edit_mode
         self._popis_edit.setVisible(edit)
+        self._datum_vystaveni_edit.setVisible(edit)
         self._splatnost_edit.setVisible(edit)
         self._partner_edit.setVisible(edit)
         self._popis_display.setVisible(not edit)
+        self._datum_vystaveni_display.setVisible(not edit)
         self._splatnost_display.setVisible(not edit)
         self._actions_row.setVisible(not edit)
         self._edit_actions_row.setVisible(edit)

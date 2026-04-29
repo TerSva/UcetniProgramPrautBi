@@ -116,11 +116,15 @@ class DokladActionsCommand:
         popis: str | None,
         splatnost: date | None,
         partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem:
-        """Atomicky upraví popis + splatnost.
+        """Atomicky upraví popis + splatnost (+ volitelně datum vystavení).
 
         Popis — povoleno kdykoli kromě STORNOVANY.
         Splatnost — povoleno jen ve stavu NOVY.
+        Datum vystavení — povoleno krom UHRAZENY/STORNOVANY. Pokud se mění,
+            propíše se i do účetních zápisů (zápisy musí mít stejné datum
+            jako doklad). Vše v jedné UoW transakci.
 
         Když je splatnost stejná jako stávající, ``uprav_splatnost`` se
         nezavolá — editovatelné pole u jiného než NOVY stavu je tak bezpečné
@@ -128,13 +132,28 @@ class DokladActionsCommand:
 
         Raises:
             ValidationError: popis přes limit, splatnost < datum vystavení,
-                doklad STORNOVANY, splatnost měněna ne-NOVY dokladu.
+                doklad STORNOVANY, splatnost měněna ne-NOVY dokladu,
+                datum_vystaveni měněno na UHRAZENY/STORNOVANY.
             NotFoundError: doklad neexistuje.
         """
         uow = self._uow_factory()
         with uow:
             repo = self._doklady_repo_factory(uow)
             doklad = repo.get_by_id(doklad_id)
+
+            # Datum vystavení — aplikovat jako PRVNÍ, protože může uvolnit
+            # pozdější validace splatnosti (např. zvětšení data vystavení
+            # přes hranici stávající splatnosti).
+            if (
+                datum_vystaveni is not None
+                and datum_vystaveni != doklad.datum_vystaveni
+            ):
+                doklad.uprav_datum_vystaveni(datum_vystaveni)
+                # Atomicky propsat do účetních zápisů (datum řádků = datum dokladu)
+                uow.connection.execute(
+                    "UPDATE ucetni_zaznamy SET datum = ? WHERE doklad_id = ?",
+                    (datum_vystaveni.isoformat(), doklad_id),
+                )
 
             # Popis — vždy aplikuj, entita si hlídá STORNOVANY a délku.
             doklad.uprav_popis(popis)
@@ -160,6 +179,7 @@ class DokladActionsCommand:
         k_doreseni: bool,
         poznamka_doreseni: str | None,
         partner_id: object = ...,
+        datum_vystaveni: date | None = None,
     ) -> DokladyListItem:
         """Atomicky upraví všechna editovatelná pole NOVY dokladu.
 
@@ -184,6 +204,18 @@ class DokladActionsCommand:
         with uow:
             repo = self._doklady_repo_factory(uow)
             doklad = repo.get_by_id(doklad_id)
+
+            # Datum vystavení nejdřív (uvolní pozdější validace splatnosti
+            # a propíše se i do účetních zápisů, pokud nějaké jsou).
+            if (
+                datum_vystaveni is not None
+                and datum_vystaveni != doklad.datum_vystaveni
+            ):
+                doklad.uprav_datum_vystaveni(datum_vystaveni)
+                uow.connection.execute(
+                    "UPDATE ucetni_zaznamy SET datum = ? WHERE doklad_id = ?",
+                    (datum_vystaveni.isoformat(), doklad_id),
+                )
 
             doklad.uprav_popis(popis)
 
