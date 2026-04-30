@@ -29,6 +29,12 @@ class Firma:
     je_platce_dph: bool = False
     bankovni_ucet_1: str | None = None
     bankovni_ucet_2: str | None = None
+    # Pole pro účetní závěrku (minimální příloha + cover 25 5404)
+    predmet_cinnosti: str | None = None
+    prumerny_pocet_zamestnancu: int = 0
+    zpusob_oceneni: str = "pořizovacími cenami"
+    odpisovy_plan: str = "lineární"
+    statutarni_organ: str | None = None
     id: int | None = None
 
     def __post_init__(self) -> None:
@@ -36,3 +42,5 @@ class Firma:
             raise ValidationError("Název firmy je povinný.")
         if self.ico is not None and len(self.ico) != 8:
             raise ValidationError("IČO musí mít 8 číslic.")
+        if self.prumerny_pocet_zamestnancu < 0:
+            raise ValidationError("Průměrný počet zaměstnanců nemůže být záporný.")

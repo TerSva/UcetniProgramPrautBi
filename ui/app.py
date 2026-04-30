@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import shutil
 import sys
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 from PyQt6.QtGui import QFontDatabase
@@ -427,7 +427,12 @@ def run(db_path: Path | None = None) -> int:
         vies_query=_dph_vies,
     )
 
-    def _export_pdf_fn(rok: int, path: Path) -> None:
+    def _export_pdf_fn(
+        rok: int,
+        path: Path,
+        rozvahovy_den: "date | None" = None,
+        datum_sestaveni: "date | None" = None,
+    ) -> None:
         from services.export.pdf_export import export_vykazy_pdf
         firma_nazev = "PRAUT s.r.o."
         firma_ico = "22545107"
@@ -441,6 +446,8 @@ def run(db_path: Path | None = None) -> int:
             vykazy_query=_vykazy_query,
             rok=rok,
             output_path=path,
+            rozvahovy_den=rozvahovy_den,
+            datum_sestaveni=datum_sestaveni,
             firma_nazev=firma_nazev,
             firma_ico=firma_ico,
         )

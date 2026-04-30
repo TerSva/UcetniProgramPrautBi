@@ -37,8 +37,10 @@ class SqliteFirmaRepository:
                 id, nazev, ico, dic, sidlo, pravni_forma,
                 datum_zalozeni, rok_zacatku_uctovani, zakladni_kapital,
                 kategorie_uj, je_identifikovana_osoba_dph, je_platce_dph,
-                bankovni_ucet_1, bankovni_ucet_2
-            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                bankovni_ucet_1, bankovni_ucet_2,
+                predmet_cinnosti, prumerny_pocet_zamestnancu,
+                zpusob_oceneni, odpisovy_plan, statutarni_organ
+            ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 nazev = excluded.nazev,
                 ico = excluded.ico,
@@ -52,7 +54,12 @@ class SqliteFirmaRepository:
                 je_identifikovana_osoba_dph = excluded.je_identifikovana_osoba_dph,
                 je_platce_dph = excluded.je_platce_dph,
                 bankovni_ucet_1 = excluded.bankovni_ucet_1,
-                bankovni_ucet_2 = excluded.bankovni_ucet_2
+                bankovni_ucet_2 = excluded.bankovni_ucet_2,
+                predmet_cinnosti = excluded.predmet_cinnosti,
+                prumerny_pocet_zamestnancu = excluded.prumerny_pocet_zamestnancu,
+                zpusob_oceneni = excluded.zpusob_oceneni,
+                odpisovy_plan = excluded.odpisovy_plan,
+                statutarni_organ = excluded.statutarni_organ
             """,
             (
                 firma.nazev, firma.ico, firma.dic, firma.sidlo,
@@ -62,6 +69,11 @@ class SqliteFirmaRepository:
                 1 if firma.je_identifikovana_osoba_dph else 0,
                 1 if firma.je_platce_dph else 0,
                 firma.bankovni_ucet_1, firma.bankovni_ucet_2,
+                firma.predmet_cinnosti,
+                firma.prumerny_pocet_zamestnancu,
+                firma.zpusob_oceneni,
+                firma.odpisovy_plan,
+                firma.statutarni_organ,
             ),
         )
 
@@ -83,4 +95,9 @@ class SqliteFirmaRepository:
             je_platce_dph=bool(row["je_platce_dph"]),
             bankovni_ucet_1=row["bankovni_ucet_1"],
             bankovni_ucet_2=row["bankovni_ucet_2"],
+            predmet_cinnosti=row["predmet_cinnosti"],
+            prumerny_pocet_zamestnancu=row["prumerny_pocet_zamestnancu"],
+            zpusob_oceneni=row["zpusob_oceneni"],
+            odpisovy_plan=row["odpisovy_plan"],
+            statutarni_organ=row["statutarni_organ"],
         )

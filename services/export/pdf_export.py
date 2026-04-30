@@ -24,10 +24,13 @@ from domain.shared.money import Money
 from services.queries.vykazy_query import (
     DphPrehled,
     HlavniKnihaUctu,
+    MinimumPriloha,
     PokladniKniha,
     PredvahaRadek,
     RozvahaRadek,
+    SaldoUcetRadek,
     SaldokontoRadek,
+    SaldokontoUcetSekce,
     VykazyQuery,
     VzzRadek,
 )
@@ -170,6 +173,29 @@ td.negative {{
     color: #6B7280;
     margin: 12pt 0;
 }}
+
+.cover-table {{
+    margin: 30pt auto 20pt auto;
+    width: 80%;
+}}
+
+.cover-table td {{
+    padding: 6pt 10pt;
+    font-size: 10.5pt;
+    border-bottom: 0.5pt solid {GRAY_BORDER};
+}}
+
+.cover-table td:first-child {{
+    color: {GRAY_TEXT};
+    width: 45%;
+}}
+
+h4.subsection-title {{
+    color: {BRAND_TEAL};
+    font-size: 10pt;
+    font-weight: 600;
+    margin: 14pt 0 6pt 0;
+}}
 """
 
 
@@ -197,7 +223,263 @@ def _format_date(d: date) -> str:
 # Renderery jednotlivých výkazů
 # ────────────────────────────────────────────────────────────
 
-def _render_cover(rok: int, firma_nazev: str, firma_ico: str) -> str:
+def _render_cover(
+    rok: int,
+    priloha: MinimumPriloha,
+) -> str:
+    """Cover stránka s plnými údaji pro formulář 25 5404 (FÚ).
+
+    Obsahuje účetní období, plný název ÚJ, sídlo, IČO, DIČ, právní formu,
+    rozvahový den, datum sestavení, kategorii ÚJ a (když je) statutární
+    orgán pro podpisový záznam.
+    """
+    rozvahovy_den = _format_date(priloha.rozvahovy_den)
+    datum_sestaveni = _format_date(priloha.datum_sestaveni)
+    kategorie_label = {
+        "mikro": "Mikro účetní jednotka",
+        "mala": "Malá účetní jednotka",
+        "stredni": "Střední účetní jednotka",
+        "velka": "Velká účetní jednotka",
+    }.get(priloha.kategorie_uj, priloha.kategorie_uj)
+
+    rows: list[str] = []
+
+    def add(label: str, value: str | None) -> None:
+        if value is None or value == "":
+            return
+        rows.append(
+            f'<tr><td>{escape(label)}</td><td><strong>{escape(value)}</strong></td></tr>'
+        )
+
+    add("Účetní období", f"1. 1. {rok} – 31. 12. {rok}")
+    add("Název účetní jednotky", priloha.nazev)
+    add("Sídlo", priloha.sidlo)
+    add("IČO", priloha.ico)
+    add("DIČ", priloha.dic)
+    add("Právní forma", priloha.pravni_forma)
+    add("Předmět činnosti", priloha.predmet_cinnosti)
+    add("Kategorie ÚJ", kategorie_label)
+    add("Rozvahový den", rozvahovy_den)
+    add("Datum sestavení účetní závěrky", datum_sestaveni)
+    add("Statutární orgán", priloha.statutarni_organ)
+
+    table_body = "\n".join(rows)
+
+    return f"""
+    <div class="cover">
+        <h1 class="cover-title">Účetní závěrka</h1>
+        <div class="rok">{rok}</div>
+        <table class="cover-table">
+            <tbody>{table_body}</tbody>
+        </table>
+    </div>
+    """
+
+
+def _render_minimum_priloha(priloha: MinimumPriloha) -> str:
+    """Sekce a/b/c minimální přílohy dle vyhlášky 500/2002 Sb., §39."""
+    # Sekce a — Obecné údaje
+    obec_rows: list[str] = []
+
+    def add_obec(label: str, value: str | None) -> None:
+        if value is None or value == "":
+            return
+        obec_rows.append(
+            f'<tr><td>{escape(label)}</td><td>{escape(value)}</td></tr>'
+        )
+
+    add_obec("Název", priloha.nazev)
+    add_obec("Sídlo", priloha.sidlo)
+    add_obec("IČO", priloha.ico)
+    add_obec("DIČ", priloha.dic)
+    add_obec("Právní forma", priloha.pravni_forma)
+    add_obec("Předmět činnosti", priloha.predmet_cinnosti)
+    add_obec(
+        "Datum vzniku ÚJ",
+        _format_date(priloha.datum_zalozeni) if priloha.datum_zalozeni else None,
+    )
+    add_obec(
+        "Rozvahový den", _format_date(priloha.rozvahovy_den),
+    )
+    add_obec(
+        "Datum sestavení účetní závěrky",
+        _format_date(priloha.datum_sestaveni),
+    )
+    if priloha.zakladni_kapital is not None:
+        add_obec("Základní kapitál", priloha.zakladni_kapital.format_cz())
+    add_obec("Statutární orgán", priloha.statutarni_organ)
+
+    # Společníci tabulka (jen pokud nejsou prázdní)
+    spolecnici_html = ""
+    if priloha.spolecnici:
+        sp_rows: list[str] = []
+        for nazev, podil in priloha.spolecnici:
+            podil_str = (
+                f"{podil:.2f} %".replace(".", ",") if podil is not None else "—"
+            )
+            sp_rows.append(
+                f'<tr><td>{escape(nazev)}</td><td class="num">{podil_str}</td></tr>'
+            )
+        spolecnici_html = f"""
+        <h4 class="subsection-title">Společníci</h4>
+        <table>
+            <thead><tr><th>Společník</th><th class="num" style="width: 100pt;">Podíl</th></tr></thead>
+            <tbody>{''.join(sp_rows)}</tbody>
+        </table>
+        """
+
+    # Sekce b — Použité účetní metody
+    dph_status = ""
+    if priloha.je_platce_dph:
+        dph_status = "Plátce DPH"
+    elif priloha.je_identifikovana_osoba_dph:
+        dph_status = "Identifikovaná osoba k DPH (§6g ZDPH)"
+    else:
+        dph_status = "Neplátce DPH"
+
+    metody_rows = [
+        ("Způsob oceňování", priloha.zpusob_oceneni),
+        ("Odpisový plán", priloha.odpisovy_plan),
+        ("Statut k DPH", dph_status),
+        ("Kurzové rozdíly", "Pevný roční kurz ČNB k 1. 1. účetního období"),
+        ("Opravné položky", "Účetní jednotka nestanovuje opravné položky"),
+    ]
+    metody_html = "\n".join(
+        f'<tr><td>{escape(label)}</td><td>{escape(value)}</td></tr>'
+        for label, value in metody_rows
+    )
+
+    # Sekce c — Doplňkové údaje
+    pocet_label = (
+        f"{priloha.prumerny_pocet_zamestnancu}"
+        if priloha.prumerny_pocet_zamestnancu > 0
+        else "0 (jen jednatelé/společníci)"
+    )
+    doplnky_rows = [
+        ("Průměrný počet zaměstnanců", pocet_label),
+        ("Závazky/pohledávky po splatnosti přes 5 let",
+         "Účetní jednotka nemá takové závazky ani pohledávky."),
+        ("Transakce se spřízněnými osobami",
+         "Pouze běžné obchodní vztahy se společníky (účty 355, 365). "
+         "Veškeré transakce probíhají za běžných tržních podmínek."),
+    ]
+    doplnky_html = "\n".join(
+        f'<tr><td>{escape(label)}</td><td>{escape(value)}</td></tr>'
+        for label, value in doplnky_rows
+    )
+
+    return f"""
+    <div class="report">
+        <h2 class="report-title">Příloha k účetní závěrce</h2>
+        <p>Sestavena podle vyhlášky č. 500/2002 Sb., § 39 — minimální
+        rozsah pro mikro účetní jednotku.</p>
+
+        <h3 class="section-title">a) Obecné údaje</h3>
+        <table>
+            <tbody>{''.join(obec_rows)}</tbody>
+        </table>
+        {spolecnici_html}
+
+        <h3 class="section-title">b) Použité účetní metody</h3>
+        <table>
+            <tbody>{metody_html}</tbody>
+        </table>
+
+        <h3 class="section-title">c) Doplňkové údaje</h3>
+        <table>
+            <tbody>{doplnky_html}</tbody>
+        </table>
+    </div>
+    """
+
+
+def _render_saldokonto_per_ucet(
+    sekce: tuple[SaldokontoUcetSekce, ...],
+) -> str:
+    """Saldokonto rozdělené po účtech 311/321/355/365.
+
+    Pro 311/321 vykreslí tabulku po dokladech (FV/FP), pro 355/365
+    tabulku po analytických účtech se saldem.
+    """
+    out: list[str] = []
+    for s in sekce:
+        out.append(f'<h3 class="section-title">{escape(s.nazev)}</h3>')
+        if not s.radky:
+            out.append(
+                '<p class="empty-note">Žádná otevřená položka k '
+                f'{escape(s.ucet)}.</p>'
+            )
+            continue
+
+        # Doklady FV/FP
+        if s.radky and isinstance(s.radky[0], SaldokontoRadek):
+            rows_html = []
+            for r in s.radky:
+                rows_html.append(
+                    f'<tr>'
+                    f'<td>{escape(r.cislo_dokladu)}</td>'
+                    f'<td>{escape(r.partner_nazev or "—")}</td>'
+                    f'<td>{_format_date(r.datum)}</td>'
+                    f'{_money(r.castka)}'
+                    f'{_money(r.uhrazeno)}'
+                    f'{_money(r.zbyva)}'
+                    f'</tr>'
+                )
+            rows_html.append(
+                f'<tr class="bold"><td colspan="5"><strong>CELKEM</strong></td>'
+                f'{_money_bold(s.celkem)}</tr>'
+            )
+            out.append(f"""
+            <table>
+                <thead><tr>
+                    <th>Doklad</th>
+                    <th>Partner</th>
+                    <th>Datum</th>
+                    <th class="num">Částka</th>
+                    <th class="num">Uhrazeno</th>
+                    <th class="num">Zbývá</th>
+                </tr></thead>
+                <tbody>{''.join(rows_html)}</tbody>
+            </table>
+            """)
+        else:
+            # Saldo per analytika (355/365)
+            rows_html = []
+            for r in s.radky:
+                rows_html.append(
+                    f'<tr>'
+                    f'<td>{escape(r.ucet)}</td>'
+                    f'<td>{escape(r.partner_nazev or "—")}</td>'
+                    f'{_money(r.saldo)}'
+                    f'</tr>'
+                )
+            rows_html.append(
+                f'<tr class="bold"><td colspan="2"><strong>CELKEM</strong></td>'
+                f'{_money_bold(s.celkem)}</tr>'
+            )
+            out.append(f"""
+            <table>
+                <thead><tr>
+                    <th>Účet</th>
+                    <th>Název / partner</th>
+                    <th class="num">Saldo</th>
+                </tr></thead>
+                <tbody>{''.join(rows_html)}</tbody>
+            </table>
+            """)
+
+    return f"""
+    <div class="report">
+        <h2 class="report-title">Saldokonto k rozvahovému dni</h2>
+        <p>Pohledávky a závazky podle účtů (311 odběratelé, 321 dodavatelé,
+        355 pohledávky vůči společníkům, 365 závazky vůči společníkům).</p>
+        {''.join(out)}
+    </div>
+    """
+
+
+def _render_cover_legacy(rok: int, firma_nazev: str, firma_ico: str) -> str:
+    """Fallback cover používaný jen pro testy, kde není Firma."""
     today = _format_date(date.today())
     return f"""
     <div class="cover">
@@ -721,64 +1003,58 @@ def export_vykazy_pdf(
     vykazy_query: VykazyQuery,
     rok: int,
     output_path: Path,
+    rozvahovy_den: date | None = None,
+    datum_sestaveni: date | None = None,
     firma_nazev: str = "PRAUT s.r.o.",
     firma_ico: str = "22545107",
 ) -> Path:
-    """Vygeneruje kompletní PDF se všemi výkazy.
+    """Vygeneruje kompaktní PDF účetní závěrky pro mikro ÚJ (formulář 25 5404).
+
+    Obsah PDF:
+        1. Cover s plnými údaji ÚJ (název, sídlo, IČO, DIČ, právní forma,
+           rozvahový den, datum sestavení, statutární orgán)
+        2. Rozvaha (zkrácený rozsah A/B/C/D, vyhláška 500/2002 Sb. příl. 1)
+        3. VZZ (druhové členění, vyhláška 500/2002 Sb. příl. 2)
+        4. Příloha k závěrce (a obecné údaje, b účetní metody, c doplňkové)
+        5. Saldokonto k rozvahovému dni (311, 321, 355, 365)
+
+    Pro DPH přiznání řádky EPO použijte tlačítko „Kopírovat pro EPO" v DPH
+    detailu — ty patří do měsíčního přiznání, ne do roční závěrky.
 
     Args:
         vykazy_query: query služba
         rok: účetní rok
         output_path: cílová cesta (přepíše existující)
-        firma_nazev: název firmy do hlavičky
-        firma_ico: IČO do zápatí
+        rozvahovy_den: rozvahový den (default 31.12.rok)
+        datum_sestaveni: datum sestavení účetní závěrky (default dnes)
+        firma_nazev, firma_ico: legacy parametry, ignorovány pokud Firma
+            v DB existuje (bere se z entity Firma).
 
     Returns:
         Cesta k vytvořenému PDF.
     """
     from weasyprint import CSS as WeasyCSS, HTML
 
+    if rozvahovy_den is None:
+        rozvahovy_den = date(rok, 12, 31)
+    if datum_sestaveni is None:
+        datum_sestaveni = date.today()
+
     aktiva, pasiva = vykazy_query.get_rozvaha(rok)
     vzz = vykazy_query.get_vzz(rok)
-    predvaha = vykazy_query.get_predvaha(rok, jen_s_pohybem=True)
-    saldo_zavazky, saldo_pohledavky = vykazy_query.get_saldokonto(rok)
-    dph = vykazy_query.get_dph_prehled(rok)
-    pokladna = vykazy_query.get_pokladni_kniha(rok)
-
-    # DPH přiznání řádky EPO — pro každý měsíc s RC plněním.
-    from services.queries.dph_prehled import (
-        DphMesicDetailQuery,
-        DphPrehledQuery,
-        DphPriznaniRadky,
-    )
-    uow_factory = vykazy_query._uow_factory  # noqa: SLF001
-    prehled_q = DphPrehledQuery(uow_factory)
-    detail_q = DphMesicDetailQuery(uow_factory)
-    mesicni_prehled = prehled_q.execute(rok)
-    priznani_per_mesic: list[DphPriznaniRadky] = []
-    for m in mesicni_prehled:
-        if m.pocet_transakci == 0:
-            continue
-        transakce = detail_q.execute(rok, m.mesic)
-        priznani_per_mesic.append(
-            DphPriznaniRadky.from_transakce(rok, m.mesic, transakce),
-        )
-
-    ucty_s_pohybem = vykazy_query.get_ucty_s_pohybem(rok)
-    knihy = tuple(
-        vykazy_query.get_hlavni_kniha(cislo, rok) for cislo, _nazev in ucty_s_pohybem
+    saldo_sekce = vykazy_query.get_saldokonto_per_ucet(rok)
+    priloha = vykazy_query.get_minimum_priloha(
+        rok=rok,
+        rozvahovy_den=rozvahovy_den,
+        datum_sestaveni=datum_sestaveni,
     )
 
     body_parts = [
-        _render_cover(rok, firma_nazev, firma_ico),
+        _render_cover(rok, priloha),
         _render_rozvaha(aktiva, pasiva),
         _render_vzz(vzz),
-        _render_predvaha(predvaha),
-        _render_hlavni_kniha(knihy),
-        _render_saldokonto(saldo_zavazky, saldo_pohledavky),
-        _render_dph(dph),
-        _render_dph_priznani(priznani_per_mesic),
-        _render_pokladna(pokladna),
+        _render_minimum_priloha(priloha),
+        _render_saldokonto_per_ucet(saldo_sekce),
     ]
 
     today_str = _format_date(date.today())

@@ -36,6 +36,7 @@ from ui.pages import (
     PartneriPage,
     PlaceholderPage,
     PocatecniStavyPage,
+    SaldokontoPage,
     UcetniDenikPage,
     VykazyPage,
 )
@@ -72,11 +73,7 @@ _PLACEHOLDER_PAGES: tuple[tuple[str, str, str, int | None, str], ...] = (
     # banka — replaced by BankaImportPage + BankaVypisyPage in Fáze 13
     # ucetni_denik — replaced by real UcetniDenikPage
     # vykazy — replaced by real VykazyPage in Fáze 15
-    (
-        "saldokonto", "Saldokonto",
-        "Pohledávky a závazky podle partnerů.",
-        15, "Saldokonto",
-    ),
+    # saldokonto — replaced by SaldokontoPage (4 sekce: 311/321/355/365)
     (
         "mzdy", "Mzdy",
         "Mzdy zaměstnanců, DPP, DPČ a odvody.",
@@ -407,6 +404,28 @@ class MainWindow(QMainWindow):
                 parent=self._stack,
             )
         self._add_page("vykazy", vykazy_page)
+
+        # 10b. Saldokonto page (samostatná stránka v sidebaru, 4 sekce)
+        if self._vykazy_query is not None:
+            saldo_rok = 2025
+            if self._nastaveni_vm is not None:
+                self._nastaveni_vm.load()
+                if self._nastaveni_vm.firma is not None:
+                    saldo_rok = self._nastaveni_vm.firma.rok_zacatku_uctovani
+            saldokonto_page: QWidget = SaldokontoPage(
+                vykazy_query=self._vykazy_query,
+                rok_default=saldo_rok,
+                parent=self._stack,
+            )
+        else:
+            saldokonto_page = PlaceholderPage(
+                title="Saldokonto",
+                subtitle="Pohledávky a závazky podle účtů.",
+                phase_number=15,
+                phase_name="Saldokonto",
+                parent=self._stack,
+            )
+        self._add_page("saldokonto", saldokonto_page)
 
         # 11. Placeholder pages
         for key, title, subtitle, phase, phase_name in _PLACEHOLDER_PAGES:

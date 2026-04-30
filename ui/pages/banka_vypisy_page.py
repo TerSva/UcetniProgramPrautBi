@@ -171,9 +171,37 @@ class BankaVypisyPage(QWidget):
 
         root.addLayout(top_row)
 
-        # ── Filter bar: VS, Protiúčet, Částka od-do, Den — horizontal ──
+        # ── Filter bar — primární: datum range + fulltext ──
+        from ui.widgets.date_range_filter import DateRangeFilter
+        self._date_range = DateRangeFilter(parent=self)
+        # Default: "Vše" (zobrazit všechny transakce ve vybraném výpisu)
+        self._date_range._apply_preset("Vše", emit=False)  # noqa: SLF001
+        root.addWidget(self._date_range)
+
+        search_bar = QHBoxLayout()
+        search_bar.setSpacing(Spacing.S3)
+
+        from PyQt6.QtWidgets import QLineEdit as _QLineEdit
+        search_label = QLabel("Hledat:", self)
+        search_label.setProperty("class", "field-label")
+        search_bar.addWidget(search_label)
+
+        self._search_input = _QLineEdit(self)
+        self._search_input.setPlaceholderText(
+            "Popis, VS, protiúčet, partner",
+        )
+        self._search_input.setMinimumWidth(280)
+        search_bar.addWidget(self._search_input)
+        search_bar.addStretch(1)
+        root.addLayout(search_bar)
+
+        # ── Sekundární filtry: VS, Protiúčet, Částka od-do, Den ──
         filter_bar = QHBoxLayout()
         filter_bar.setSpacing(Spacing.S3)
+
+        sec_label = QLabel("Detailní filtry:", self)
+        sec_label.setProperty("class", "field-label")
+        filter_bar.addWidget(sec_label)
 
         self._vs_input = LabeledLineEdit(
             "VS", placeholder="var. symbol", parent=self,
@@ -201,7 +229,14 @@ class BankaVypisyPage(QWidget):
         self._den_input.setMaximumWidth(80)
         filter_bar.addWidget(self._den_input)
 
+        filter_bar.addStretch(1)
         root.addLayout(filter_bar)
+
+        # Search debounce timer
+        from PyQt6.QtCore import QTimer
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(300)
 
         # ── Bottom: Transakce detail (large, stretched) ──
         tx_card = QWidget(self)
@@ -268,6 +303,11 @@ class BankaVypisyPage(QWidget):
         self._vypisy_table.currentCellChanged.connect(self._on_vypis_selected)
         self._auto_btn.clicked.connect(self._on_auto_zauctovani)
         self._delete_btn.clicked.connect(self._on_smazat_vypis)
+        # Primární filtry — datum range + fulltext (debounced)
+        self._date_range.range_changed.connect(self._on_date_range_changed)
+        self._search_input.textChanged.connect(self._on_search_text_changed)
+        self._search_timer.timeout.connect(self._on_search_apply)
+        # Sekundární filtry
         self._vs_input.text_changed.connect(self._on_vs_changed)
         self._protiucet_input.text_changed.connect(self._on_protiucet_changed)
         self._castka_od_input.line_widget.editingFinished.connect(
@@ -277,6 +317,17 @@ class BankaVypisyPage(QWidget):
             self._on_castka_changed,
         )
         self._den_input.text_changed.connect(self._on_den_changed)
+
+    def _on_date_range_changed(self, od: object, do: object) -> None:
+        self._vm.set_datum_range(od, do)
+        self._refresh_transakce()
+
+    def _on_search_text_changed(self, _text: str) -> None:
+        self._search_timer.start()
+
+    def _on_search_apply(self) -> None:
+        self._vm.set_search_text(self._search_input.text())
+        self._refresh_transakce()
 
     def _load(self) -> None:
         self._vm.load()

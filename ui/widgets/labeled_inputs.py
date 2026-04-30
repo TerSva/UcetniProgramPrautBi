@@ -216,9 +216,44 @@ class LabeledDateEdit(_LabeledBase):
 
     @staticmethod
     def _parse_date(text: str) -> date | None:
-        """Parse d.M.yyyy or d.M.yy or d/M/yyyy."""
-        text = text.strip().replace("/", ".")
-        parts = text.split(".")
+        """Tolerantní datum parser.
+
+        Podporované formáty:
+          * d.M.yyyy / d.M.yy        — český s tečkami
+          * d/M/yyyy / d/M/yy        — lomítky
+          * d-M-yyyy / d-M-yy        — pomlčky (ne ISO!)
+          * yyyy-MM-dd / yyyy/MM/dd  — ISO
+          * d M yyyy / d M yy        — mezery
+          * "dnes" / "vcera"         — klíčová slova
+        """
+        from datetime import timedelta
+
+        text = text.strip().lower()
+        if not text:
+            return None
+
+        # Klíčová slova
+        if text in ("dnes", "today"):
+            return date.today()
+        if text in ("vcera", "včera", "yesterday"):
+            return date.today() - timedelta(days=1)
+
+        # ISO formát: yyyy-MM-dd nebo yyyy/MM/dd (rok první, 4 číslice)
+        iso_text = text.replace("/", "-")
+        if len(iso_text) == 10 and iso_text[4] == "-" and iso_text[7] == "-":
+            try:
+                return date.fromisoformat(iso_text)
+            except ValueError:
+                pass
+
+        # Český formát: rozdělit po tečkách / lomítkách / pomlčkách / mezerách
+        normalized = text
+        for sep in ("/", "-"):
+            normalized = normalized.replace(sep, ".")
+        # Mezera jako separátor (jen pokud nejsou tečky)
+        if "." not in normalized and " " in normalized:
+            normalized = ".".join(normalized.split())
+        parts = [p for p in normalized.split(".") if p]
         if len(parts) != 3:
             return None
         try:

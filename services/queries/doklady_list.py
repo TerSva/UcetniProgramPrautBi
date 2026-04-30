@@ -52,6 +52,14 @@ class DokladyFilter:
     typ: TypDokladu | None = None
     stav: StavDokladu | None = None
     k_doreseni: KDoreseniFilter = KDoreseniFilter.VSE
+    # Rozšířené filtry (Fáze 3)
+    datum_od: date | None = None
+    datum_do: date | None = None
+    partner_id: int | None = None
+    castka_od: Money | None = None
+    castka_do: Money | None = None
+    dph_rezim: DphRezim | None = None
+    search_text: str = ""
 
     @property
     def je_vychozi(self) -> bool:
@@ -64,6 +72,13 @@ class DokladyFilter:
             and self.typ is None
             and self.stav is None
             and self.k_doreseni == KDoreseniFilter.VSE
+            and self.datum_od is None
+            and self.datum_do is None
+            and self.partner_id is None
+            and self.castka_od is None
+            and self.castka_do is None
+            and self.dph_rezim is None
+            and not self.search_text.strip()
         )
 
 
@@ -180,17 +195,39 @@ class DokladyListQuery:
 
     def execute(self, f: DokladyFilter) -> list[DokladyListItem]:
         """Vrátí filtrovaný seznam DTO, řazeno datum_vystaveni DESC, id DESC."""
-        if f.rok is not None:
+        # Datum range: priorita datum_od/datum_do, fallback na rok, jinak vše.
+        if f.datum_od is not None or f.datum_do is not None:
+            start = f.datum_od if f.datum_od is not None else _DATE_MIN
+            end = f.datum_do if f.datum_do is not None else _DATE_MAX
+        elif f.rok is not None:
             start = date(f.rok, 1, 1)
             end = date(f.rok, 12, 31)
         else:
             start = _DATE_MIN
             end = _DATE_MAX
 
+        search_term = (f.search_text or "").strip().lower()
+
         uow = self._uow_factory()
         with uow:
             repo = self._doklady_repo_factory(uow)
             doklady = repo.list_by_obdobi(start, end, limit=_LIMIT)
+
+            # Načti partnery předem pro fulltext search v partner_nazev
+            partner_names_all: dict[int, str] = {}
+            if self._partneri_repo_factory is not None and (
+                search_term or f.partner_id is not None
+            ):
+                p_repo_pre = self._partneri_repo_factory(uow)
+                partner_ids_pre = {
+                    d.partner_id for d in doklady if d.partner_id is not None
+                }
+                for pid in partner_ids_pre:
+                    try:
+                        p = p_repo_pre.get_by_id(pid)
+                        partner_names_all[pid] = p.nazev
+                    except Exception:  # noqa: BLE001
+                        pass
 
             # Python-side filter
             # BV are managed in Banka section, never shown in Doklady
@@ -207,14 +244,43 @@ class DokladyListQuery:
                     continue
                 if f.k_doreseni == KDoreseniFilter.POUZE and not d.k_doreseni:
                     continue
+                if f.partner_id is not None and d.partner_id != f.partner_id:
+                    continue
+                if f.dph_rezim is not None and d.dph_rezim != f.dph_rezim:
+                    continue
+                if (
+                    f.castka_od is not None
+                    and d.castka_celkem.to_halire() < f.castka_od.to_halire()
+                ):
+                    continue
+                if (
+                    f.castka_do is not None
+                    and d.castka_celkem.to_halire() > f.castka_do.to_halire()
+                ):
+                    continue
+                if search_term:
+                    haystack_parts = [
+                        d.cislo.lower(),
+                        (d.popis or "").lower(),
+                    ]
+                    if d.partner_id is not None:
+                        haystack_parts.append(
+                            partner_names_all.get(d.partner_id, "").lower(),
+                        )
+                    if not any(
+                        search_term in part for part in haystack_parts
+                    ):
+                        continue
                 filtered.append(d)
 
-            # Enrichment: partner_nazev (batch lookup)
-            partner_names: dict[int, str] = {}
+            # Enrichment: partner_nazev (batch lookup; reuse pre-loaded
+            # cache, pokud byl naplněný kvůli search/partner_id filtru)
+            partner_names: dict[int, str] = dict(partner_names_all)
             if self._partneri_repo_factory is not None:
                 partner_ids = {
                     d.partner_id for d in filtered
                     if d.partner_id is not None
+                    and d.partner_id not in partner_names
                 }
                 if partner_ids:
                     p_repo = self._partneri_repo_factory(uow)

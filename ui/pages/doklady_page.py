@@ -265,8 +265,11 @@ class DokladyPage(QWidget):
             self._button_novy, alignment=Qt.AlignmentFlag.AlignTop,
         )
 
-        # Filter bar
-        self._filter_bar = FilterBar(self)
+        # Filter bar — partner_loader pro dropdown
+        self._filter_bar = FilterBar(
+            partner_loader=self._load_partner_options,
+            parent=self,
+        )
 
         # Error label
         self._error_label = QLabel("", self)
@@ -335,21 +338,52 @@ class DokladyPage(QWidget):
 
     def _on_filters_changed(
         self,
-        rok: object,
-        typ: object,
-        stav: object,
-        k_doreseni: object,
+        _rok: object,
+        _typ: object,
+        _stav: object,
+        _k_doreseni: object,
     ) -> None:
+        # Vezmi kompletní snapshot z FilterBaru — má všechny rozšířené filtry
+        # (datum range, partner, částka, DPH režim, search), které se do
+        # 4-arg signalu nevejdou.
+        full_filter = self._filter_bar.current_filter()
         # Preset typ takes priority — ignore user's typ selection
-        effective_typ = self._preset_typ if self._preset_typ is not None else typ
-        new_filter = DokladyFilter(
-            rok=rok,
-            typ=effective_typ,
-            stav=stav,
-            k_doreseni=k_doreseni,
-        )
-        self._vm.apply_filters(new_filter)
+        if self._preset_typ is not None:
+            full_filter = DokladyFilter(
+                rok=full_filter.rok,
+                typ=self._preset_typ,
+                stav=full_filter.stav,
+                k_doreseni=full_filter.k_doreseni,
+                datum_od=full_filter.datum_od,
+                datum_do=full_filter.datum_do,
+                partner_id=full_filter.partner_id,
+                castka_od=full_filter.castka_od,
+                castka_do=full_filter.castka_do,
+                dph_rezim=full_filter.dph_rezim,
+                search_text=full_filter.search_text,
+            )
+        self._vm.apply_filters(full_filter)
         self._sync_ui_with_vm()
+
+    def _load_partner_options(self) -> list[tuple[int, str]]:
+        """Vrátí seznam (partner_id, nazev) pro FilterBar combo.
+
+        Pokud `partner_items_loader` není nastaven, vrátí prázdný seznam.
+        """
+        if self._partner_items_loader is None:
+            return []
+        try:
+            items = self._partner_items_loader()
+        except Exception:  # noqa: BLE001
+            return []
+        result: list[tuple[int, str]] = []
+        for it in items:
+            pid = getattr(it, "id", None)
+            nazev = getattr(it, "nazev", None)
+            if pid is not None and nazev:
+                result.append((pid, nazev))
+        result.sort(key=lambda x: x[1].lower())
+        return result
 
     def _on_clear_filters(self) -> None:
         if self._preset_typ is not None:

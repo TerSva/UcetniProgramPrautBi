@@ -62,6 +62,9 @@ class BankovniVypisyViewModel:
         self._castka_od: Money | None = None
         self._castka_do: Money | None = None
         self._den_filter: int | None = None
+        self._datum_od: date | None = None
+        self._datum_do: date | None = None
+        self._search_text: str = ""
         self._error: str | None = None
 
     # ── Properties ──
@@ -93,8 +96,39 @@ class BankovniVypisyViewModel:
     # ── Filtering ──
 
     def _filtered_transakce(self) -> list[TransakceListItem]:
-        """Aplikuje klientské filtry (VS, protiúčet, částka, den)."""
+        """Aplikuje klientské filtry.
+
+        Primární: datum_od/datum_do range, fulltext search (popis, VS,
+        protiúčet, partner). Sekundární: VS, protiúčet, částka, den.
+        """
         result = self._transakce
+
+        # Datum range — primární filtr
+        if self._datum_od is not None:
+            result = [
+                tx for tx in result
+                if tx.datum_zauctovani >= self._datum_od
+            ]
+        if self._datum_do is not None:
+            result = [
+                tx for tx in result
+                if tx.datum_zauctovani <= self._datum_do
+            ]
+
+        # Fulltext search — popis, VS, protiúčet, partner
+        search = self._search_text.strip().lower()
+        if search:
+            def matches(tx: TransakceListItem) -> bool:
+                fields = [
+                    (tx.popis or "").lower(),
+                    (tx.variabilni_symbol or "").lower(),
+                    (tx.protiucet or "").lower(),
+                    (getattr(tx, "partner_nazev", None) or "").lower(),
+                ]
+                return any(search in f for f in fields)
+            result = [tx for tx in result if matches(tx)]
+
+        # Sekundární: VS, protiúčet (samostatné inputy — pro přesnější filtr)
         if self._vs_filter:
             needle = self._vs_filter.lower()
             result = [
@@ -176,6 +210,17 @@ class BankovniVypisyViewModel:
 
     def set_den_filter(self, den: int | None) -> None:
         self._den_filter = den
+
+    def set_datum_range(
+        self, od: date | None, do: date | None,
+    ) -> None:
+        """Primární datum filter pro transakce."""
+        self._datum_od = od
+        self._datum_do = do
+
+    def set_search_text(self, text: str) -> None:
+        """Fulltext search nad popis / VS / protiúčet / partner."""
+        self._search_text = text or ""
 
     def auto_zauctuj(self, vypis_id: int) -> AutoUctovaniResult | None:
         """Spusť automatické zaúčtování pro výpis."""

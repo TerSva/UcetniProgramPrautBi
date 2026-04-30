@@ -45,7 +45,9 @@ from services.queries.vykazy_query import (
     PokladniKniha,
     PredvahaRadek,
     RozvahaRadek,
+    SaldoUcetRadek,
     SaldokontoRadek,
+    SaldokontoUcetSekce,
     VykazyQuery,
     VzzRadek,
 )
@@ -136,7 +138,7 @@ class VykazyPage(QWidget):
         rok_default: int = 2025,
         firma_nazev: str = "PRAUT s.r.o.",
         firma_ico: str = "22545107",
-        export_pdf_fn: Callable[[int, Path], None] | None = None,
+        export_pdf_fn: "Callable[[int, Path, date | None, date | None], None] | None" = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -190,7 +192,7 @@ class VykazyPage(QWidget):
 
         controls.addStretch(1)
 
-        self._export_btn = QPushButton("Exportovat vše do PDF", self)
+        self._export_btn = QPushButton("Exportovat účetní závěrku do PDF", self)
         self._export_btn.setProperty("class", "primary")
         self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._export_btn.clicked.connect(self._on_export_pdf)
@@ -530,30 +532,81 @@ class VykazyPage(QWidget):
         layout.setContentsMargins(0, Spacing.S2, 0, 0)
         layout.setSpacing(Spacing.S2)
 
-        layout.addWidget(QLabel("Závazky (neuhrazené FP):", w))
-        cols = ("Doklad", "Partner", "Datum", "Částka", "Uhrazeno", "Zbývá")
-        self._saldo_zavazky = _make_table(cols)
-        layout.addWidget(self._saldo_zavazky)
+        info = QLabel(
+            "Saldokonto k rozvahovému dni — pohledávky a závazky podle účtů. "
+            "311/321 z neuhrazených FV/FP, 355/365 ze sumy účetních zápisů.",
+            w,
+        )
+        info.setWordWrap(True)
+        info.setProperty("class", "info-banner")
+        layout.addWidget(info)
 
-        layout.addWidget(QLabel("Pohledávky (neuhrazené FV):", w))
-        self._saldo_pohledavky = _make_table(cols)
-        layout.addWidget(self._saldo_pohledavky)
+        # 311 — Pohledávky z obchodního styku (FV)
+        self._saldo_311_label = QLabel(
+            "Pohledávky z obchodního styku (311)", w,
+        )
+        self._saldo_311_label.setProperty("class", "section-title")
+        layout.addWidget(self._saldo_311_label)
+        cols_doklady = (
+            "Doklad", "Partner", "Datum", "Částka", "Uhrazeno", "Zbývá",
+        )
+        self._saldo_311 = _make_table(cols_doklady)
+        layout.addWidget(self._saldo_311)
+
+        # 321 — Závazky z obchodního styku (FP)
+        self._saldo_321_label = QLabel(
+            "Závazky z obchodního styku (321)", w,
+        )
+        self._saldo_321_label.setProperty("class", "section-title")
+        layout.addWidget(self._saldo_321_label)
+        self._saldo_321 = _make_table(cols_doklady)
+        layout.addWidget(self._saldo_321)
+
+        # 355 — Pohledávky vůči společníkům
+        self._saldo_355_label = QLabel(
+            "Pohledávky za společníky (355)", w,
+        )
+        self._saldo_355_label.setProperty("class", "section-title")
+        layout.addWidget(self._saldo_355_label)
+        cols_ucty = ("Účet", "Název / partner", "Saldo")
+        self._saldo_355 = _make_table(cols_ucty)
+        layout.addWidget(self._saldo_355)
+
+        # 365 — Závazky vůči společníkům
+        self._saldo_365_label = QLabel(
+            "Závazky vůči společníkům (365)", w,
+        )
+        self._saldo_365_label.setProperty("class", "section-title")
+        layout.addWidget(self._saldo_365_label)
+        self._saldo_365 = _make_table(cols_ucty)
+        layout.addWidget(self._saldo_365)
+
         return w
 
     def _load_saldo(self) -> None:
         try:
-            zavazky, pohledavky = self._query.get_saldokonto(self._rok)
+            sekce = self._query.get_saldokonto_per_ucet(self._rok)
         except Exception as e:
             self._show_warning(f"Chyba: {e}")
             return
-        self._fill_saldo_table(self._saldo_zavazky, zavazky)
-        self._fill_saldo_table(self._saldo_pohledavky, pohledavky)
+        sekce_map = {s.ucet: s for s in sekce}
+        self._fill_saldo_doklady(self._saldo_311, sekce_map.get("311"))
+        self._fill_saldo_doklady(self._saldo_321, sekce_map.get("321"))
+        self._fill_saldo_ucty(self._saldo_355, sekce_map.get("355"))
+        self._fill_saldo_ucty(self._saldo_365, sekce_map.get("365"))
 
-    def _fill_saldo_table(
-        self, table: QTableWidget, radky: tuple[SaldokontoRadek, ...],
+    def _fill_saldo_doklady(
+        self,
+        table: QTableWidget,
+        sekce: SaldokontoUcetSekce | None,
     ) -> None:
+        radky = sekce.radky if sekce else ()
+        if not radky:
+            table.setRowCount(1)
+            _set_text_cell(table, 0, 0, "— žádné otevřené položky —")
+            table.resizeColumnsToContents()
+            return
         table.setRowCount(len(radky) + 1)
-        celkem_zbyva = 0
         for i, r in enumerate(radky):
             _set_text_cell(table, i, 0, r.cislo_dokladu)
             _set_text_cell(table, i, 1, r.partner_nazev or "—")
@@ -561,10 +614,32 @@ class VykazyPage(QWidget):
             _set_money_cell(table, i, 3, r.castka)
             _set_money_cell(table, i, 4, r.uhrazeno)
             _set_money_cell(table, i, 5, r.zbyva)
-            celkem_zbyva += r.zbyva.to_halire()
         last = len(radky)
         _set_text_cell(table, last, 0, "CELKEM", bold=True)
-        _set_money_cell(table, last, 5, Money(celkem_zbyva), bold=True)
+        _set_money_cell(table, last, 5, sekce.celkem, bold=True)
+        table.resizeColumnsToContents()
+        h = table.horizontalHeader()
+        h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+    def _fill_saldo_ucty(
+        self,
+        table: QTableWidget,
+        sekce: SaldokontoUcetSekce | None,
+    ) -> None:
+        radky = sekce.radky if sekce else ()
+        if not radky:
+            table.setRowCount(1)
+            _set_text_cell(table, 0, 0, "— bez pohybu —")
+            table.resizeColumnsToContents()
+            return
+        table.setRowCount(len(radky) + 1)
+        for i, r in enumerate(radky):
+            _set_text_cell(table, i, 0, r.ucet)
+            _set_text_cell(table, i, 1, r.partner_nazev or "—")
+            _set_money_cell(table, i, 2, r.saldo)
+        last = len(radky)
+        _set_text_cell(table, last, 0, "CELKEM", bold=True)
+        _set_money_cell(table, last, 2, sekce.celkem, bold=True)
         table.resizeColumnsToContents()
         h = table.horizontalHeader()
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
@@ -755,7 +830,15 @@ class VykazyPage(QWidget):
             )
             return
 
-        default_name = f"PRAUT_vykazy_{self._rok}.pdf"
+        # Vstupní dialog s rozvahovým dnem a datem sestavení.
+        from ui.dialogs.export_zaverka_dialog import ExportZaverkaDialog
+        dlg = ExportZaverkaDialog(rok=self._rok, parent=self)
+        if dlg.exec() != ExportZaverkaDialog.DialogCode.Accepted:
+            return
+        rozvahovy_den = dlg.rozvahovy_den
+        datum_sestaveni = dlg.datum_sestaveni
+
+        default_name = f"PRAUT_zaverka_{self._rok}.pdf"
         path_str, _ = QFileDialog.getSaveFileName(
             self, "Uložit PDF", default_name, "PDF (*.pdf)",
         )
@@ -766,7 +849,7 @@ class VykazyPage(QWidget):
             path = path.with_suffix(".pdf")
 
         try:
-            self._export_pdf_fn(self._rok, path)
+            self._export_pdf_fn(self._rok, path, rozvahovy_den, datum_sestaveni)
         except Exception as e:
             QMessageBox.critical(
                 self, "Export PDF",
@@ -776,5 +859,5 @@ class VykazyPage(QWidget):
 
         QMessageBox.information(
             self, "Export PDF",
-            f"Výkazy uloženy do:\n{path}",
+            f"Účetní závěrka uložena do:\n{path}",
         )

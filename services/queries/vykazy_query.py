@@ -213,6 +213,30 @@ class SaldokontoRadek:
 
 
 @dataclass(frozen=True)
+class SaldoUcetRadek:
+    """Saldo na úrovni partnera/účetních zápisů — pro účty 355/365.
+
+    Pro 311/321 se vyplňuje z FV/FP dokladů; pro 355/365 ze sumy
+    účetních zápisů (MD − Dal nebo opačně) seskupených po analytice.
+    """
+
+    ucet: str                      # např. "355", "355.001"
+    partner_nazev: str | None      # název analytického účtu / partnera
+    saldo: Money                   # signed: + = pohledávka, − = závazek
+
+
+@dataclass(frozen=True)
+class SaldokontoUcetSekce:
+    """Jedna sekce saldokonta podle účtu (311/321/355/365)."""
+
+    ucet: str                      # "311", "321", "355", "365"
+    nazev: str                     # popisek pro tisk
+    je_pohledavka: bool            # True = aktivní účet, False = pasivní
+    radky: tuple                    # tuple[SaldokontoRadek] nebo tuple[SaldoUcetRadek]
+    celkem: Money                  # součet zbývajících částek / sald
+
+
+@dataclass(frozen=True)
 class DphDokladRadek:
     datum: date
     cislo_dokladu: str
@@ -237,6 +261,40 @@ class DphPrehled:
     def k_uhrade(self) -> Money:
         """Výstup - vstup. Záporné = stát dluží firmě."""
         return Money(self.vystup_celkem.to_halire() - self.vstup_celkem.to_halire())
+
+
+@dataclass(frozen=True)
+class MinimumPriloha:
+    """Data pro minimální přílohu k účetní závěrce mikro ÚJ.
+
+    Sestavuje se z entity Firma + Partneri (společníci) + zdraží
+    (počet dokladů z roku — orientační počet zaměstnanců). Statutární
+    orgán a předmět činnosti se berou z Firma textových polí.
+    """
+
+    # Obecné údaje (sekce a)
+    nazev: str
+    sidlo: str | None
+    ico: str | None
+    dic: str | None
+    pravni_forma: str
+    predmet_cinnosti: str | None
+    rozvahovy_den: date            # 31.12.YYYY (uživatel zadává)
+    datum_zalozeni: date | None
+    datum_sestaveni: date          # uživatel zadává
+    kategorie_uj: str
+    statutarni_organ: str | None
+    spolecnici: tuple              # tuple[(nazev, podil_procent)]
+    zakladni_kapital: Money | None
+
+    # Použité účetní metody (sekce b)
+    zpusob_oceneni: str
+    odpisovy_plan: str
+    je_identifikovana_osoba_dph: bool
+    je_platce_dph: bool
+
+    # Doplňkové údaje (sekce c)
+    prumerny_pocet_zamestnancu: int
 
 
 @dataclass(frozen=True)
@@ -539,6 +597,248 @@ class VykazyQuery:
                     pohledavky.append(radek)
 
         return tuple(zavazky), tuple(pohledavky)
+
+    # ------------------------------------------------------------
+    # 5a1. Minimum příloha (vyhláška 500/2002 Sb., §39)
+    # ------------------------------------------------------------
+
+    def get_minimum_priloha(
+        self,
+        rok: int,
+        rozvahovy_den: date,
+        datum_sestaveni: date,
+    ) -> "MinimumPriloha":
+        """Sestaví minimum přílohu z Firma + Partneri (společníci).
+
+        Společníci se načtou z partneri kategorie='spolecnik' aktivních.
+        Pokud Firma neexistuje, vrátí přílohu s minimálními daty
+        (nazev = "—") aby PDF nepadalo.
+        """
+        from infrastructure.database.repositories.firma_repository import (
+            SqliteFirmaRepository,
+        )
+        uow = self._uow_factory()
+        with uow:
+            firma_repo = SqliteFirmaRepository(uow)
+            firma = firma_repo.get()
+            conn = uow.connection
+            spolecnici_rows = conn.execute(
+                """
+                SELECT nazev, podil_procent
+                FROM partneri
+                WHERE kategorie = 'spolecnik'
+                  AND je_aktivni = 1
+                ORDER BY podil_procent DESC NULLS LAST, nazev
+                """,
+            ).fetchall()
+            spolecnici = tuple(
+                (r["nazev"], r["podil_procent"])
+                for r in spolecnici_rows
+            )
+
+        if firma is None:
+            return MinimumPriloha(
+                nazev="—",
+                sidlo=None, ico=None, dic=None,
+                pravni_forma="—",
+                predmet_cinnosti=None,
+                rozvahovy_den=rozvahovy_den,
+                datum_zalozeni=None,
+                datum_sestaveni=datum_sestaveni,
+                kategorie_uj="mikro",
+                statutarni_organ=None,
+                spolecnici=spolecnici,
+                zakladni_kapital=None,
+                zpusob_oceneni="pořizovacími cenami",
+                odpisovy_plan="lineární",
+                je_identifikovana_osoba_dph=False,
+                je_platce_dph=False,
+                prumerny_pocet_zamestnancu=0,
+            )
+
+        return MinimumPriloha(
+            nazev=firma.nazev,
+            sidlo=firma.sidlo,
+            ico=firma.ico,
+            dic=firma.dic,
+            pravni_forma=firma.pravni_forma,
+            predmet_cinnosti=firma.predmet_cinnosti,
+            rozvahovy_den=rozvahovy_den,
+            datum_zalozeni=firma.datum_zalozeni,
+            datum_sestaveni=datum_sestaveni,
+            kategorie_uj=firma.kategorie_uj,
+            statutarni_organ=firma.statutarni_organ,
+            spolecnici=spolecnici,
+            zakladni_kapital=firma.zakladni_kapital,
+            zpusob_oceneni=firma.zpusob_oceneni,
+            odpisovy_plan=firma.odpisovy_plan,
+            je_identifikovana_osoba_dph=firma.je_identifikovana_osoba_dph,
+            je_platce_dph=firma.je_platce_dph,
+            prumerny_pocet_zamestnancu=firma.prumerny_pocet_zamestnancu,
+        )
+
+    # ------------------------------------------------------------
+    # 5b. Saldokonto po účtech (311 / 321 / 355 / 365)
+    # ------------------------------------------------------------
+
+    def get_saldokonto_per_ucet(
+        self, rok: int,
+    ) -> tuple[SaldokontoUcetSekce, ...]:
+        """Vrátí 4 sekce saldokonta — pro účty 311, 321, 355, 365.
+
+        311 (odběratelé) a 321 (dodavatelé) se sestaví z neuhrazených
+        FV/FP dokladů (jako get_saldokonto). 355 a 365 (společníci)
+        se sestaví ze sumy účetních zápisů per analytika, protože tam
+        nejsou doklady FV/FP.
+        """
+        zavazky_fp, pohledavky_fv = self.get_saldokonto(rok)
+
+        celkem_fv = Money(sum(r.zbyva.to_halire() for r in pohledavky_fv))
+        celkem_fp = Money(sum(r.zbyva.to_halire() for r in zavazky_fp))
+
+        sekce_311 = SaldokontoUcetSekce(
+            ucet="311",
+            nazev="Pohledávky z obchodního styku (311)",
+            je_pohledavka=True,
+            radky=pohledavky_fv,
+            celkem=celkem_fv,
+        )
+        sekce_321 = SaldokontoUcetSekce(
+            ucet="321",
+            nazev="Závazky z obchodního styku (321)",
+            je_pohledavka=False,
+            radky=zavazky_fp,
+            celkem=celkem_fp,
+        )
+
+        # 355 / 365 — saldo z účetních zápisů
+        sekce_355 = self._saldo_zaznamu_per_ucet(
+            rok, prefix="355",
+            nazev="Pohledávky za společníky (355)",
+            je_pohledavka=True,
+        )
+        sekce_365 = self._saldo_zaznamu_per_ucet(
+            rok, prefix="365",
+            nazev="Závazky vůči společníkům (365)",
+            je_pohledavka=False,
+        )
+
+        return (sekce_311, sekce_321, sekce_355, sekce_365)
+
+    def _saldo_zaznamu_per_ucet(
+        self,
+        rok: int,
+        prefix: str,
+        nazev: str,
+        je_pohledavka: bool,
+    ) -> SaldokontoUcetSekce:
+        """Saldo MD−Dal (nebo Dal−MD) per analytika pro daný prefix.
+
+        Sčítá počáteční stavy + obraty za rok a vrací jen nenulová salda.
+        """
+        od = date(rok, 1, 1).isoformat()
+        do = date(rok, 12, 31).isoformat()
+        uow = self._uow_factory()
+        with uow:
+            conn = uow.connection
+            ucty_rows = conn.execute(
+                """
+                SELECT cislo, nazev FROM uctova_osnova
+                WHERE cislo = ? OR cislo LIKE ?
+                ORDER BY cislo
+                """,
+                (prefix, f"{prefix}.%"),
+            ).fetchall()
+
+            saldo_per_ucet: dict[str, dict] = {}
+            for r in ucty_rows:
+                saldo_per_ucet[r["cislo"]] = {
+                    "nazev": r["nazev"],
+                    "md": 0,
+                    "dal": 0,
+                }
+
+            # Počáteční stavy
+            ps_rows = conn.execute(
+                """
+                SELECT ucet_kod, strana, SUM(castka) AS suma
+                FROM pocatecni_stavy
+                WHERE rok = ? AND (ucet_kod = ? OR ucet_kod LIKE ?)
+                GROUP BY ucet_kod, strana
+                """,
+                (rok, prefix, f"{prefix}.%"),
+            ).fetchall()
+            for r in ps_rows:
+                if r["ucet_kod"] not in saldo_per_ucet:
+                    saldo_per_ucet[r["ucet_kod"]] = {
+                        "nazev": r["ucet_kod"], "md": 0, "dal": 0,
+                    }
+                if r["strana"] == "MD":
+                    saldo_per_ucet[r["ucet_kod"]]["md"] += r["suma"] or 0
+                else:
+                    saldo_per_ucet[r["ucet_kod"]]["dal"] += r["suma"] or 0
+
+            # Obraty MD
+            md_rows = conn.execute(
+                """
+                SELECT md_ucet, SUM(castka) AS suma
+                FROM ucetni_zaznamy
+                WHERE datum >= ? AND datum <= ?
+                  AND je_storno = 0
+                  AND (md_ucet = ? OR md_ucet LIKE ?)
+                GROUP BY md_ucet
+                """,
+                (od, do, prefix, f"{prefix}.%"),
+            ).fetchall()
+            for r in md_rows:
+                if r["md_ucet"] not in saldo_per_ucet:
+                    saldo_per_ucet[r["md_ucet"]] = {
+                        "nazev": r["md_ucet"], "md": 0, "dal": 0,
+                    }
+                saldo_per_ucet[r["md_ucet"]]["md"] += r["suma"] or 0
+
+            # Obraty Dal
+            dal_rows = conn.execute(
+                """
+                SELECT dal_ucet, SUM(castka) AS suma
+                FROM ucetni_zaznamy
+                WHERE datum >= ? AND datum <= ?
+                  AND je_storno = 0
+                  AND (dal_ucet = ? OR dal_ucet LIKE ?)
+                GROUP BY dal_ucet
+                """,
+                (od, do, prefix, f"{prefix}.%"),
+            ).fetchall()
+            for r in dal_rows:
+                if r["dal_ucet"] not in saldo_per_ucet:
+                    saldo_per_ucet[r["dal_ucet"]] = {
+                        "nazev": r["dal_ucet"], "md": 0, "dal": 0,
+                    }
+                saldo_per_ucet[r["dal_ucet"]]["dal"] += r["suma"] or 0
+
+        # Sestav řádky — jen nenulová salda
+        radky: list[SaldoUcetRadek] = []
+        celkem = 0
+        for ucet, data in sorted(saldo_per_ucet.items()):
+            saldo = data["md"] - data["dal"]
+            if not je_pohledavka:
+                saldo = -saldo  # pasivní účet: kladné saldo = závazek
+            if saldo == 0:
+                continue
+            radky.append(SaldoUcetRadek(
+                ucet=ucet,
+                partner_nazev=data["nazev"],
+                saldo=Money(saldo),
+            ))
+            celkem += saldo
+
+        return SaldokontoUcetSekce(
+            ucet=prefix,
+            nazev=nazev,
+            je_pohledavka=je_pohledavka,
+            radky=tuple(radky),
+            celkem=Money(celkem),
+        )
 
     # ------------------------------------------------------------
     # 6. DPH přehled

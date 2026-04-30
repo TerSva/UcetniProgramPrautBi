@@ -53,6 +53,11 @@ class NastaveniPage(QWidget):
         self._kategorie_combo: LabeledComboBox
         self._io_dph_check: QCheckBox
         self._platce_dph_check: QCheckBox
+        self._predmet_cinnosti_input: LabeledLineEdit
+        self._statutarni_organ_input: LabeledLineEdit
+        self._zpusob_oceneni_input: LabeledLineEdit
+        self._odpisovy_plan_input: LabeledLineEdit
+        self._pocet_zamestnancu_input: LabeledLineEdit
         self._save_button: QPushButton
         self._error_label: QLabel
 
@@ -149,6 +154,44 @@ class NastaveniPage(QWidget):
         self._platce_dph_check.setProperty("class", "form-check")
         root.addWidget(self._platce_dph_check)
 
+        # ── Účetní závěrka section ──
+        zaverka_title = QLabel("Účetní závěrka — minimální příloha", self)
+        zaverka_title.setProperty("class", "section-title")
+        root.addWidget(zaverka_title)
+
+        self._predmet_cinnosti_input = LabeledLineEdit(
+            "Předmět činnosti",
+            placeholder="Např. obchodní činnost, IT služby",
+            parent=self,
+        )
+        root.addWidget(self._predmet_cinnosti_input)
+
+        self._statutarni_organ_input = LabeledLineEdit(
+            "Statutární orgán (jednatelé)",
+            placeholder="Např. Jan Novák — jednatel; Petra Nováková — jednatelka",
+            parent=self,
+        )
+        root.addWidget(self._statutarni_organ_input)
+
+        row4 = QHBoxLayout()
+        row4.setSpacing(Spacing.S3)
+        self._zpusob_oceneni_input = LabeledLineEdit(
+            "Způsob oceňování", placeholder="pořizovacími cenami", parent=self,
+        )
+        row4.addWidget(self._zpusob_oceneni_input)
+        self._odpisovy_plan_input = LabeledLineEdit(
+            "Odpisový plán", placeholder="lineární", parent=self,
+        )
+        row4.addWidget(self._odpisovy_plan_input)
+        root.addLayout(row4)
+
+        self._pocet_zamestnancu_input = LabeledLineEdit(
+            "Průměrný počet zaměstnanců",
+            placeholder="0",
+            parent=self,
+        )
+        root.addWidget(self._pocet_zamestnancu_input)
+
         # Error + Save
         self._error_label = QLabel("", self)
         self._error_label.setProperty("class", "dialog-error")
@@ -184,6 +227,15 @@ class NastaveniPage(QWidget):
         self._kategorie_combo.set_value(f.kategorie_uj)
         self._io_dph_check.setChecked(f.je_identifikovana_osoba_dph)
         self._platce_dph_check.setChecked(f.je_platce_dph)
+        if f.predmet_cinnosti:
+            self._predmet_cinnosti_input.set_value(f.predmet_cinnosti)
+        if f.statutarni_organ:
+            self._statutarni_organ_input.set_value(f.statutarni_organ)
+        self._zpusob_oceneni_input.set_value(f.zpusob_oceneni)
+        self._odpisovy_plan_input.set_value(f.odpisovy_plan)
+        self._pocet_zamestnancu_input.set_value(
+            str(f.prumerny_pocet_zamestnancu),
+        )
 
     def _on_save(self) -> None:
         if self._vm is None:
@@ -202,6 +254,17 @@ class NastaveniPage(QWidget):
             )
             return
 
+        # Parse pocet zamestnancu — prázdný = 0
+        pocet_text = self._pocet_zamestnancu_input.value() or "0"
+        try:
+            pocet_zam = int(pocet_text.strip()) if pocet_text.strip() else 0
+        except ValueError:
+            QMessageBox.warning(
+                self, "Chyba",
+                f"Průměrný počet zaměstnanců musí být celé číslo: '{pocet_text}'",
+            )
+            return
+
         try:
             firma = Firma(
                 nazev=self._nazev_input.value() or "",
@@ -214,6 +277,19 @@ class NastaveniPage(QWidget):
                 kategorie_uj=self._kategorie_combo.value() or "mikro",
                 je_identifikovana_osoba_dph=self._io_dph_check.isChecked(),
                 je_platce_dph=self._platce_dph_check.isChecked(),
+                predmet_cinnosti=(
+                    self._predmet_cinnosti_input.value() or None
+                ),
+                statutarni_organ=(
+                    self._statutarni_organ_input.value() or None
+                ),
+                zpusob_oceneni=(
+                    self._zpusob_oceneni_input.value() or "pořizovacími cenami"
+                ),
+                odpisovy_plan=(
+                    self._odpisovy_plan_input.value() or "lineární"
+                ),
+                prumerny_pocet_zamestnancu=pocet_zam,
             )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Chyba validace", str(exc))
