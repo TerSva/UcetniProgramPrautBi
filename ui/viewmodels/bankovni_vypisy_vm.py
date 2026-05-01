@@ -295,6 +295,33 @@ class BankovniVypisyViewModel:
             self._error = str(exc)
             return False
 
+    def obnov_transakci(self, tx_id: int) -> bool:
+        """Vrátí ignorovanou transakci zpět na NESPAROVANO.
+
+        Po obnovení se v UI znovu objeví tlačítka Spárovat/Zaúčtovat/Ignorovat.
+        """
+        if self._uow_factory is None:
+            self._error = "uow_factory není k dispozici"
+            return False
+        try:
+            uow = self._uow_factory()
+            with uow:
+                repo = SqliteBankovniTransakceRepository(uow)
+                tx = repo.get(tx_id)
+                if tx is None:
+                    self._error = f"Transakce {tx_id} nenalezena"
+                    return False
+                tx.obnov()
+                repo.update(tx)
+                uow.commit()
+            if self._selected_vypis_id is not None:
+                self.select_vypis(self._selected_vypis_id)
+            self._error = None
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return False
+
     def zauctovat_transakci(
         self,
         tx_id: int,

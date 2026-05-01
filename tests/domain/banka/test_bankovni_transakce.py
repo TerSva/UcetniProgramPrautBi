@@ -52,6 +52,32 @@ class TestBankovniTransakce:
         tx.ignoruj()
         assert tx.stav == StavTransakce.IGNOROVANO
 
+    def test_obnov_ignorovane(self):
+        """Obnov vrátí IGNOROVANO zpět na NESPAROVANO."""
+        tx = _make_tx()
+        tx.ignoruj()
+        assert tx.stav == StavTransakce.IGNOROVANO
+        tx.obnov()
+        assert tx.stav == StavTransakce.NESPAROVANO
+
+    def test_obnov_nesparovane_selze(self):
+        """Obnov funguje jen pro IGNOROVANO."""
+        tx = _make_tx()
+        with pytest.raises(ValidationError, match="ignorovan"):
+            tx.obnov()
+
+    def test_obnov_sparovane_selze(self):
+        tx = _make_tx()
+        tx.sparuj(doklad_id=1)
+        with pytest.raises(ValidationError, match="ignorovan"):
+            tx.obnov()
+
+    def test_obnov_auto_zauctovane_selze(self):
+        tx = _make_tx()
+        tx.auto_zauctuj(ucetni_zapis_id=1)
+        with pytest.raises(ValidationError, match="ignorovan"):
+            tx.obnov()
+
 
 class TestStavTransakce:
 

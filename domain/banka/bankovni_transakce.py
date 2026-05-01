@@ -57,3 +57,17 @@ class BankovniTransakce:
     def ignoruj(self) -> None:
         """Označ jako ignorovanou."""
         self.stav = StavTransakce.IGNOROVANO
+
+    def obnov(self) -> None:
+        """Vrátí ignorovanou transakci zpět na NESPAROVANO.
+
+        Funguje jen pro IGNOROVANO — pro SPAROVANO/AUTO_ZAUCTOVANO existují
+        navázané záznamy (úhrady, účetní zápisy), jejichž rušení vyžaduje
+        odstornovat celý výpis.
+        """
+        if self.stav != StavTransakce.IGNOROVANO:
+            raise ValidationError(
+                f"Lze obnovit pouze ignorovanou transakci, "
+                f"aktuální stav: {self.stav.value}"
+            )
+        self.stav = StavTransakce.NESPAROVANO

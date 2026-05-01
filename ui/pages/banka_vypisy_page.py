@@ -498,6 +498,15 @@ class BankaVypisyPage(QWidget):
             )
         self._refresh_transakce()
 
+    def _on_obnovit(self, tx_id: int) -> None:
+        ok = self._vm.obnov_transakci(tx_id)
+        if not ok:
+            QMessageBox.warning(
+                self, "Chyba",
+                self._vm.error or "Nepodařilo se obnovit transakci.",
+            )
+        self._refresh_transakce()
+
     def _on_sparovat(self, tx_id: int) -> None:
         """Otevře dialog pro ruční párování transakce s dokladem.
 
@@ -754,7 +763,7 @@ class BankaVypisyPage(QWidget):
             else:
                 self._tx_table.setItem(i, 7, QTableWidgetItem("—"))
 
-            # Akce column — buttons for NESPAROVANO transactions
+            # Akce column — buttons podle stavu
             if tx.stav == StavTransakce.NESPAROVANO:
                 actions_widget = QWidget()
                 actions_layout = QHBoxLayout(actions_widget)
@@ -782,6 +791,24 @@ class BankaVypisyPage(QWidget):
                 actions_layout.addWidget(sparovat_btn)
                 actions_layout.addWidget(zauctovat_btn)
                 actions_layout.addWidget(ignorovat_btn)
+                self._tx_table.setCellWidget(i, 8, actions_widget)
+            elif tx.stav == StavTransakce.IGNOROVANO:
+                actions_widget = QWidget()
+                actions_layout = QHBoxLayout(actions_widget)
+                actions_layout.setContentsMargins(2, 2, 2, 2)
+                actions_layout.setSpacing(4)
+
+                obnovit_btn = QPushButton("Vrátit zpět")
+                obnovit_btn.setProperty("class", "table-action-teal")
+                obnovit_btn.setFlat(True)
+                obnovit_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                obnovit_btn.setToolTip(
+                    "Obnovit transakci do stavu Nezpracováno — pak ji můžete "
+                    "spárovat nebo zaúčtovat"
+                )
+                obnovit_btn.clicked.connect(partial(self._on_obnovit, tx.id))
+
+                actions_layout.addWidget(obnovit_btn)
                 self._tx_table.setCellWidget(i, 8, actions_widget)
             else:
                 self._tx_table.setItem(i, 8, QTableWidgetItem(""))
