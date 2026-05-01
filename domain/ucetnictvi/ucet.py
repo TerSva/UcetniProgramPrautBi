@@ -27,6 +27,7 @@ class Ucet:
         je_aktivni: bool = True,
         parent_kod: str | None = None,
         popis: str | None = None,
+        je_danovy: bool | None = None,
     ) -> None:
         # Validace cislo
         if not isinstance(cislo, str) or not cislo.strip():
@@ -77,6 +78,7 @@ class Ucet:
         self._je_aktivni = je_aktivni
         self._parent_kod = parent_kod
         self._popis = popis
+        self._je_danovy = je_danovy
 
     @property
     def cislo(self) -> str:
@@ -101,6 +103,20 @@ class Ucet:
     @property
     def popis(self) -> str | None:
         return self._popis
+
+    @property
+    def je_danovy(self) -> bool | None:
+        """Daňová uznatelnost: True/False/None (None = irrelevantní pro A/P/Z)."""
+        return self._je_danovy
+
+    def nastav_danovost(self, je_danovy: bool | None) -> None:
+        """Změní příznak daňovosti (pouze pro N/V účty)."""
+        if je_danovy is not None and self._typ.value not in ("N", "V"):
+            raise ValidationError(
+                f"Daňovost lze nastavit jen pro N (náklady) / V (výnosy), "
+                f"ne pro {self._typ.value} ({self._cislo})."
+            )
+        self._je_danovy = je_danovy
 
     @property
     def is_analytic(self) -> bool:

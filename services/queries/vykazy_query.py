@@ -264,6 +264,32 @@ class DphPrehled:
 
 
 @dataclass(frozen=True)
+class NedanovyUcetRadek:
+    """Jeden účet s nenulovým nedaňovým obratem za rok."""
+
+    ucet: str                    # např. "513" nebo "548.999"
+    nazev: str
+    popis: str | None
+    castka: Money                # obrat MD − Dal (kladný = náklad)
+
+
+@dataclass(frozen=True)
+class NedanoveNaklady:
+    """Souhrn nedaňových nákladů za rok pro DPPO řádek 40.
+
+    Vrací jen účty třídy 5 s je_danovy=0 a nenulovým obratem.
+    """
+
+    rok: int
+    radky: tuple                  # tuple[NedanovyUcetRadek]
+    celkem: Money
+
+    @property
+    def je_prazdny(self) -> bool:
+        return self.celkem.is_zero
+
+
+@dataclass(frozen=True)
 class MinimumPriloha:
     """Data pro minimální přílohu k účetní závěrce mikro ÚJ.
 
@@ -597,6 +623,156 @@ class VykazyQuery:
                     pohledavky.append(radek)
 
         return tuple(zavazky), tuple(pohledavky)
+
+    # ------------------------------------------------------------
+    # 5a0. Nedaňové náklady (DPPO řádek 40)
+    # ------------------------------------------------------------
+
+    def get_nedanove_naklady(self, rok: int) -> "NedanoveNaklady":
+        """Souhrn nedaňových nákladů za rok.
+
+        Vrací účty s typem 'N' a je_danovy=0, které mají nenulový obrat
+        (MD − Dal) za daný rok. Storno zápisy se nezohledňují (filtr
+        je_storno = 0). Hodnota = obrat MD − obrat Dal (čistý náklad).
+
+        Tento součet se použije pro daňové přiznání PO (formulář 25 5404),
+        řádek 40 — Výdaje neuznané za výdaje vynaložené k dosažení příjmů.
+        """
+        od = date(rok, 1, 1).isoformat()
+        do = date(rok, 12, 31).isoformat()
+
+        uow = self._uow_factory()
+        with uow:
+            conn = uow.connection
+            # Načti všechny nedaňové N účty
+            ucty_rows = conn.execute(
+                """
+                SELECT cislo, nazev, popis FROM uctova_osnova
+                WHERE typ = 'N' AND je_danovy = 0
+                ORDER BY cislo
+                """,
+            ).fetchall()
+            if not ucty_rows:
+                return NedanoveNaklady(
+                    rok=rok, radky=(), celkem=Money.zero(),
+                )
+
+            radky: list[NedanovyUcetRadek] = []
+            celkem_hal = 0
+            for u in ucty_rows:
+                cislo = u["cislo"]
+                # Obrat MD na účtu (vč. analytik pokud je syntetický)
+                # Pro syntetiku '513' vezmi i '513.xxx'; pro analytiku
+                # '548.999' vezmi přesnou shodu.
+                if "." in cislo:
+                    md_pattern = cislo
+                    use_like = False
+                else:
+                    md_pattern = f"{cislo}.%"
+                    use_like = True
+                # Obrat MD
+                if use_like:
+                    md_row = conn.execute(
+                        """
+                        SELECT COALESCE(SUM(castka), 0) AS s
+                        FROM ucetni_zaznamy
+                        WHERE datum >= ? AND datum <= ?
+                          AND je_storno = 0
+                          AND (md_ucet = ? OR md_ucet LIKE ?)
+                        """,
+                        (od, do, cislo, md_pattern),
+                    ).fetchone()
+                    dal_row = conn.execute(
+                        """
+                        SELECT COALESCE(SUM(castka), 0) AS s
+                        FROM ucetni_zaznamy
+                        WHERE datum >= ? AND datum <= ?
+                          AND je_storno = 0
+                          AND (dal_ucet = ? OR dal_ucet LIKE ?)
+                        """,
+                        (od, do, cislo, md_pattern),
+                    ).fetchone()
+                else:
+                    md_row = conn.execute(
+                        """
+                        SELECT COALESCE(SUM(castka), 0) AS s
+                        FROM ucetni_zaznamy
+                        WHERE datum >= ? AND datum <= ?
+                          AND je_storno = 0
+                          AND md_ucet = ?
+                        """,
+                        (od, do, cislo),
+                    ).fetchone()
+                    dal_row = conn.execute(
+                        """
+                        SELECT COALESCE(SUM(castka), 0) AS s
+                        FROM ucetni_zaznamy
+                        WHERE datum >= ? AND datum <= ?
+                          AND je_storno = 0
+                          AND dal_ucet = ?
+                        """,
+                        (od, do, cislo),
+                    ).fetchone()
+
+                obrat_md = md_row["s"] or 0
+                obrat_dal = dal_row["s"] or 0
+                # Pro nákladový účet: kladný náklad = MD > Dal
+                netto = obrat_md - obrat_dal
+                if netto == 0:
+                    continue
+
+                # Pro syntetiku nezdvojovat — pokud má aktivní analytiky
+                # se je_danovy=0, syntetický by načetl jejich obrat znovu.
+                # Vyřešíme tak, že syntetický se ZAHRNE jen pokud nejsou
+                # nedaňové analytiky (jinak by sčítání bylo dvojí).
+                if not "." in cislo:
+                    has_analytic_nedanove = conn.execute(
+                        """
+                        SELECT 1 FROM uctova_osnova
+                        WHERE parent_kod = ? AND je_danovy = 0
+                          AND je_aktivni = 1
+                        LIMIT 1
+                        """,
+                        (cislo,),
+                    ).fetchone()
+                    if has_analytic_nedanove is not None:
+                        # Syntetický má analytiky → použijeme jen analytiky,
+                        # syntetické zápisy přímo na 'cislo' bez tečky.
+                        md_only_synt = conn.execute(
+                            """
+                            SELECT COALESCE(SUM(castka), 0) AS s
+                            FROM ucetni_zaznamy
+                            WHERE datum >= ? AND datum <= ?
+                              AND je_storno = 0
+                              AND md_ucet = ?
+                            """,
+                            (od, do, cislo),
+                        ).fetchone()
+                        dal_only_synt = conn.execute(
+                            """
+                            SELECT COALESCE(SUM(castka), 0) AS s
+                            FROM ucetni_zaznamy
+                            WHERE datum >= ? AND datum <= ?
+                              AND je_storno = 0
+                              AND dal_ucet = ?
+                            """,
+                            (od, do, cislo),
+                        ).fetchone()
+                        netto = (md_only_synt["s"] or 0) - (dal_only_synt["s"] or 0)
+                        if netto == 0:
+                            continue
+
+                radky.append(NedanovyUcetRadek(
+                    ucet=cislo,
+                    nazev=u["nazev"],
+                    popis=u["popis"],
+                    castka=Money(netto),
+                ))
+                celkem_hal += netto
+
+        return NedanoveNaklady(
+            rok=rok, radky=tuple(radky), celkem=Money(celkem_hal),
+        )
 
     # ------------------------------------------------------------
     # 5a1. Minimum příloha (vyhláška 500/2002 Sb., §39)

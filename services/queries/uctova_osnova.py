@@ -22,15 +22,28 @@ class UcetItem:
     cislo: str
     nazev: str
     typ: TypUctu
+    je_danovy: bool | None = None
+    popis: str | None = None
 
     @property
     def display(self) -> str:
-        """Formát ``"311 – Odběratelé"`` (pomlčka U+2013)."""
-        return f"{self.cislo} – {self.nazev}"
+        """Formát ``"311 – Odběratelé"`` (pomlčka U+2013).
+
+        Pro nedaňové účty (typ N/V s je_danovy=False) přidá suffix ``(N)``,
+        aby uživatelka v dropdownu jasně viděla, že volí nedaňový účet.
+        """
+        suffix = " (N)" if self.je_danovy is False else ""
+        return f"{self.cislo} – {self.nazev}{suffix}"
 
     @classmethod
     def from_domain(cls, ucet: Ucet) -> "UcetItem":
-        return cls(cislo=ucet.cislo, nazev=ucet.nazev, typ=ucet.typ)
+        return cls(
+            cislo=ucet.cislo,
+            nazev=ucet.nazev,
+            typ=ucet.typ,
+            je_danovy=ucet.je_danovy,
+            popis=ucet.popis,
+        )
 
 
 class UctovaOsnovaQuery:

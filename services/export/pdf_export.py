@@ -25,6 +25,7 @@ from services.queries.vykazy_query import (
     DphPrehled,
     HlavniKnihaUctu,
     MinimumPriloha,
+    NedanoveNaklady,
     PokladniKniha,
     PredvahaRadek,
     RozvahaRadek,
@@ -388,6 +389,50 @@ def _render_minimum_priloha(priloha: MinimumPriloha) -> str:
         <h3 class="section-title">c) Doplňkové údaje</h3>
         <table>
             <tbody>{doplnky_html}</tbody>
+        </table>
+    </div>
+    """
+
+
+def _render_nedanove_naklady(data: NedanoveNaklady) -> str:
+    """Sekce nedaňových nákladů — podklad pro DPPO řádek 40."""
+    if data.je_prazdny:
+        return f"""
+        <div class="report">
+            <h2 class="report-title">Nedaňové náklady</h2>
+            <p>Za rok {data.rok} nejsou evidovány žádné nedaňové náklady.</p>
+        </div>
+        """
+
+    rows: list[str] = []
+    for r in data.radky:
+        rows.append(
+            f'<tr>'
+            f'<td>{escape(r.ucet)}</td>'
+            f'<td>{escape(r.nazev)}</td>'
+            f'<td>{escape(r.popis or "")}</td>'
+            f'{_money(r.castka)}'
+            f'</tr>'
+        )
+    rows.append(
+        f'<tr class="bold"><td colspan="3"><strong>CELKEM</strong></td>'
+        f'{_money_bold(data.celkem)}</tr>'
+    )
+
+    return f"""
+    <div class="report">
+        <h2 class="report-title">Nedaňové náklady</h2>
+        <p>Položky zvyšující základ daně z příjmů právnických osob
+        (formulář 25 5404, řádek 40). Hodnota se přičítá k výsledku
+        hospodaření při výpočtu daňového základu.</p>
+        <table>
+            <thead><tr>
+                <th style="width: 70pt;">Účet</th>
+                <th>Název</th>
+                <th>Popis / § ZDP</th>
+                <th class="num" style="width: 100pt;">Částka</th>
+            </tr></thead>
+            <tbody>{''.join(rows)}</tbody>
         </table>
     </div>
     """
@@ -1048,6 +1093,7 @@ def export_vykazy_pdf(
         rozvahovy_den=rozvahovy_den,
         datum_sestaveni=datum_sestaveni,
     )
+    nedanove = vykazy_query.get_nedanove_naklady(rok)
 
     body_parts = [
         _render_cover(rok, priloha),
@@ -1055,6 +1101,7 @@ def export_vykazy_pdf(
         _render_vzz(vzz),
         _render_minimum_priloha(priloha),
         _render_saldokonto_per_ucet(saldo_sekce),
+        _render_nedanove_naklady(nedanove),
     ]
 
     today_str = _format_date(date.today())

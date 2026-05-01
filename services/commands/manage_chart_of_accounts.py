@@ -120,8 +120,12 @@ class ManageChartOfAccountsCommand:
         cislo: str,
         nazev: str,
         popis: str | None = None,
+        je_danovy: bool | None = None,
     ) -> None:
-        """Změní název a popis analytiky.
+        """Změní název, popis a daňovost analytiky.
+
+        ``je_danovy=None`` zachová aktuální hodnotu. Lze nastavit jen
+        pro N/V účty.
 
         Raises:
             NotFoundError: účet neexistuje.
@@ -137,6 +141,8 @@ class ManageChartOfAccountsCommand:
                 )
             ucet.uprav_nazev(nazev)
             ucet.uprav_popis(popis)
+            if je_danovy is not None and ucet.typ.value in ("N", "V"):
+                ucet.nastav_danovost(je_danovy)
             repo.update(ucet)
             uow.commit()
 
@@ -224,8 +230,12 @@ class ManageChartOfAccountsCommand:
         cislo: str,
         nazev: str,
         popis: str | None = None,
+        je_danovy: bool | None = None,
     ) -> None:
-        """Změní název a popis účtu (syntetického i analytického).
+        """Změní název, popis a daňovost účtu.
+
+        ``je_danovy=None`` zachová aktuální hodnotu. Lze nastavit jen
+        pro N/V účty.
 
         Raises:
             NotFoundError: účet neexistuje.
@@ -236,5 +246,7 @@ class ManageChartOfAccountsCommand:
             ucet = repo.get_by_cislo(cislo)
             ucet.uprav_nazev(nazev)
             ucet.uprav_popis(popis)
+            if je_danovy is not None and ucet.typ.value in ("N", "V"):
+                ucet.nastav_danovost(je_danovy)
             repo.update(ucet)
             uow.commit()

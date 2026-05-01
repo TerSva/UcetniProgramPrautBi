@@ -39,6 +39,7 @@ class ChartOfAccountsItem:
     is_analytic: bool
     parent_kod: str | None
     popis: str | None
+    je_danovy: bool | None = None
     analytiky: tuple["ChartOfAccountsItem", ...] = field(default_factory=tuple)
 
     @classmethod
@@ -55,6 +56,7 @@ class ChartOfAccountsItem:
             is_analytic=ucet.is_analytic,
             parent_kod=ucet.parent_kod,
             popis=ucet.popis,
+            je_danovy=ucet.je_danovy,
             analytiky=analytiky,
         )
 

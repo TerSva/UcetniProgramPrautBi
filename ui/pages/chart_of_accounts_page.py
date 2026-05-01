@@ -189,7 +189,27 @@ class ChartOfAccountsPage(QWidget):
     ) -> None:
         from ui.dialogs.ucet_edit_dialog import UcetEditAction
 
-        dialog = UcetEditDialog(cislo, nazev, popis, parent=self)
+        # Najdi účet napříč všemi třídami pro typ + je_danovy
+        typ_str: str | None = None
+        je_danovy: bool | None = None
+        for trida in self._vm.tridy:
+            for u in trida.ucty:
+                if u.cislo == cislo:
+                    typ_str = u.typ.value
+                    je_danovy = u.je_danovy
+                    break
+                for a in u.analytiky:
+                    if a.cislo == cislo:
+                        typ_str = a.typ.value
+                        je_danovy = a.je_danovy
+                        break
+
+        dialog = UcetEditDialog(
+            cislo, nazev, popis,
+            je_danovy=je_danovy,
+            typ=typ_str,
+            parent=self,
+        )
         if dialog.exec() and dialog.result is not None:
             r = dialog.result
             if r.action == UcetEditAction.DELETE:
@@ -200,7 +220,9 @@ class ChartOfAccountsPage(QWidget):
                     cislo, r.new_suffix, r.nazev, r.popis,
                 )
             else:
-                self._vm.update_ucet(cislo, r.nazev, r.popis)
+                self._vm.update_ucet(
+                    cislo, r.nazev, r.popis, je_danovy=r.je_danovy,
+                )
             self._sync_ui()
 
     # ─── Sync ─────────────────────────────────────────

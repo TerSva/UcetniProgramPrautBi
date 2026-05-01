@@ -54,12 +54,15 @@ class TestUctovaOsnovaQuery:
     def test_vrati_seed_ucty(self, db_factory):
         q = _build_query(db_factory)
         items = q.execute()
-        # All migrations: 67 active accounts
-        assert len(items) == 68
+        # All migrations: 77 active accounts (68 + 9 from 022_je_danovy)
+        assert len(items) == 77
         cisla = {i.cislo for i in items}
         assert "211" in cisla
         assert "311" in cisla
         assert "602" in cisla
+        # 022_je_danovy seeded analytiky pro daňové/nedaňové
+        assert "543.200" in cisla  # nedaňové dary
+        assert "545" in cisla       # ostatní pokuty (nedaňový syntetický)
 
     def test_typy_sedi(self, db_factory):
         q = _build_query(db_factory)
@@ -76,13 +79,13 @@ class TestUctovaOsnovaQuery:
         items = q.execute()
         cisla = {i.cislo for i in items}
         assert "602" not in cisla
-        assert len(items) == 67  # 68 - 1 deaktivovaný
+        assert len(items) == 76  # 77 - 1 deaktivovaný
 
     def test_jen_aktivni_false_vrati_i_neaktivni(self, db_factory):
         _deaktivuj(db_factory, "602")
         q = _build_query(db_factory)
         items = q.execute(jen_aktivni=False)
-        assert len(items) == 68
+        assert len(items) == 77
 
     def test_display_u_jednoho_uctu(self, db_factory):
         q = _build_query(db_factory)

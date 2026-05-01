@@ -109,22 +109,30 @@ class ChartOfAccountsViewModel:
         self.load()
 
     def update_analytika(
-        self, cislo: str, nazev: str, popis: str | None = None,
+        self,
+        cislo: str,
+        nazev: str,
+        popis: str | None = None,
+        je_danovy: bool | None = None,
     ) -> None:
         """Uprav analytiku a reloadni."""
         try:
-            self._command.update_analytika(cislo, nazev, popis)
+            self._command.update_analytika(cislo, nazev, popis, je_danovy)
             self._error = None
         except Exception as exc:
             self._error = str(exc)
         self.load()
 
     def update_ucet(
-        self, cislo: str, nazev: str, popis: str | None = None,
+        self,
+        cislo: str,
+        nazev: str,
+        popis: str | None = None,
+        je_danovy: bool | None = None,
     ) -> None:
         """Uprav účet (syntetický i analytický) a reloadni."""
         try:
-            self._command.update_ucet(cislo, nazev, popis)
+            self._command.update_ucet(cislo, nazev, popis, je_danovy)
             self._error = None
         except Exception as exc:
             self._error = str(exc)

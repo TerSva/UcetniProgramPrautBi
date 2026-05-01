@@ -12,6 +12,7 @@ from typing import NamedTuple
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -39,6 +40,7 @@ class UcetEditResult(NamedTuple):
     nazev: str
     popis: str | None
     new_suffix: str | None  # jen pro analytiky, None = nezměněno
+    je_danovy: bool | None = None  # None = nezměněno, jinak nová hodnota
 
 
 class UcetEditDialog(QDialog):
@@ -50,11 +52,14 @@ class UcetEditDialog(QDialog):
         nazev: str,
         popis: str | None = None,
         *,
+        je_danovy: bool | None = None,
+        typ: str | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._cislo = cislo
         self._is_analytic = "." in cislo
+        self._typ = typ  # 'N', 'V', 'A', 'P', 'Z' — pro zobrazení checkboxu
         self._result: UcetEditResult | None = None
 
         self.setWindowTitle(f"Upravit účet {cislo}")
@@ -63,10 +68,11 @@ class UcetEditDialog(QDialog):
         self._suffix_input: LabeledLineEdit | None = None
         self._nazev_input: LabeledLineEdit
         self._popis_input: LabeledTextEdit
+        self._danovy_check: QCheckBox | None = None
         self._error_label: QLabel
         self._submit_button: QPushButton
 
-        self._build_ui(cislo, nazev, popis)
+        self._build_ui(cislo, nazev, popis, je_danovy)
         self._wire_signals()
 
     @property
@@ -74,7 +80,11 @@ class UcetEditDialog(QDialog):
         return self._result
 
     def _build_ui(
-        self, cislo: str, nazev: str, popis: str | None,
+        self,
+        cislo: str,
+        nazev: str,
+        popis: str | None,
+        je_danovy: bool | None = None,
     ) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(
@@ -119,6 +129,17 @@ class UcetEditDialog(QDialog):
         if popis:
             self._popis_input.set_value(popis)
         root.addWidget(self._popis_input)
+
+        # Daňová uznatelnost — jen pro nákladové (N) a výnosové (V) účty
+        if self._typ in ("N", "V"):
+            self._danovy_check = QCheckBox(
+                "Daňově uznatelný (zahrnout do základu daně)", self,
+            )
+            self._danovy_check.setProperty("class", "form-check")
+            self._danovy_check.setCursor(Qt.CursorShape.PointingHandCursor)
+            # je_danovy: None → True (default), False → odškrtnuté
+            self._danovy_check.setChecked(je_danovy is None or je_danovy)
+            root.addWidget(self._danovy_check)
 
         # Error label
         self._error_label = QLabel("", self)
@@ -178,11 +199,16 @@ class UcetEditDialog(QDialog):
                 return
             new_suffix = suffix
 
+        je_danovy: bool | None = None
+        if self._danovy_check is not None:
+            je_danovy = self._danovy_check.isChecked()
+
         self._result = UcetEditResult(
             action=UcetEditAction.SAVE,
             nazev=nazev,
             popis=popis,
             new_suffix=new_suffix,
+            je_danovy=je_danovy,
         )
         self.accept()
 
@@ -200,6 +226,7 @@ class UcetEditDialog(QDialog):
                 nazev="",
                 popis=None,
                 new_suffix=None,
+                je_danovy=None,
             )
             self.accept()
 

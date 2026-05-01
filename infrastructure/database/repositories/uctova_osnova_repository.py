@@ -22,14 +22,18 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
         return self._uow.connection
 
     def add(self, ucet: Ucet) -> Ucet:
+        je_d = (
+            None if ucet.je_danovy is None else int(bool(ucet.je_danovy))
+        )
         try:
             self._conn.execute(
                 """INSERT INTO uctova_osnova
-                   (cislo, nazev, typ, je_aktivni, parent_kod, popis)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
+                   (cislo, nazev, typ, je_aktivni, parent_kod, popis, je_danovy)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ucet.cislo, ucet.nazev, ucet.typ.value,
                     int(ucet.je_aktivni), ucet.parent_kod, ucet.popis,
+                    je_d,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -41,13 +45,17 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
         return ucet
 
     def update(self, ucet: Ucet) -> None:
+        je_d = (
+            None if ucet.je_danovy is None else int(bool(ucet.je_danovy))
+        )
         cursor = self._conn.execute(
             """UPDATE uctova_osnova
-               SET nazev = ?, typ = ?, je_aktivni = ?, popis = ?
+               SET nazev = ?, typ = ?, je_aktivni = ?, popis = ?,
+                   je_danovy = ?
                WHERE cislo = ?""",
             (
                 ucet.nazev, ucet.typ.value, int(ucet.je_aktivni),
-                ucet.popis, ucet.cislo,
+                ucet.popis, je_d, ucet.cislo,
             ),
         )
         if cursor.rowcount == 0:
@@ -107,6 +115,8 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
         return [self._row_to_ucet(r) for r in rows]
 
     def _row_to_ucet(self, row: sqlite3.Row) -> Ucet:
+        je_d_raw = row["je_danovy"] if "je_danovy" in row.keys() else None
+        je_d = None if je_d_raw is None else bool(je_d_raw)
         return Ucet(
             cislo=row["cislo"],
             nazev=row["nazev"],
@@ -114,4 +124,5 @@ class SqliteUctovaOsnovaRepository(UctovaOsnovaRepository):
             je_aktivni=bool(row["je_aktivni"]),
             parent_kod=row["parent_kod"] if "parent_kod" in row.keys() else None,
             popis=row["popis"] if "popis" in row.keys() else None,
+            je_danovy=je_d,
         )

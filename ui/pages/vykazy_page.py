@@ -130,6 +130,7 @@ class VykazyPage(QWidget):
         ("saldo",     "Saldokonto"),
         ("dph",       "DPH přehled"),
         ("pokladna",  "Pokladní kniha"),
+        ("nedanove",  "Nedaňové náklady"),
     )
 
     def __init__(
@@ -251,6 +252,9 @@ class VykazyPage(QWidget):
 
         self._stack.addWidget(self._build_pokladna_tab())
         self._tab_index["pokladna"] = 6
+
+        self._stack.addWidget(self._build_nedanove_tab())
+        self._tab_index["nedanove"] = 7
 
         root.addWidget(self._stack, stretch=1)
 
@@ -785,6 +789,72 @@ class VykazyPage(QWidget):
         h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
 
     # ──────────────────────────────────────────────
+    # Tab 8: Nedaňové náklady (DPPO řádek 40)
+    # ──────────────────────────────────────────────
+
+    def _build_nedanove_tab(self) -> QWidget:
+        w = QWidget(self)
+        layout = QVBoxLayout(w)
+        layout.setContentsMargins(0, Spacing.S2, 0, 0)
+        layout.setSpacing(Spacing.S2)
+
+        info = QLabel(
+            "Nedaňové náklady — položky zvyšující základ daně z příjmů "
+            "(formulář 25 5404, řádek 40). Sčítá obraty účtů třídy 5 "
+            "s příznakem je_danovy = 0.",
+            w,
+        )
+        info.setWordWrap(True)
+        info.setProperty("class", "info-banner")
+        layout.addWidget(info)
+
+        self._nedanove_summary = QLabel("", w)
+        self._nedanove_summary.setProperty("class", "section-title")
+        layout.addWidget(self._nedanove_summary)
+
+        cols = ("Účet", "Název", "Popis", "Částka")
+        self._nedanove_table = _make_table(cols)
+        layout.addWidget(self._nedanove_table, stretch=1)
+        return w
+
+    def _load_nedanove(self) -> None:
+        try:
+            data = self._query.get_nedanove_naklady(self._rok)
+        except Exception as e:  # noqa: BLE001
+            self._show_warning(f"Chyba: {e}")
+            return
+
+        if data.je_prazdny:
+            self._nedanove_summary.setText(
+                f"Za rok {self._rok} nejsou evidovány žádné nedaňové náklady."
+            )
+            self._nedanove_table.setRowCount(0)
+            return
+
+        self._nedanove_summary.setText(
+            f"Celkem nedaňových nákladů za rok {self._rok}: "
+            f"{data.celkem.format_cz()}  "
+            f"(přičti k VH pro výpočet daňového základu)"
+        )
+
+        self._nedanove_table.clearContents()
+        self._nedanove_table.setRowCount(len(data.radky) + 1)
+        for i, r in enumerate(data.radky):
+            _set_text_cell(self._nedanove_table, i, 0, r.ucet)
+            _set_text_cell(self._nedanove_table, i, 1, r.nazev)
+            _set_text_cell(self._nedanove_table, i, 2, r.popis or "")
+            _set_money_cell(self._nedanove_table, i, 3, r.castka)
+        # CELKEM
+        last = len(data.radky)
+        _set_text_cell(self._nedanove_table, last, 0, "CELKEM", bold=True)
+        _set_text_cell(self._nedanove_table, last, 1, "")
+        _set_text_cell(self._nedanove_table, last, 2, "")
+        _set_money_cell(self._nedanove_table, last, 3, data.celkem, bold=True)
+        self._nedanove_table.resizeColumnsToContents()
+        h = self._nedanove_table.horizontalHeader()
+        h.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+
+    # ──────────────────────────────────────────────
     # Routing + helpers
     # ──────────────────────────────────────────────
 
@@ -806,6 +876,7 @@ class VykazyPage(QWidget):
             "saldo":    self._load_saldo,
             "dph":      self._load_dph,
             "pokladna": self._load_pokladna,
+            "nedanove": self._load_nedanove,
         }
         loader = loaders.get(self._active_tab)
         if loader:

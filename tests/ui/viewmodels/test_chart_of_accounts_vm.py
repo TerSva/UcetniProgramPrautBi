@@ -78,7 +78,7 @@ class FakeCommand:
             raise self._error
         self.added.append((syntetic_kod, suffix, nazev, popis))
 
-    def update_analytika(self, cislo, nazev, popis=None):
+    def update_analytika(self, cislo, nazev, popis=None, je_danovy=None):
         if self._error:
             raise self._error
         self.updated.append((cislo, nazev, popis))
