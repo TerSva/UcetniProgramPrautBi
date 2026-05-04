@@ -542,8 +542,16 @@ class BankaVypisyPage(QWidget):
             return
 
         msg = "Platba úspěšně spárována a zaúčtována."
+        # Reload VM dat z DB — _open_zauctovat_uhradu volá _sparovat_cmd
+        # napřímo a obchází VM cache. Bez explicitního select_vypis by
+        # se transakce v UI tabulce neaktualizovaly (uživatelka by musela
+        # přepnout výpis tam a zpět). Načítáme in-place — bez auto-select
+        # scrolling, aby zůstala viditelná pozice na řádku.
+        self._vm.load()
+        if self._vm.selected_vypis_id is not None:
+            self._vm.select_vypis(self._vm.selected_vypis_id)
+        self._refresh_vypisy()
         self._refresh_transakce()
-        self._load()
         QMessageBox.information(self, "Spárováno", msg)
 
     def _open_zauctovat_uhradu(
