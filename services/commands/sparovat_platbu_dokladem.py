@@ -9,8 +9,10 @@ převezme z původního zaúčtování dokladu (libovolný účet třídy 3 —
   FV úhrada: MD 221.xxx / Dal <ucet_pohledavky>
 
 Kurzové rozdíly (pokud doklad v cizí měně):
-  Ztráta: MD 563 / Dal <ucet_protistrany>
-  Zisk:   MD <ucet_protistrany> / Dal 663
+  Ztráta: MD 563[.xxx] / Dal <ucet_protistrany>
+  Zisk:   MD <ucet_protistrany> / Dal 663[.xxx]
+  Pokud existuje aktivní analytika 563.x / 663.x v osnově, použije se;
+  jinak fallback na syntetický 563 / 663.
 
 Rozdíl částek (pokud uživatel zaškrtl, jen CZK doklady):
   Zaplaceno víc:  MD 568 / Dal <ucet_protistrany>
@@ -195,12 +197,17 @@ class SparovatPlatbuDoklademCommand:
                         else Money(-rozdil.to_halire())
                     )
 
+                    # Preferuj analytiku 563.x / 663.x pokud existuje;
+                    # fallback na syntetický 563 / 663.
+                    ucet_563 = _najdi_aktivni_ucet(uow, "563")
+                    ucet_663 = _najdi_aktivni_ucet(uow, "663")
+
                     if rozdil.is_positive:
                         # Kurzová ztráta — zaplatili jsme víc
                         kurz_zaznam = UcetniZaznam(
                             doklad_id=bv_doklad_id,
                             datum=tx.datum_zauctovani,
-                            md_ucet="563",
+                            md_ucet=ucet_563,
                             dal_ucet=ucet_protistrany,
                             castka=abs_rozdil,
                             popis=f"Kurzová ztráta {doklad.cislo}",
@@ -211,7 +218,7 @@ class SparovatPlatbuDoklademCommand:
                             doklad_id=bv_doklad_id,
                             datum=tx.datum_zauctovani,
                             md_ucet=ucet_protistrany,
-                            dal_ucet="663",
+                            dal_ucet=ucet_663,
                             castka=abs_rozdil,
                             popis=f"Kurzový zisk {doklad.cislo}",
                         )
@@ -269,6 +276,26 @@ class SparovatPlatbuDoklademCommand:
             kurzovy_rozdil=kurzovy_rozdil,
             doklad_uhrazen=True,
         )
+
+
+def _najdi_aktivni_ucet(
+    uow: SqliteUnitOfWork,
+    syntetic: str,
+) -> str:
+    """Vrátí preferovaný účet pro daný syntetický kód.
+
+    Pokud existuje aspoň jedna aktivní analytika syntetika (např. ``563.100``
+    pro ``563``), vrátí ji (nejnižší podle čísla). Jinak vrátí samotný
+    syntetický kód jako fallback. Neexistující syntetika vrátí jak je —
+    případná chyba se objeví až při zaúčtování.
+    """
+    row = uow.connection.execute(
+        "SELECT cislo FROM uctova_osnova "
+        "WHERE parent_kod = ? AND je_aktivni = 1 "
+        "ORDER BY cislo ASC LIMIT 1",
+        (syntetic,),
+    ).fetchone()
+    return row[0] if row else syntetic
 
 
 def _najdi_ucet_zavazku(

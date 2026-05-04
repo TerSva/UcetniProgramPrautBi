@@ -75,7 +75,9 @@ class UcetniZapisyDokladuQuery:
 
                 UNION ALL
 
-                -- 3. Úhrady přes PD/ID (popis obsahuje číslo dokladu)
+                -- 3. Úhrady, kurzové rozdíly, atd. — popis obsahuje
+                -- číslo dokladu, zápis je na PD/ID/BV. BV pokrývá
+                -- kurzové ztráty/zisky vznikající při spárování.
                 SELECT uz.id AS zapis_id, uz.datum, d.cislo AS zdroj_doklad,
                        uz.md_ucet, uz.dal_ucet, uz.castka,
                        uz.popis, uz.je_storno
@@ -83,7 +85,7 @@ class UcetniZapisyDokladuQuery:
                 JOIN doklady d ON d.id = uz.doklad_id
                 WHERE uz.popis LIKE ?
                   AND uz.doklad_id != ?
-                  AND d.typ IN ('PD', 'ID')
+                  AND d.typ IN ('PD', 'ID', 'BV')
 
                 ORDER BY datum, zapis_id
                 """,
