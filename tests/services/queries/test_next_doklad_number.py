@@ -90,3 +90,42 @@ class TestNextDokladNumberQuery:
     def test_format_pro_jiny_typ(self, db_factory):
         q = _build_query(db_factory)
         assert q.execute(TypDokladu.FAKTURA_PRIJATA, 2026) == "FP-2026-001"
+
+
+class TestExecuteForPrefix:
+    """Nezávislá řada FPR pro reverse charge faktury (sdílí typ FP)."""
+
+    def test_fpr_rada_zacina_od_001(self, db_factory):
+        """Prázdná DB → FPR-2026-001 i bez FPR dokladu."""
+        q = _build_query(db_factory)
+        assert q.execute_for_prefix("FPR", 2026) == "FPR-2026-001"
+
+    def test_fpr_a_fp_jsou_nezavisle(self, db_factory):
+        """FP a FPR mají vlastní countery — nesčítají se."""
+        _add(db_factory, "FP-2026-001", TypDokladu.FAKTURA_PRIJATA,
+             date(2026, 1, 5))
+        _add(db_factory, "FP-2026-002", TypDokladu.FAKTURA_PRIJATA,
+             date(2026, 2, 5))
+        _add(db_factory, "FPR-2026-001", TypDokladu.FAKTURA_PRIJATA,
+             date(2026, 3, 5))
+        q = _build_query(db_factory)
+        # FP řada pokračuje od 003
+        assert q.execute_for_prefix("FP", 2026) == "FP-2026-003"
+        # FPR řada pokračuje od 002 (nezávisle)
+        assert q.execute_for_prefix("FPR", 2026) == "FPR-2026-002"
+
+    def test_fpr_pokracuje_od_maxima(self, db_factory):
+        _add(db_factory, "FPR-2026-001", TypDokladu.FAKTURA_PRIJATA,
+             date(2026, 1, 5))
+        _add(db_factory, "FPR-2026-005", TypDokladu.FAKTURA_PRIJATA,
+             date(2026, 2, 5))
+        q = _build_query(db_factory)
+        assert q.execute_for_prefix("FPR", 2026) == "FPR-2026-006"
+
+    def test_execute_typ_a_execute_for_prefix_konzistentni(self, db_factory):
+        """execute(TypDokladu.FP, rok) == execute_for_prefix('FP', rok)."""
+        _add(db_factory, "FP-2026-003", TypDokladu.FAKTURA_PRIJATA,
+             date(2026, 5, 5))
+        q = _build_query(db_factory)
+        assert q.execute(TypDokladu.FAKTURA_PRIJATA, 2026) == "FP-2026-004"
+        assert q.execute_for_prefix("FP", 2026) == "FP-2026-004"

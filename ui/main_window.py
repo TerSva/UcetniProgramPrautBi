@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
         partner_items_loader: object = None,
         on_partner_created: object = None,
         default_datum_loader: object = None,
+        next_cislo_loader: object = None,
         vykazy_query: object = None,
         export_pdf_fn: object = None,
     ) -> None:
@@ -162,6 +163,7 @@ class MainWindow(QMainWindow):
         self._partner_items_loader = partner_items_loader
         self._on_partner_created = on_partner_created
         self._default_datum_loader = default_datum_loader
+        self._next_cislo_loader = next_cislo_loader
         self._vykazy_query = vykazy_query
         self._export_pdf_fn = export_pdf_fn
 
@@ -314,6 +316,7 @@ class MainWindow(QMainWindow):
                 default_datum_loader=self._default_datum_loader,
                 partner_items_loader=self._partner_items_loader,
                 on_partner_created=self._on_partner_created,
+                next_cislo_loader=self._next_cislo_loader,
                 parent=self._stack,
             )
         else:

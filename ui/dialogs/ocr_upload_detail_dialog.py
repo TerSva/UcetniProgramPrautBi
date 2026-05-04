@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -23,6 +24,10 @@ from PyQt6.QtWidgets import (
 
 from domain.doklady.typy import Mena, TypDokladu
 from domain.shared.money import Money
+
+#: Číselné řady pro FAKTURA_PRIJATA — klasická vs reverse charge.
+RADA_FP = "FP"
+RADA_FPR = "FPR"
 from services.queries.ocr_inbox import OcrInboxItem
 from services.queries.partneri_list import PartneriListItem
 from ui.design_tokens import Colors, Spacing
@@ -47,6 +52,7 @@ class OcrUploadDetailDialog(QDialog):
         default_datum_loader: object = None,
         partner_items: list[PartneriListItem] | None = None,
         on_partner_created: object = None,
+        next_cislo_loader: Callable[[str, int], str] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -55,6 +61,7 @@ class OcrUploadDetailDialog(QDialog):
         self._default_datum_loader = default_datum_loader
         self._partner_items = partner_items or []
         self._on_partner_created = on_partner_created
+        self._next_cislo_loader = next_cislo_loader
         self._result_action: str | None = None  # "approve" | "reject" | None
 
         self.setWindowTitle(f"Detail: {item.file_name}")
@@ -63,6 +70,7 @@ class OcrUploadDetailDialog(QDialog):
         self._pdf_viewer: PdfViewerWidget
         self._cislo_input: LabeledLineEdit
         self._typ_combo: LabeledComboBox
+        self._rada_combo: LabeledComboBox
         self._partner_selector: PartnerSelector
         self._datum_input: LabeledDateEdit
         self._castka_input: LabeledMoneyEdit
@@ -187,6 +195,13 @@ class OcrUploadDetailDialog(QDialog):
         self._typ_combo.add_item("Pokladní doklad", TypDokladu.POKLADNI_DOKLAD)
         self._typ_combo.add_item("Interní doklad", TypDokladu.INTERNI_DOKLAD)
         right_layout.addWidget(self._typ_combo)
+
+        # Číselná řada — visible jen pro FAKTURA_PRIJATA
+        self._rada_combo = LabeledComboBox("Číselná řada")
+        self._rada_combo.add_item("FP — klasická faktura", RADA_FP)
+        self._rada_combo.add_item("FPR — reverse charge (EU)", RADA_FPR)
+        self._rada_combo.set_value(RADA_FP)
+        right_layout.addWidget(self._rada_combo)
 
         self._cislo_input = LabeledLineEdit("Číslo dokladu", max_length=50)
         right_layout.addWidget(self._cislo_input)
@@ -313,14 +328,17 @@ class OcrUploadDetailDialog(QDialog):
             except Exception:  # noqa: BLE001
                 pass
 
-        # Cislo — rok z datum_vystaveni faktury, ne z dneška
+        # Cislo — vždy v naší číselné řadě (FP nebo FPR), ne z faktury.
+        # Default řada: FPR pokud OCR detekoval RC, jinak FP.
         rok = item.parsed_datum.year if item.parsed_datum else fallback_datum.year
-        if item.parsed_cislo:
-            self._cislo_input.set_value(item.parsed_cislo)
+        if item.parsed_is_reverse_charge:
+            self._rada_combo.set_value(RADA_FPR)
         else:
-            self._cislo_input.set_value(
-                f"FP-{rok}-{item.id:04d}"
-            )
+            self._rada_combo.set_value(RADA_FP)
+        # Visibilita řady — jen pro FAKTURA_PRIJATA
+        self._sync_rada_visibility()
+        # Naplň cislo přes loader
+        self._refresh_cislo()
 
         # Dodavatel
         if item.parsed_dodavatel:
@@ -368,24 +386,48 @@ class OcrUploadDetailDialog(QDialog):
             self._pdf_viewer.set_placeholder(f"Nepodporovaný formát: {suffix}")
 
     def _wire_datum_to_cislo(self) -> None:
-        """Při změně data aktualizuj rok v čísle dokladu."""
-        import re
+        """Při změně data, typu nebo řady regeneruj číslo dokladu."""
+        self._datum_input.date_widget.textChanged.connect(
+            lambda _t: self._refresh_cislo()
+        )
+        self._typ_combo.current_value_changed.connect(self._on_typ_changed)
+        self._rada_combo.current_value_changed.connect(
+            lambda _v: self._refresh_cislo()
+        )
 
-        def _on_datum_changed(_text: str) -> None:
-            d = self._datum_input.value()
-            if d is None:
+    def _on_typ_changed(self, _value: object) -> None:
+        """Změna typu — sync visibility řady + regenerace čísla."""
+        self._sync_rada_visibility()
+        self._refresh_cislo()
+
+    def _sync_rada_visibility(self) -> None:
+        """Combo Číselná řada se zobrazí jen pro FAKTURA_PRIJATA."""
+        is_fp = self._typ_combo.value() == TypDokladu.FAKTURA_PRIJATA
+        self._rada_combo.setVisible(is_fp)
+
+    def _refresh_cislo(self) -> None:
+        """Vygeneruj nové číslo z aktuální řady + roku přes loader.
+
+        Pokud loader není k dispozici (testy), použije se uchycený fallback.
+        """
+        d = self._datum_input.value() if self._datum_input is not None else None
+        rok = d.year if d else date.today().year
+        # Pro non-FP typy (FV, PD, ID) se použije typ.value, jinak řada
+        if self._typ_combo.value() == TypDokladu.FAKTURA_PRIJATA:
+            prefix = self._rada_combo.value() or RADA_FP
+        else:
+            t = self._typ_combo.value()
+            prefix = t.value if t else "FP"
+
+        if callable(self._next_cislo_loader):
+            try:
+                new_cislo = self._next_cislo_loader(prefix, rok)
+                self._cislo_input.set_value(new_cislo)
                 return
-            cislo = self._cislo_input.value()
-            # Nahraď rok v patternu TYP-RRRR-NNN
-            new = re.sub(
-                r"^([A-Z]{2})-\d{4}-",
-                rf"\1-{d.year}-",
-                cislo,
-            )
-            if new != cislo:
-                self._cislo_input.set_value(new)
-
-        self._datum_input.date_widget.textChanged.connect(_on_datum_changed)
+            except Exception:  # noqa: BLE001
+                pass
+        # Fallback: prefix-rok-uploadID (3místný)
+        self._cislo_input.set_value(f"{prefix}-{rok}-{self._item.id:04d}")
 
     def _wire_mena_signals(self) -> None:
         """Měna: toggle viditelnost EUR polí + auto-přepočet CZK = mena*kurz."""

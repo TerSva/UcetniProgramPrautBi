@@ -40,8 +40,17 @@ class NextDokladNumberQuery:
         Pokud existují doklady s nestandardními čísly (např. ``"FAK-001"``),
         jsou ignorovány — regex match pouze na očekávaný formát.
         """
-        prefix = f"{typ.value}-{rok}-"
-        pattern = re.compile(rf"^{re.escape(prefix)}(\d+)$")
+        return self.execute_for_prefix(typ.value, rok)
+
+    def execute_for_prefix(self, prefix: str, rok: int) -> str:
+        """Vrátí další číslo pro řadu ``"{PREFIX}-{ROK}-{NNN}"``.
+
+        Filtruje doklady **podle prefixu čísla**, ne podle typu — umožňuje
+        nezávislé řady ve stejném typu (např. FP vs FPR pro reverse charge
+        faktury). Hledá max NNN s daným prefixem v daném roce.
+        """
+        full_prefix = f"{prefix}-{rok}-"
+        pattern = re.compile(rf"^{re.escape(full_prefix)}(\d+)$")
 
         start = date(rok, 1, 1)
         end = date(rok, 12, 31)
@@ -53,12 +62,10 @@ class NextDokladNumberQuery:
 
         max_num = 0
         for d in doklady:
-            if d.typ != typ:
-                continue
             match = pattern.match(d.cislo)
             if match:
                 num = int(match.group(1))
                 if num > max_num:
                     max_num = num
 
-        return f"{prefix}{max_num + 1:03d}"
+        return f"{full_prefix}{max_num + 1:03d}"

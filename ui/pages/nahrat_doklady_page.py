@@ -125,6 +125,7 @@ class NahratDokladyPage(QWidget):
         default_datum_loader: object = None,
         partner_items_loader: object = None,
         on_partner_created: object = None,
+        next_cislo_loader: object = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -132,6 +133,7 @@ class NahratDokladyPage(QWidget):
         self._default_datum_loader = default_datum_loader
         self._partner_items_loader = partner_items_loader
         self._on_partner_created = on_partner_created
+        self._next_cislo_loader = next_cislo_loader
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
@@ -476,6 +478,7 @@ class NahratDokladyPage(QWidget):
             default_datum_loader=self._default_datum_loader,
             partner_items=partner_items,
             on_partner_created=self._on_partner_created,
+            next_cislo_loader=self._next_cislo_loader,
             parent=self,
         )
         if not dlg.exec():

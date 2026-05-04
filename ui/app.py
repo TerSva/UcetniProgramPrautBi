@@ -558,6 +558,16 @@ def run(db_path: Path | None = None) -> int:
         )
         return PartneriListItem.from_domain(partner)
 
+    # Loader pro generování dalšího čísla v číselné řadě
+    # (pro OCR upload dialog — řady FP / FPR pro RC)
+    _next_number_query_for_dialog = NextDokladNumberQuery(
+        uow_factory=lambda: SqliteUnitOfWork(factory),
+        doklady_repo_factory=lambda uow: SqliteDokladyRepository(uow),
+    )
+
+    def _next_cislo_loader(prefix: str, rok: int) -> str:
+        return _next_number_query_for_dialog.execute_for_prefix(prefix, rok)
+
     window = MainWindow(
         dashboard_vm=dashboard_vm,
         doklady_list_vm=doklady_list_vm,
@@ -584,6 +594,7 @@ def run(db_path: Path | None = None) -> int:
         partner_items_loader=_partner_items_loader,
         on_partner_created=_on_partner_created,
         default_datum_loader=_default_datum_loader,
+        next_cislo_loader=_next_cislo_loader,
         vykazy_query=_vykazy_query,
         export_pdf_fn=_export_pdf_fn,
         dph_vm=dph_vm,
