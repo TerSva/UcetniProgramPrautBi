@@ -168,6 +168,43 @@ def test_approve(cmd, sample_pdf, factory):
     assert upload.vytvoreny_doklad_id == doklad_id
 
 
+def test_approve_eur_doklad_s_kurzem(cmd, sample_pdf, factory):
+    """Schválit EUR fakturu — castka_celkem v CZK, castka_mena v EUR, kurz."""
+    from decimal import Decimal
+    from domain.doklady.typy import DphRezim, Mena
+    from infrastructure.database.repositories.doklady_repository import (
+        SqliteDokladyRepository,
+    )
+
+    upload_id, _ = cmd.upload_and_process(sample_pdf)
+
+    # Faktura: 100 EUR, kurz 25.00 → 2 500 CZK
+    doklad_id = cmd.approve(
+        upload_id=upload_id,
+        typ=TypDokladu.FAKTURA_PRIJATA,
+        cislo="FP-2025-EUR-001",
+        datum_vystaveni=date(2025, 4, 23),
+        castka_celkem=Money(250000),  # 2 500 CZK v haléřích
+        popis="Meta reklamy EUR",
+        mena=Mena.EUR,
+        castka_mena=Money(10000),  # 100 EUR v haléřích
+        kurz=Decimal("25.00"),
+        dph_rezim=DphRezim.REVERSE_CHARGE,
+    )
+    assert doklad_id is not None
+
+    uow = SqliteUnitOfWork(factory)
+    with uow:
+        drepo = SqliteDokladyRepository(uow)
+        d = drepo.get_by_id(doklad_id)
+
+    assert d.mena == Mena.EUR
+    assert d.castka_celkem == Money(250000)
+    assert d.castka_mena == Money(10000)
+    assert d.kurz == Decimal("25.00")
+    assert d.dph_rezim == DphRezim.REVERSE_CHARGE
+
+
 def test_upload_and_process_approved_returns_status(cmd, sample_pdf, factory):
     """Schválený soubor po opětovném nahrání vrátí 'approved'."""
     upload_id, _ = cmd.upload_and_process(sample_pdf)

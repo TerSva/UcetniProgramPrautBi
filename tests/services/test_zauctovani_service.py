@@ -473,8 +473,13 @@ class TestReverseChargeValidation:
         with pytest.raises(PodvojnostError, match="nesouhlasí"):
             service.zauctuj_doklad(rc_doklad, predpis)
 
-    def test_tuzemsky_doklad_s_vyssi_castkou_selze(self, service, fv_v_db):
-        """Tuzemský doklad — součet > castka_celkem → stále selže."""
+    def test_tuzemsky_s_dph_343_343_detekovan_jako_rc(self, service, fv_v_db):
+        """Tuzemský doklad + 343/343 v předpisu → service detekuje RC.
+
+        User mohl ručně zaškrtnout RC checkbox v dialogu; service to musí
+        respektovat: porovná jen základ (ne-DPH řádky) s castka_celkem
+        a doklad.dph_rezim dorovná na REVERSE_CHARGE.
+        """
         predpis = UctovyPredpis(
             doklad_id=fv_v_db,
             zaznamy=(
@@ -487,6 +492,70 @@ class TestReverseChargeValidation:
                     doklad_id=fv_v_db, datum=date(2026, 4, 11),
                     md_ucet="343.100", dal_ucet="343.200",
                     castka=Money.from_koruny("2541"),
+                ),
+            ),
+        )
+        doklad, _ = service.zauctuj_doklad(fv_v_db, predpis)
+        assert doklad.dph_rezim == DphRezim.REVERSE_CHARGE
+        assert doklad.stav == StavDokladu.ZAUCTOVANY
+
+    def test_eur_doklad_s_rc_v_dialogu(self, service, service_factories):
+        """EUR doklad TUZEMSKO → user ručně zaškrtne RC → správně se zaúčtuje."""
+        from decimal import Decimal as _D
+        from domain.doklady.typy import Mena
+
+        # Vytvoř EUR fakturu jako TUZEMSKO (OCR ji neoznačilo jako RC)
+        uow = service_factories["uow"]()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            d = repo.add(Doklad(
+                cislo="FP-EUR-RC-001",
+                typ=TypDokladu.FAKTURA_PRIJATA,
+                datum_vystaveni=date(2025, 5, 1),
+                castka_celkem=Money(250000),  # 2 500 CZK (přepočet)
+                mena=Mena.EUR,
+                castka_mena=Money(10000),     # 100 EUR
+                kurz=_D("25.00"),
+                dph_rezim=DphRezim.TUZEMSKO,  # ← OCR neoznačilo RC
+            ))
+            uow.commit()
+        doklad_id = d.id
+
+        # Předpis se zaškrtnutým RC v dialogu (518.200/321.002 + 343/343)
+        predpis = UctovyPredpis(
+            doklad_id=doklad_id,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=doklad_id, datum=date(2025, 5, 1),
+                    md_ucet="518.200", dal_ucet="321.002",
+                    castka=Money(250000),
+                ),
+                UcetniZaznam(
+                    doklad_id=doklad_id, datum=date(2025, 5, 1),
+                    md_ucet="343.100", dal_ucet="343.200",
+                    castka=Money(52500),  # 21% z 2 500
+                ),
+            ),
+        )
+        doklad, zapisy = service.zauctuj_doklad(doklad_id, predpis)
+        assert doklad.stav == StavDokladu.ZAUCTOVANY
+        assert doklad.dph_rezim == DphRezim.REVERSE_CHARGE  # auto-dorovnán
+        assert len(zapisy) == 2
+
+    def test_tuzemsky_s_dph_zaklad_nesouhlasi_selze(self, service, fv_v_db):
+        """Tuzemský doklad + 343/343 ale základ != castka_celkem → selže."""
+        predpis = UctovyPredpis(
+            doklad_id=fv_v_db,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=fv_v_db, datum=date(2026, 4, 11),
+                    md_ucet="311", dal_ucet="601",
+                    castka=Money.from_koruny("10000"),  # ne 12100
+                ),
+                UcetniZaznam(
+                    doklad_id=fv_v_db, datum=date(2026, 4, 11),
+                    md_ucet="343.100", dal_ucet="343.200",
+                    castka=Money.from_koruny("2100"),
                 ),
             ),
         )

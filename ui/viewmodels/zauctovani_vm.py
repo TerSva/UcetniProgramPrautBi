@@ -214,14 +214,30 @@ class ZauctovaniViewModel:
         self._loaded = True
 
     def _prefill_reverse_charge(self) -> None:
-        """Pre-fill 4 řádky pro reverse charge doklad (FP z EU)."""
+        """Pre-fill řádky pro reverse charge doklad (FP z EU).
+
+        Castka je vždy v CZK (přepočet z EUR via kurz proběhl při
+        založení dokladu). Popis pro audit zmiňuje originální měnu.
+        """
         castka = self._doklad.castka_celkem
+        popis = "Služby z EU (reverse charge)"
+        # Pokud doklad je v cizí měně, doplň originál hodnotu do popisu
+        from domain.doklady.typy import Mena
+        if (
+            self._doklad.mena != Mena.CZK
+            and self._doklad.castka_mena is not None
+        ):
+            cm = self._doklad.castka_mena.to_koruny()
+            popis = (
+                f"Služby z EU (reverse charge, "
+                f"{cm:,.2f} {self._doklad.mena.value})"
+            )
         # MD 518.200 (IT služby) / Dal 321.002 (závazky EUR)
         self._radky.append(PredpisRadek(
             md_ucet="518.200",
             dal_ucet="321.002",
             castka=castka,
-            popis="Služby z EU (reverse charge)",
+            popis=popis,
         ))
         # Zapnout RC → přidá DPH řádek 343.100/343.200
         self._reverse_charge = True

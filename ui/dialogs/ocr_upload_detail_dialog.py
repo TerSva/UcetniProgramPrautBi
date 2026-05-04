@@ -7,6 +7,7 @@ Pravá strana: OCR data + editovatelná pole + tlačítka schválit/zamítnout.
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 from PyQt6.QtCore import Qt
@@ -20,7 +21,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from domain.doklady.typy import TypDokladu
+from domain.doklady.typy import Mena, TypDokladu
 from domain.shared.money import Money
 from services.queries.ocr_inbox import OcrInboxItem
 from services.queries.partneri_list import PartneriListItem
@@ -65,14 +66,19 @@ class OcrUploadDetailDialog(QDialog):
         self._partner_selector: PartnerSelector
         self._datum_input: LabeledDateEdit
         self._castka_input: LabeledMoneyEdit
+        self._mena_combo: LabeledComboBox
+        self._castka_mena_input: LabeledLineEdit
+        self._kurz_input: LabeledLineEdit
         self._dodavatel_input: LabeledLineEdit
         self._popis_input: LabeledTextEdit
         self._pytlovani_warning: QLabel
         self._ocr_info: QLabel
+        self._mena_error: QLabel
 
         self._build_ui()
         self._populate()
         self._wire_datum_to_cislo()
+        self._wire_mena_signals()
 
     @property
     def result_action(self) -> str | None:
@@ -107,6 +113,37 @@ class OcrUploadDetailDialog(QDialog):
     def variabilni_symbol(self) -> str | None:
         val = self._vs_input.value().strip()
         return val if val else None
+
+    @property
+    def mena(self) -> Mena:
+        val = self._mena_combo.value()
+        return val if val else Mena.CZK
+
+    @property
+    def castka_mena(self) -> Money | None:
+        """Částka v cizí měně (jen pro EUR/USD), jinak None."""
+        if self.mena == Mena.CZK:
+            return None
+        text = self._castka_mena_input.value().strip()
+        if not text:
+            return None
+        try:
+            return Money.from_koruny(text)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def kurz(self) -> Decimal | None:
+        """Kurz cizí měny (CZK / 1 jednotka). None pro CZK."""
+        if self.mena == Mena.CZK:
+            return None
+        text = self._kurz_input.value().strip()
+        if not text:
+            return None
+        try:
+            return Decimal(text.replace(",", "."))
+        except (InvalidOperation, ValueError):
+            return None
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
@@ -167,8 +204,38 @@ class OcrUploadDetailDialog(QDialog):
         self._datum_input = LabeledDateEdit("Datum vystavení")
         right_layout.addWidget(self._datum_input)
 
+        # Měna + kurzové pole — pro EUR/USD se ukáží další 2 inputy
+        self._mena_combo = LabeledComboBox("Měna")
+        self._mena_combo.add_item("CZK (Kč)", Mena.CZK)
+        self._mena_combo.add_item("EUR", Mena.EUR)
+        self._mena_combo.add_item("USD", Mena.USD)
+        self._mena_combo.set_value(Mena.CZK)
+        right_layout.addWidget(self._mena_combo)
+
+        # Castka v cizí měně + kurz — vedle sebe v jedné řadě
+        cizi_row = QHBoxLayout()
+        cizi_row.setSpacing(Spacing.S2)
+        self._castka_mena_input = LabeledLineEdit(
+            "Částka v cizí měně", placeholder="123,45",
+        )
+        self._castka_mena_input.setVisible(False)
+        cizi_row.addWidget(self._castka_mena_input)
+        self._kurz_input = LabeledLineEdit(
+            "Kurz (CZK za 1 jednotku)", placeholder="25,00",
+        )
+        self._kurz_input.setVisible(False)
+        cizi_row.addWidget(self._kurz_input)
+        right_layout.addLayout(cizi_row)
+
         self._castka_input = LabeledMoneyEdit("Částka celkem (Kč)")
         right_layout.addWidget(self._castka_input)
+
+        # Mena error (pro EUR/USD bez kurzu)
+        self._mena_error = QLabel("", right)
+        self._mena_error.setProperty("class", "dialog-error")
+        self._mena_error.setWordWrap(True)
+        self._mena_error.setVisible(False)
+        right_layout.addWidget(self._mena_error)
 
         self._vs_input = LabeledLineEdit(
             "Variabilní symbol", max_length=10,
@@ -320,6 +387,43 @@ class OcrUploadDetailDialog(QDialog):
 
         self._datum_input.date_widget.textChanged.connect(_on_datum_changed)
 
+    def _wire_mena_signals(self) -> None:
+        """Měna: toggle viditelnost EUR polí + auto-přepočet CZK = mena*kurz."""
+        self._mena_combo.current_value_changed.connect(self._on_mena_changed)
+        self._castka_mena_input.text_changed.connect(
+            lambda _t: self._recalculate_czk(),
+        )
+        self._kurz_input.text_changed.connect(
+            lambda _t: self._recalculate_czk(),
+        )
+
+    def _on_mena_changed(self, _value: object) -> None:
+        is_cizi = self.mena != Mena.CZK
+        self._castka_mena_input.setVisible(is_cizi)
+        self._kurz_input.setVisible(is_cizi)
+        self._castka_input.setEnabled(not is_cizi)
+        if not is_cizi:
+            self._mena_error.setVisible(False)
+            self._castka_mena_input.set_value("")
+            self._kurz_input.set_value("")
+        self._recalculate_czk()
+
+    def _recalculate_czk(self) -> None:
+        """Pro EUR/USD: CZK = castka_mena * kurz, naplň do _castka_input."""
+        if self.mena == Mena.CZK:
+            return
+        m = self.castka_mena
+        k = self.kurz
+        if m is None or k is None or k <= 0:
+            self._mena_error.setText(
+                "Zadejte částku v cizí měně i kurz (CZK za 1 jednotku)."
+            )
+            self._mena_error.setVisible(True)
+            return
+        self._mena_error.setVisible(False)
+        czk = Money.from_koruny(m.to_koruny() * k)
+        self._castka_input.set_value(czk)
+
     def _on_new_partner(self) -> None:
         """Inline vytvoření partnera."""
         from ui.dialogs.partner_dialog import PartnerDialog
@@ -333,6 +437,22 @@ class OcrUploadDetailDialog(QDialog):
                     self._partner_selector.set_selected_id(new_partner.id)
 
     def _on_approve(self) -> None:
+        # Validace cizí měny
+        if self.mena != Mena.CZK:
+            if self.castka_mena is None:
+                self._mena_error.setText(
+                    "Pro cizí měnu vyplňte částku v cizí měně."
+                )
+                self._mena_error.setVisible(True)
+                return
+            if self.kurz is None or self.kurz <= 0:
+                self._mena_error.setText(
+                    "Pro cizí měnu vyplňte kladný kurz."
+                )
+                self._mena_error.setVisible(True)
+                return
+            # Auto-přepočet pro jistotu (možná uživatel manuálně přepsal CZK)
+            self._recalculate_czk()
         self._result_action = "approve"
         self.accept()
 

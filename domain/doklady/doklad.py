@@ -251,6 +251,18 @@ class Doklad:
     def dph_rezim(self) -> DphRezim:
         return self._dph_rezim
 
+    def nastav_dph_rezim(self, rezim: DphRezim) -> None:
+        """Změní DPH režim dokladu.
+
+        Volá se z service při zaúčtování, pokud user v dialogu zaškrtl
+        RC checkbox a doklad měl jiný režim než REVERSE_CHARGE.
+        """
+        if not isinstance(rezim, DphRezim):
+            raise ValidationError(
+                f"Neplatný DPH režim: {rezim!r}"
+            )
+        self._dph_rezim = rezim
+
     # --- Stavový stroj ---
 
     def zauctuj(self) -> None:

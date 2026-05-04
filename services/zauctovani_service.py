@@ -58,9 +58,21 @@ class ZauctovaniDokladuService:
 
             doklad = doklady_repo.get_by_id(doklad_id)
 
-            # U reverse charge: DPH řádky (343/343) jsou průtokové —
-            # porovnáváme jen základ (ne-DPH řádky) s částkou dokladu.
-            if doklad.dph_rezim == DphRezim.REVERSE_CHARGE:
+            # Detekce RC z předpisu: pokud obsahuje řádky 343/343, jde o RC
+            # (přenos daňové povinnosti). User mohl zaškrtnout RC v dialogu
+            # i pro doklad s dph_rezim=TUZEMSKO — pak validace musí to
+            # respektovat a dorovnat doklad.dph_rezim.
+            ma_dph_radek = any(
+                z.md_ucet.startswith("343") and z.dal_ucet.startswith("343")
+                for z in predpis.zaznamy
+            )
+            je_rc = (
+                doklad.dph_rezim == DphRezim.REVERSE_CHARGE or ma_dph_radek
+            )
+
+            if je_rc:
+                # DPH řádky (343/343) jsou průtokové — porovnáváme jen
+                # základ (ne-DPH řádky) s částkou dokladu.
                 zaklad = Money.zero()
                 for z in predpis.zaznamy:
                     if not (z.md_ucet.startswith("343") and z.dal_ucet.startswith("343")):
@@ -70,6 +82,10 @@ class ZauctovaniDokladuService:
                         f"Základ předpisu ({zaklad}) nesouhlasí "
                         f"s celkovou částkou dokladu ({doklad.castka_celkem})"
                     )
+                # Pokud doklad neměl dph_rezim=RC, dorovnáme — předpis
+                # obsahuje DPH řádky, takže RC je realitou.
+                if doklad.dph_rezim != DphRezim.REVERSE_CHARGE:
+                    doklad.nastav_dph_rezim(DphRezim.REVERSE_CHARGE)
             elif doklad.castka_celkem != predpis.celkova_castka:
                 raise PodvojnostError(
                     f"Předpis ({predpis.celkova_castka}) nesouhlasí "
