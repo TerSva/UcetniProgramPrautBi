@@ -173,3 +173,90 @@ class TestDokladyTable:
         model = table.model()
         table.doubleClicked.emit(model.index(0, 0))
         assert received == [99]
+
+
+class TestSortableTable:
+    """sortable=True: klikatelné Číslo / Datum / Částka, ostatní noop."""
+
+    def test_default_sortable_je_false(self, qtbot):
+        table = DokladyTable()
+        qtbot.addWidget(table)
+        # setSortingEnabled odráží sortable
+        assert table.isSortingEnabled() is False
+
+    def test_sortable_true_zapne_sorting(self, qtbot):
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        assert table.isSortingEnabled() is True
+
+    def test_sortable_radi_castku_descending(self, qtbot):
+        from PyQt6.QtCore import Qt
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        table.set_items([
+            _item(id=1, cislo="FV-2025-001", datum=date(2025, 1, 1), castka="100"),
+            _item(id=2, cislo="FV-2025-002", datum=date(2025, 2, 1), castka="500"),
+            _item(id=3, cislo="FV-2025-003", datum=date(2025, 3, 1), castka="200"),
+        ])
+        # Sort podle Částky (col 5) DESC
+        table.sortByColumn(5, Qt.SortOrder.DescendingOrder)
+        # Pořadí v UI: id=2 (500), id=3 (200), id=1 (100)
+        # Klikni na první řádek → emit id=2
+        received: list[int] = []
+        table.row_activated.connect(lambda i: received.append(i))
+        model = table.model()
+        table.doubleClicked.emit(model.index(0, 0))
+        assert received == [2]
+
+    def test_sortable_radi_datum_ascending(self, qtbot):
+        from PyQt6.QtCore import Qt
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        table.set_items([
+            _item(id=1, datum=date(2025, 3, 1)),
+            _item(id=2, datum=date(2025, 1, 1)),
+            _item(id=3, datum=date(2025, 2, 1)),
+        ])
+        # Sort podle Data (col 2) ASC — nejstarší nahoře
+        table.sortByColumn(2, Qt.SortOrder.AscendingOrder)
+        received: list[int] = []
+        table.row_activated.connect(lambda i: received.append(i))
+        model = table.model()
+        table.doubleClicked.emit(model.index(0, 0))
+        # První řádek = id=2 (1.1.2025)
+        assert received == [2]
+
+    def test_sortable_default_je_datum_desc(self, qtbot):
+        from PyQt6.QtCore import Qt
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        table.set_items([
+            _item(id=1, datum=date(2025, 1, 1)),
+            _item(id=2, datum=date(2025, 5, 1)),
+            _item(id=3, datum=date(2025, 3, 1)),
+        ])
+        # Default sort proběhne v __init__ (Datum DESC)
+        # První řádek by měl být nejnovější (id=2, 1.5.)
+        received: list[int] = []
+        table.row_activated.connect(lambda i: received.append(i))
+        model = table.model()
+        table.doubleClicked.emit(model.index(0, 0))
+        assert received == [2]
+
+    def test_sortable_klik_na_neactive_sloupec_je_noop(self, qtbot):
+        """Klik na sloupec Typ (col 1) nesortuje — pořadí zůstane jak default."""
+        from PyQt6.QtCore import Qt
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        table.set_items([
+            _item(id=1, datum=date(2025, 1, 1)),
+            _item(id=2, datum=date(2025, 5, 1)),
+        ])
+        # Default DESC: id=2 první. Klik na Typ (col 1) by měl být noop.
+        table.sortByColumn(1, Qt.SortOrder.AscendingOrder)
+        received: list[int] = []
+        table.row_activated.connect(lambda i: received.append(i))
+        model = table.model()
+        table.doubleClicked.emit(model.index(0, 0))
+        # Pořadí stejné jako default sort (id=2 nahoře)
+        assert received == [2]

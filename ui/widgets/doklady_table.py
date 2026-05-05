@@ -26,6 +26,7 @@ from PyQt6.QtCore import (
     QModelIndex,
     QObject,
     QSize,
+    QSortFilterProxyModel,
     Qt,
     pyqtSignal,
 )
@@ -249,6 +250,25 @@ class DokladyTableModel(QAbstractTableModel):
                 return item.k_doreseni
             return None
 
+        # ── EditRole = typová hodnota pro sortování ──
+        # Používá se přes QSortFilterProxyModel.setSortRole(EditRole),
+        # když je tabulka sortable. Pro neaktivní sloupce vrací DisplayRole.
+        if role == Qt.ItemDataRole.EditRole:
+            if col == _COL_CISLO:
+                # Robustní sort pro "FV-2025-001": tuple (prefix, rok, num)
+                # Pokud regex neprojde, fallback na string.
+                import re
+                m = re.match(r"^([A-Za-zÁ-Žá-ž]+)-(\d+)-(\d+)$", item.cislo)
+                if m:
+                    return (m.group(1), int(m.group(2)), int(m.group(3)))
+                return item.cislo
+            if col == _COL_DATUM:
+                return item.datum_vystaveni
+            if col == _COL_CASTKA:
+                # Přepočet do CZK (haléře) — porovnává se napříč měnami
+                return item.castka_celkem.to_halire()
+            return None
+
         # ── Tooltip pro k_doreseni sloupec ──
         if role == Qt.ItemDataRole.ToolTipRole:
             if col == _COL_DORESENI and item.k_doreseni:
@@ -318,24 +338,62 @@ class KDoreseniIconDelegate(QStyledItemDelegate):
 # ══════════════════════════════════════════════
 
 
+#: Sloupce, které jsou klikatelně sortovatelné (pro sortable=True tabulky).
+_SORTABLE_COLUMNS: frozenset[int] = frozenset({_COL_CISLO, _COL_DATUM, _COL_CASTKA})
+
+
+class _SortableProxy(QSortFilterProxyModel):
+    """Proxy: kliknutí na nesortovatelný sloupec ignoruje (no-op)."""
+
+    def sort(  # noqa: N802 (Qt API)
+        self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder,
+    ) -> None:
+        if column not in _SORTABLE_COLUMNS:
+            return  # ignoruj — sortable je jen pro číslo / datum / částka
+        super().sort(column, order)
+
+
 class DokladyTable(QTableView):
-    """QTableView s vypnutými grid lines, alternate-row barvami a delegatem."""
+    """QTableView s vypnutými grid lines, alternate-row barvami a delegatem.
+
+    ``sortable=True`` zapne klikatelné sortování pro sloupce Číslo, Datum
+    a Částka (3 ze 9 sloupců). Default sort: Datum DESC. Šipka v hlavičce
+    se zobrazí standardně přes Qt header.
+    """
 
     #: Emitováno při double-click / Enter — doklad_id z modelu.
     row_activated = pyqtSignal(int)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        sortable: bool = False,
+    ) -> None:
         super().__init__(parent)
         self.setProperty("class", "doklady-table")
+        self._sortable = sortable
 
         self._model_adapter_inst = DokladyTableModel(self)
-        self.setModel(self._model_adapter_inst)
+        if sortable:
+            # Proxy: sort přes EditRole (typová hodnota z modelu),
+            # neclickable sloupce ignorujeme přes _SortableProxy.sort().
+            self._proxy: QSortFilterProxyModel | None = _SortableProxy(self)
+            self._proxy.setSourceModel(self._model_adapter_inst)
+            self._proxy.setSortRole(Qt.ItemDataRole.EditRole)
+            self.setModel(self._proxy)
+        else:
+            self._proxy = None
+            self.setModel(self._model_adapter_inst)
 
         self._doreseni_delegate = KDoreseniIconDelegate(self)
         self.setItemDelegateForColumn(_COL_DORESENI, self._doreseni_delegate)
 
         self._configure_view()
         self._wire_signals()
+
+        if sortable:
+            # Default: Datum DESC (nejnovější nahoře — zachovává původní order)
+            self.sortByColumn(_COL_DATUM, Qt.SortOrder.DescendingOrder)
 
     # ────────────────────────────────────────────────
     # Public API
@@ -370,7 +428,10 @@ class DokladyTable(QTableView):
         self.setAlternatingRowColors(True)
         self.setShowGrid(False)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.setSortingEnabled(False)  # řazení drží query (DESC datum, DESC id)
+        # Sortable=True: zapni klikatelné sortování (jen pro Číslo/Datum/Částka,
+        # ostatní sloupce klik ignoruje díky _SortableProxy.sort()).
+        # Sortable=False: order drží query (DESC datum, DESC id).
+        self.setSortingEnabled(self._sortable)
         self.verticalHeader().setVisible(False)
         self.verticalHeader().setDefaultSectionSize(36)
 
@@ -398,5 +459,11 @@ class DokladyTable(QTableView):
     def _emit_row_activated(self, index: QModelIndex) -> None:
         if not index.isValid():
             return
-        item = self._model_adapter_inst.item_at(index.row())
+        # Pokud máme proxy, mapni sortovaný index zpět na zdrojový.
+        if self._proxy is not None:
+            source_index = self._proxy.mapToSource(index)
+            row = source_index.row()
+        else:
+            row = index.row()
+        item = self._model_adapter_inst.item_at(row)
         self.row_activated.emit(item.id)

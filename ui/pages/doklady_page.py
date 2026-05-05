@@ -279,7 +279,14 @@ class DokladyPage(QWidget):
 
         # Content / empty stack
         self._stack = QStackedWidget(self)
-        self._table = DokladyTable(self)
+        # Klikatelné sortování (Číslo / Datum / Částka) ve FV i FP preset.
+        # V ostatních seznamech (PD, ID, OD, „Vše") zachováváme query order
+        # (DESC datum, DESC id).
+        sortable = self._preset_typ in (
+            TypDokladu.FAKTURA_VYDANA,
+            TypDokladu.FAKTURA_PRIJATA,
+        )
+        self._table = DokladyTable(self, sortable=sortable)
         self._stack.addWidget(self._table)             # _STACK_CONTENT = 0
 
         self._empty_container = self._build_empty_state()
