@@ -45,7 +45,12 @@ from infrastructure.database.unit_of_work import SqliteUnitOfWork
 
 @dataclass(frozen=True)
 class SparovaniResult:
-    """Výsledek spárování platby s dokladem."""
+    """Výsledek spárování platby s dokladem.
+
+    ``doklad_uhrazen`` je True jen pokud po této úhradě dosáhl součet
+    všech úhrad částky dokladu (UHRAZENY). Při částečné platbě je False
+    a doklad zůstává v CASTECNE_UHRAZENY (umožní párovat další platby).
+    """
 
     ucetni_zaznam_ids: list[int]
     kurzovy_rozdil: Money | None
@@ -69,6 +74,7 @@ class SparovatPlatbuDoklademCommand:
         dal_ucet_override: str | None = None,
         popis_override: str | None = None,
         rozdil_zauctovat: bool = False,
+        castka_override: Money | None = None,
     ) -> SparovaniResult:
         """Spáruje transakci s dokladem.
 
@@ -134,12 +140,17 @@ class SparovatPlatbuDoklademCommand:
                 raise ValidationError("Bankovní účet nenalezen.")
             ucet_221 = ucet.ucet_kod  # e.g. "221.001"
 
-            # Částka (absolutní hodnota)
-            tx_castka = (
-                tx.castka
-                if tx.castka.is_positive
-                else Money(-tx.castka.to_halire())
-            )
+            # Částka — preferuj override z dialogu (umožňuje částečnou
+            # úhradu — user zadá kolik z transakce zaúčtovat na tento
+            # doklad). Bez override vezmi celou tx částku (abs).
+            if castka_override is not None and castka_override.is_positive:
+                tx_castka = castka_override
+            else:
+                tx_castka = (
+                    tx.castka
+                    if tx.castka.is_positive
+                    else Money(-tx.castka.to_halire())
+                )
 
             # Účty podle typu dokladu — preferuj override (z dialogu),
             # jinak najdi reálný účet závazku/pohledávky z původního
@@ -265,8 +276,22 @@ class SparovatPlatbuDoklademCommand:
             tx.ucetni_zapis_id = zapis_id
             tx_repo.update(tx)
 
-            # Změň stav dokladu na UHRAZENY
-            doklad.oznac_uhrazeny()
+            # Spočítej celkovou úhradu (vč. právě přidané) a rozhodni o stavu.
+            # Při částečné úhradě → CASTECNE_UHRAZENY (umožní další párování),
+            # při plné/nadúhrazení → UHRAZENY.
+            uhrazeno_celkem = _spocitej_uhrazeno_celkem(
+                uow, doklad_id, doklad.cislo,
+            )
+            doklad_uhrazen = (
+                uhrazeno_celkem.to_halire() >= doklad.castka_celkem.to_halire()
+            )
+            if doklad_uhrazen:
+                doklad.oznac_uhrazeny()
+            else:
+                # Z NOVY/ZAUCTOVANY → CASTECNE; pokud už je CASTECNE,
+                # přechod není potřeba (zůstává).
+                if doklad.stav == StavDokladu.ZAUCTOVANY:
+                    doklad.oznac_castecne_uhrazeny()
             doklady_repo.update(doklad)
 
             uow.commit()
@@ -274,8 +299,57 @@ class SparovatPlatbuDoklademCommand:
         return SparovaniResult(
             ucetni_zaznam_ids=zaznam_ids,
             kurzovy_rozdil=kurzovy_rozdil,
-            doklad_uhrazen=True,
+            doklad_uhrazen=doklad_uhrazen,
         )
+
+
+def _spocitej_uhrazeno_celkem(
+    uow: SqliteUnitOfWork,
+    doklad_id: int,
+    doklad_cislo: str,
+) -> Money:
+    """Vrátí celkovou již zaúčtovanou úhradu pro doklad (FP/FV).
+
+    Sčítá:
+      - úhradové zápisy navázané přes bankovni_transakce.ucetni_zapis_id
+        (sparovany_doklad_id = doklad_id)
+      - úhradové zápisy v PD/ID dokladech, kde popis začíná „Úhrada "
+        a obsahuje číslo dokladu (hotovostní/interní úhrady)
+
+    Záměrně **nezahrnuje** kurzové rozdíly (popis „Kurzov…") ani
+    rozdílové zápisy úhrady (568/663) — ty mají vlastní logiku a
+    nepatří do bilance saldokonta.
+    """
+    rows = uow.connection.execute(
+        """
+        SELECT uz.id, uz.castka
+        FROM ucetni_zaznamy uz
+        JOIN bankovni_transakce bt ON bt.ucetni_zapis_id = uz.id
+        WHERE bt.sparovany_doklad_id = ?
+          AND uz.je_storno = 0
+
+        UNION
+
+        SELECT uz.id, uz.castka
+        FROM ucetni_zaznamy uz
+        JOIN doklady d ON d.id = uz.doklad_id
+        WHERE uz.popis LIKE ?
+          AND uz.je_storno = 0
+          AND uz.doklad_id != ?
+          AND d.typ IN ('PD', 'ID')
+          AND uz.popis LIKE 'Úhrada%'
+        """,
+        (doklad_id, f"%{doklad_cislo}%", doklad_id),
+    ).fetchall()
+
+    seen: set[int] = set()
+    total = 0
+    for r in rows:
+        if r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        total += r["castka"]
+    return Money(total)
 
 
 def _najdi_aktivni_ucet(

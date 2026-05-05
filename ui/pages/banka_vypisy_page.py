@@ -582,6 +582,11 @@ class BankaVypisyPage(QWidget):
             QMessageBox.warning(self, "Chyba", "Funkce není dostupná.")
             return False
 
+        from services.commands.sparovat_platbu_dokladem import (
+            _spocitej_uhrazeno_celkem,
+        )
+        from domain.shared.money import Money as _Money
+
         uow = uow_factory()
         with uow:
             doklady_repo = SqliteDokladyRepository(uow)
@@ -594,7 +599,12 @@ class BankaVypisyPage(QWidget):
 
             osnova_repo = SqliteUctovaOsnovaRepository(uow)
             ucty_domain = osnova_repo.list_all(jen_aktivni=True)
+            # Spočítej už zaúčtované úhrady — kolik ještě zbývá
+            uhrazeno = _spocitej_uhrazeno_celkem(uow, doklad_id, doklad.cislo)
         ucty = [UcetItem.from_domain(u) for u in ucty_domain]
+        zbyva = _Money(
+            doklad.castka_celkem.to_halire() - uhrazeno.to_halire()
+        )
 
         ucet_221 = self._vm.get_ucet_kod_for_vypis() or "221"
 
@@ -606,6 +616,7 @@ class BankaVypisyPage(QWidget):
             ucty=ucty,
             ucet_protistrany=ucet_protistrany,
             ucet_221=ucet_221,
+            zbyva_uhradit=zbyva,
             parent=self,
         )
         if not zdlg.exec():
@@ -623,6 +634,7 @@ class BankaVypisyPage(QWidget):
                 dal_ucet_override=zdlg.dal_ucet,
                 popis_override=zdlg.popis or None,
                 rozdil_zauctovat=zdlg.zauctovat_rozdil,
+                castka_override=zdlg.castka,
             )
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(self, "Chyba", str(exc))

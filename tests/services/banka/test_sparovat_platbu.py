@@ -296,6 +296,103 @@ class TestSparovatPlatbuDoklademCommand:
             # Bez analytiky → fallback na syntetický 663
             assert kurz[0].dal_ucet == "663"
 
+    def test_castecna_uhrada_zachova_castecne_uhrazeny_a_umozni_dalsi(
+        self, db_factory, setup_fp,
+    ):
+        """Faktura 5000 + úhrada 2000 → CASTECNE_UHRAZENY + další úhrada projde."""
+        # Setup_fp má fakturu 5000 a transakci 5000. Vytvořme menší tx.
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            tx_repo = SqliteBankovniTransakceRepository(uow)
+            tx1_id = tx_repo.add(BankovniTransakce(
+                bankovni_vypis_id=setup_fp["vypis_id"],
+                datum_transakce=date(2025, 3, 16),
+                datum_zauctovani=date(2025, 3, 16),
+                castka=Money(-200000),  # 2 000 Kč
+                smer="V",
+                popis="Záloha",
+                variabilni_symbol="202500001",
+                row_hash="hash_part_1",
+            ))
+            tx2_id = tx_repo.add(BankovniTransakce(
+                bankovni_vypis_id=setup_fp["vypis_id"],
+                datum_transakce=date(2025, 3, 25),
+                datum_zauctovani=date(2025, 3, 25),
+                castka=Money(-300000),  # 3 000 Kč
+                smer="V",
+                popis="Doplatek",
+                variabilni_symbol="202500001",
+                row_hash="hash_part_2",
+            ))
+            uow.commit()
+
+        cmd = SparovatPlatbuDoklademCommand(
+            uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        )
+        # 1. úhrada — 2000 z 5000 → CASTECNE_UHRAZENY
+        r1 = cmd.execute(tx1_id, setup_fp["fp_id"])
+        assert r1.doklad_uhrazen is False
+
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            doklady_repo = SqliteDokladyRepository(uow)
+            d = doklady_repo.get_by_id(setup_fp["fp_id"])
+            assert d.stav == StavDokladu.CASTECNE_UHRAZENY
+
+        # 2. úhrada — 3000 doplatek → UHRAZENY
+        r2 = cmd.execute(tx2_id, setup_fp["fp_id"])
+        assert r2.doklad_uhrazen is True
+
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            doklady_repo = SqliteDokladyRepository(uow)
+            d = doklady_repo.get_by_id(setup_fp["fp_id"])
+            assert d.stav == StavDokladu.UHRAZENY
+
+    def test_castka_override_castecna_uhrada(self, db_factory, setup_fp):
+        """User v dialogu zadá menší částku než tx → částečná úhrada.
+
+        FP 5000, tx 5000, ale user napíše 2000 do dialogu →
+        zaúčtuje se 2000, doklad CASTECNE_UHRAZENY, zbývá 3000.
+        """
+        cmd = SparovatPlatbuDoklademCommand(
+            uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        )
+        r = cmd.execute(
+            setup_fp["tx_id"], setup_fp["fp_id"],
+            castka_override=Money(200000),  # 2 000 Kč
+        )
+        assert r.doklad_uhrazen is False
+
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            doklady_repo = SqliteDokladyRepository(uow)
+            d = doklady_repo.get_by_id(setup_fp["fp_id"])
+            assert d.stav == StavDokladu.CASTECNE_UHRAZENY
+            # Účetní zápis má částku 2000 (override), ne 5000 (tx)
+            denik_repo = SqliteUcetniDenikRepository(uow)
+            zaznamy = denik_repo.list_by_doklad(setup_fp["bv_doklad_id"])
+            uhradove = [
+                z for z in zaznamy
+                if z.popis and z.popis.startswith("Úhrada")
+            ]
+            assert len(uhradove) == 1
+            assert uhradove[0].castka == Money(200000)
+
+    def test_plna_uhrada_jednou_platbou(self, db_factory, setup_fp):
+        """Faktura 5000 + úhrada 5000 → UHRAZENY rovnou."""
+        cmd = SparovatPlatbuDoklademCommand(
+            uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        )
+        r = cmd.execute(setup_fp["tx_id"], setup_fp["fp_id"])
+        assert r.doklad_uhrazen is True
+
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            doklady_repo = SqliteDokladyRepository(uow)
+            d = doklady_repo.get_by_id(setup_fp["fp_id"])
+            assert d.stav == StavDokladu.UHRAZENY
+
     def test_sparovani_novy_doklad_rejects(self, db_factory, setup_fp):
         """Nelze spárovat s NOVY dokladem."""
         uow = SqliteUnitOfWork(db_factory)

@@ -50,6 +50,7 @@ class ZauctovatUhraduDialog(QDialog):
         ucty: list[UcetItem],
         ucet_protistrany: str | None,
         ucet_221: str,
+        zbyva_uhradit: Money | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -67,6 +68,11 @@ class ZauctovatUhraduDialog(QDialog):
         doklad_abs = abs(doklad_castka.to_halire())
         self._tx_castka = Money(tx_abs)
         self._doklad_castka = Money(doklad_abs)
+        # Pokud doklad už má dílčí úhrady, zbyva_uhradit < doklad_castka.
+        # Pro nový doklad bez úhrad zbyva_uhradit == doklad_castka.
+        self._zbyva_uhradit = (
+            zbyva_uhradit if zbyva_uhradit is not None else self._doklad_castka
+        )
         self._rozdil = Money(tx_abs - doklad_abs)
 
         self.setWindowTitle("Zaúčtovat úhradu")
@@ -120,9 +126,20 @@ class ZauctovatUhraduDialog(QDialog):
         title.setProperty("class", "dialog-title")
         root.addWidget(title)
 
+        # Info o dokladu — pokud má dílčí úhrady, ukázat zbývá vs celkem
+        if self._zbyva_uhradit != self._doklad_castka:
+            doklad_info = (
+                f"Doklad: {self._doklad_cislo} "
+                f"(celkem {self._doklad_castka.format_cz()}, "
+                f"zbývá uhradit {self._zbyva_uhradit.format_cz()})"
+            )
+        else:
+            doklad_info = (
+                f"Doklad: {self._doklad_cislo} "
+                f"({self._doklad_castka.format_cz()})"
+            )
         info = QLabel(
-            f"Doklad: {self._doklad_cislo} "
-            f"({self._doklad_castka.format_cz()})\n"
+            f"{doklad_info}\n"
             f"Transakce: "
             f"{self._tx.datum_zauctovani.strftime('%d.%m.%Y')} "
             f"({self._tx.castka.format_cz()})",
@@ -150,11 +167,23 @@ class ZauctovatUhraduDialog(QDialog):
         self._dal_combo = LabeledComboBox("Dal účet", parent=self)
         root.addWidget(self._dal_combo)
 
-        # Částka
+        # Částka — výchozí = celá tx, ale lze upravit pro částečnou úhradu
         self._castka_input = LabeledMoneyEdit(
-            "Částka", placeholder="0,00", parent=self,
+            "Částka úhrady (Kč)",
+            placeholder="0,00",
+            parent=self,
         )
         root.addWidget(self._castka_input)
+        # Help text pod částkou
+        castka_help = QLabel(
+            "Tip: pro částečnou úhradu zadejte jen část transakce. "
+            "Zbytek dokladu zůstane CASTECNE_UHRAZENY a půjde "
+            "spárovat další platbou.",
+            self,
+        )
+        castka_help.setProperty("class", "form-help")
+        castka_help.setWordWrap(True)
+        root.addWidget(castka_help)
 
         # Popis
         self._popis_input = LabeledLineEdit(
