@@ -26,10 +26,12 @@ class UhradaPokladnouDialog(QDialog):
         self,
         doklad: DokladyListItem,
         next_pd_cislo: str,
+        ucet_pokladny: str = "211",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._doklad = doklad
+        self._ucet_pokladny = ucet_pokladny
         self._result_datum: date | None = None
         self._result_cislo: str | None = None
         self._result_popis: str | None = None
@@ -79,11 +81,18 @@ class UhradaPokladnouDialog(QDialog):
         info.setWordWrap(True)
         root.addWidget(info)
 
-        # Účtování preview
+        # Účtování preview — pokladna z osnovy (analytika nebo syntetický)
+        ucet_p = self._ucet_pokladny
         if d.typ.value == "FP":
-            uctovani = f"MD 321 (Dodavatelé)  /  Dal 211 (Pokladna)  {d.castka_celkem.format_cz()}"
+            uctovani = (
+                f"MD 321 (Dodavatelé)  /  Dal {ucet_p} (Pokladna)  "
+                f"{d.castka_celkem.format_cz()}"
+            )
         else:
-            uctovani = f"MD 211 (Pokladna)  /  Dal 311 (Odběratelé)  {d.castka_celkem.format_cz()}"
+            uctovani = (
+                f"MD {ucet_p} (Pokladna)  /  Dal 311 (Odběratelé)  "
+                f"{d.castka_celkem.format_cz()}"
+            )
         uctovani_label = QLabel(uctovani, self)
         uctovani_label.setProperty("class", "form-help")
         root.addWidget(uctovani_label)

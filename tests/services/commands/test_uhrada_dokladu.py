@@ -178,6 +178,35 @@ class TestUhradaPokladnouCommand:
         with pytest.raises(ValidationError, match="FP/FV"):
             cmd.execute(d.id, date(2025, 3, 15), "PD-2025-100")
 
+    def test_uhrada_pouzije_analytiku_pokladny(
+        self, db_factory, zauctovana_fp,
+    ):
+        """Pokud je v osnově analytika 211.x, použije se místo syntetického."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            uow.connection.execute(
+                "INSERT INTO uctova_osnova (cislo, nazev, typ, je_aktivni) "
+                "VALUES ('211.100', 'Pokladna CZK', 'A', 1)",
+            )
+            uow.commit()
+
+        cmd = UhradaPokladnouCommand(
+            uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        )
+        result = cmd.execute(
+            doklad_id=zauctovana_fp,
+            datum_uhrady=date(2025, 3, 15),
+            cislo_pd="PD-A-001",
+        )
+
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            denik = SqliteUcetniDenikRepository(uow)
+            zaznamy = denik.list_by_doklad(result.novy_doklad_id)
+            assert len(zaznamy) == 1
+            # FP: MD 321 / Dal 211.100 (analytika)
+            assert zaznamy[0].dal_ucet == "211.100"
+
 
 class TestUhradaIntDoklademCommand:
 

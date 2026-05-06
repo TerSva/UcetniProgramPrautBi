@@ -74,17 +74,20 @@ class UhradaPokladnouCommand:
             )
             pd = doklady_repo.add(pd)
 
-            # Účtování — analytický účet z původního zaúčtování
+            # Účtování — analytický účet z původního zaúčtování + analytika
+            # pokladny z osnovy (např. 211.100). Pokud uživatel má více
+            # pokladen, vezme se první aktivní; fallback na syntetický 211.
+            ucet_pokladny = self._find_pokladna_analytika(uow)
             if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
                 ucet_321 = self._find_analyticky_ucet(
                     uow, doklad_id, "dal_ucet", "321",
                 )
-                md_ucet, dal_ucet = ucet_321, "211"
+                md_ucet, dal_ucet = ucet_321, ucet_pokladny
             else:
                 ucet_311 = self._find_analyticky_ucet(
                     uow, doklad_id, "md_ucet", "311",
                 )
-                md_ucet, dal_ucet = "211", ucet_311
+                md_ucet, dal_ucet = ucet_pokladny, ucet_311
 
             zaznam = UcetniZaznam(
                 doklad_id=pd.id,
@@ -142,6 +145,19 @@ class UhradaPokladnouCommand:
             (doklad_id, f"{synteticky}%"),
         ).fetchone()
         return row[0] if row else synteticky
+
+    @staticmethod
+    def _find_pokladna_analytika(uow: SqliteUnitOfWork) -> str:
+        """První aktivní analytika 211.x v osnově (např. 211.100).
+
+        Pokud uživatel ještě nemá analytiku, vrací syntetický 211.
+        """
+        row = uow.connection.execute(
+            "SELECT cislo FROM uctova_osnova "
+            "WHERE cislo LIKE '211.%' AND je_aktivni = 1 "
+            "ORDER BY cislo LIMIT 1",
+        ).fetchone()
+        return row[0] if row else "211"
 
 
 class UhradaIntDoklademCommand:

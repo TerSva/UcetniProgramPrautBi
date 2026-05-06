@@ -1127,6 +1127,19 @@ class DokladDetailDialog(QDialog):
         except Exception as exc:  # noqa: BLE001
             self._show_error(str(exc))
 
+    def _resolve_ucet_pokladny(self) -> str:
+        """Vrátí první aktivní analytiku 211.x z osnovy, jinak '211'."""
+        if self._uow_factory is None:
+            return "211"
+        uow = self._uow_factory()
+        with uow:
+            row = uow.connection.execute(
+                "SELECT cislo FROM uctova_osnova "
+                "WHERE cislo LIKE '211.%' AND je_aktivni = 1 "
+                "ORDER BY cislo LIMIT 1",
+            ).fetchone()
+        return row[0] if row else "211"
+
     def _on_uhrada_pokladnou(self) -> None:
         from services.commands.uhrada_dokladu import UhradaPokladnouCommand
         from ui.dialogs.uhrada_pokladnou_dialog import UhradaPokladnouDialog
@@ -1140,7 +1153,12 @@ class DokladDetailDialog(QDialog):
         rok = item.datum_vystaveni.year
         next_cislo = f"PD-{rok}-{item.id:03d}"
 
-        dlg = UhradaPokladnouDialog(item, next_cislo, parent=self)
+        # Resolve účet pokladny z osnovy — preferuj analytiku
+        ucet_pokladny = self._resolve_ucet_pokladny()
+
+        dlg = UhradaPokladnouDialog(
+            item, next_cislo, ucet_pokladny=ucet_pokladny, parent=self,
+        )
         if not dlg.exec():
             return
 
