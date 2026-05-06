@@ -52,6 +52,8 @@ class NeuhrazeneDokladyQuery:
         """
         uow = self._uow_factory()
         with uow:
+            # ZF se neúčtují samostatně — bere se v NOVY stavu rovněž.
+            # FV/FP jsou v ZAUCTOVANY/CASTECNE_UHRAZENY (po zaúčtování).
             sql = """
                 SELECT d.id, d.cislo, d.typ, d.datum_vystaveni,
                        d.castka_celkem, d.castka_mena, d.mena,
@@ -59,10 +61,16 @@ class NeuhrazeneDokladyQuery:
                        p.nazev AS partner_nazev
                 FROM doklady d
                 LEFT JOIN partneri p ON d.partner_id = p.id
-                WHERE d.typ IN ('FP', 'FV')
-                  AND d.stav IN (?, ?)
+                WHERE d.typ IN ('FP', 'FV', 'ZF')
+                  AND (
+                    (d.typ IN ('FP', 'FV') AND d.stav IN (?, ?))
+                    OR (d.typ = 'ZF' AND d.stav IN (?, ?, ?))
+                  )
             """
             params: list = [
+                StavDokladu.ZAUCTOVANY.value,
+                StavDokladu.CASTECNE_UHRAZENY.value,
+                StavDokladu.NOVY.value,
                 StavDokladu.ZAUCTOVANY.value,
                 StavDokladu.CASTECNE_UHRAZENY.value,
             ]
