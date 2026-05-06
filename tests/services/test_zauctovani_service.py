@@ -561,3 +561,123 @@ class TestReverseChargeValidation:
         )
         with pytest.raises(PodvojnostError, match="nesouhlasí"):
             service.zauctuj_doklad(fv_v_db, predpis)
+
+
+class TestZuctovaniZalohy:
+    """Konečná FV/FP s odečtem zálohy — auto-UHRAZENÍ + označení ZF."""
+
+    def _make_doklady(
+        self, service_factories, finalni_castka_kc: str,
+    ) -> tuple[int, str, str]:
+        """Vytvoř ZF (UHRAZENY) + finální FV (ZAUCTOVANY-ready).
+
+        Vrací (finalni_id, finalni_cislo, zf_cislo).
+        """
+        from domain.doklady.typy import Mena
+        uow = service_factories["uow"]()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            zf = repo.add(Doklad(
+                cislo="ZF-2025-001",
+                typ=TypDokladu.ZALOHA_FAKTURA,
+                datum_vystaveni=date(2025, 4, 1),
+                castka_celkem=Money.from_koruny(finalni_castka_kc),
+                stav=StavDokladu.UHRAZENY,
+                je_vystavena=True,
+            ))
+            fv = repo.add(Doklad(
+                cislo="FV-FINAL-001",
+                typ=TypDokladu.FAKTURA_VYDANA,
+                datum_vystaveni=date(2025, 4, 30),
+                castka_celkem=Money.from_koruny(finalni_castka_kc),
+            ))
+            uow.commit()
+        return fv.id, fv.cislo, zf.cislo
+
+    def test_zauctovani_se_zalohou_oznaci_doklad_uhrazeny(
+        self, service, service_factories,
+    ):
+        """Finální FV 50000 + odečet 50000 ze zálohy → stav UHRAZENY."""
+        fv_id, fv_cislo, zf_cislo = self._make_doklady(
+            service_factories, "50000",
+        )
+        predpis = UctovyPredpis(
+            doklad_id=fv_id,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=fv_id, datum=date(2025, 4, 30),
+                    md_ucet="311", dal_ucet="601",
+                    castka=Money.from_koruny("50000"),
+                ),
+                UcetniZaznam(
+                    doklad_id=fv_id, datum=date(2025, 4, 30),
+                    md_ucet="324.001", dal_ucet="311",
+                    castka=Money.from_koruny("50000"),
+                    popis=f"Odečet zálohy {zf_cislo}",
+                ),
+            ),
+        )
+        doklad, _ = service.zauctuj_doklad(fv_id, predpis)
+        # Auto-UHRAZENO: záloha pokrývá celou pohledávku
+        assert doklad.stav == StavDokladu.UHRAZENY
+
+    def test_zauctovani_castecny_odecet_zustava_zauctovany(
+        self, service, service_factories,
+    ):
+        """FV 50000 + odečet 30000 → ZAUCTOVANY (zbývá 20000 doplatit)."""
+        fv_id, fv_cislo, zf_cislo = self._make_doklady(
+            service_factories, "50000",
+        )
+        predpis = UctovyPredpis(
+            doklad_id=fv_id,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=fv_id, datum=date(2025, 4, 30),
+                    md_ucet="311", dal_ucet="601",
+                    castka=Money.from_koruny("50000"),
+                ),
+                UcetniZaznam(
+                    doklad_id=fv_id, datum=date(2025, 4, 30),
+                    md_ucet="324.001", dal_ucet="311",
+                    castka=Money.from_koruny("30000"),
+                    popis=f"Odečet zálohy {zf_cislo}",
+                ),
+            ),
+        )
+        doklad, _ = service.zauctuj_doklad(fv_id, predpis)
+        # Záloha nepokryla celou částku → klasický ZAUCTOVANY,
+        # zbývá 20000 doplatit přes banku
+        assert doklad.stav == StavDokladu.ZAUCTOVANY
+
+    def test_zaloha_oznacena_v_popisu_finalni_doklad(
+        self, service, service_factories,
+    ):
+        """Po zaúčtování finální FV se ZF doklad označí v popisu."""
+        fv_id, fv_cislo, zf_cislo = self._make_doklady(
+            service_factories, "50000",
+        )
+        predpis = UctovyPredpis(
+            doklad_id=fv_id,
+            zaznamy=(
+                UcetniZaznam(
+                    doklad_id=fv_id, datum=date(2025, 4, 30),
+                    md_ucet="311", dal_ucet="601",
+                    castka=Money.from_koruny("50000"),
+                ),
+                UcetniZaznam(
+                    doklad_id=fv_id, datum=date(2025, 4, 30),
+                    md_ucet="324.001", dal_ucet="311",
+                    castka=Money.from_koruny("50000"),
+                    popis=f"Odečet zálohy {zf_cislo}",
+                ),
+            ),
+        )
+        service.zauctuj_doklad(fv_id, predpis)
+
+        # Najdi ZF a zkontroluj popis
+        uow = service_factories["uow"]()
+        with uow:
+            repo = SqliteDokladyRepository(uow)
+            zf = repo.get_by_cislo(zf_cislo)
+            assert zf.popis is not None
+            assert f"Zúčtováno s {fv_cislo}" in zf.popis

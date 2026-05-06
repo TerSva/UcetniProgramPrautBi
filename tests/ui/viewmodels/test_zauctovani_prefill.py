@@ -34,12 +34,13 @@ def _make_ucty():
 class TestPrefillDal:
 
     def test_no_prefill_default(self):
+        """FP bez prefill parametru → default Dal=321.001."""
         osnova = MagicMock()
         osnova.execute.return_value = _make_ucty()
         cmd = MagicMock()
         vm = ZauctovaniViewModel(_make_item(), osnova, cmd)
         vm.load()
-        assert vm.radky[0].dal_ucet == ""
+        assert vm.radky[0].dal_ucet == "321.001"
 
     def test_prefill_dal_ucet(self):
         osnova = MagicMock()

@@ -153,6 +153,19 @@ class ZauctovaniViewModel:
         """True pokud řádek je DPH (oba účty na 343)."""
         return radek.md_ucet.startswith("343") and radek.dal_ucet.startswith("343")
 
+    @staticmethod
+    def _is_zaloha_row(radek: PredpisRadek) -> bool:
+        """True pokud je řádek odečtem zálohy (přidaný přes Načíst zálohy).
+
+        Detekce přes popis — `nacti_zalohy_partnera` přidává řádky
+        s popisem začínajícím "Odečet zálohy {cislo}". Tyto řádky
+        se nepočítají do podvojnosti (jejich efekt je čisté zúčtování
+        proti pohledávce/závazku, ne změna castka_celkem).
+        """
+        if not radek.popis:
+            return False
+        return radek.popis.startswith("Odečet zálohy")
+
     @property
     def soucet_radku(self) -> Money:
         total = Money.zero()
@@ -162,28 +175,38 @@ class ZauctovaniViewModel:
 
     @property
     def soucet_zakladnich(self) -> Money:
-        """Součet řádků bez DPH (pro podvojnost)."""
+        """Součet řádků bez DPH a bez odečtu zálohy (pro podvojnost).
+
+        Odečetní řádky zálohy (MD 324/Dal 311 nebo MD 321/Dal 314)
+        zúčtovávají zálohu proti pohledávce/závazku — netto efekt
+        na castka_celkem je 0, takže se z podvojnosti vylučují.
+        """
         total = Money.zero()
         for r in self._radky:
-            if not self._is_dph_row(r):
-                total = total + r.castka
+            if self._is_dph_row(r) or self._is_zaloha_row(r):
+                continue
+            total = total + r.castka
         return total
 
     @property
     def rozdil(self) -> Money:
-        """Kolik chybí (kladné) nebo přebývá (záporné) oproti dokladu."""
+        """Kolik chybí (kladné) nebo přebývá (záporné) oproti castka_celkem.
+
+        Informativní — pokud != 0 a nemá vysvětlení (RC nebo odečet
+        zálohy), je to warning, ne blokace.
+        """
         return self._doklad.castka_celkem - self.soucet_zakladnich
 
     @property
     def je_podvojne(self) -> bool:
-        return self.soucet_zakladnich == self._doklad.castka_celkem
+        """Strukturální podvojnost — každý řádek má MD i Dal vyplněný
+        a kladnou částku.
 
-    @property
-    def je_validni(self) -> bool:
-        """Všechny podmínky pro umožnění tlačítka „Zaúčtovat"."""
+        Sum(MD) = Sum(Dal) je strukturálně garantované, protože každý
+        řádek má jeden MD a jeden Dal se stejnou částkou. Tato property
+        kontroluje jen to, že žádný řádek nemá prázdné účty / nulu.
+        """
         if not self._radky:
-            return False
-        if not self.je_podvojne:
             return False
         for r in self._radky:
             if not r.md_ucet or not r.dal_ucet:
@@ -191,6 +214,25 @@ class ZauctovaniViewModel:
             if r.castka <= Money.zero():
                 return False
         return True
+
+    @property
+    def castka_sedi(self) -> bool:
+        """Informativní: soucet_zakladnich == castka_celkem.
+
+        Pokud nesedí (např. konečná FV pokrytá zálohou kde castka_celkem
+        je 0 ale řádky 50k+50k), je to warning v UI, ne blokace.
+        """
+        return self.soucet_zakladnich == self._doklad.castka_celkem
+
+    @property
+    def je_validni(self) -> bool:
+        """Tlačítko Zaúčtovat enabled — strukturální podvojnost.
+
+        Stejný princip jako u Reverse Charge: validní = každý řádek
+        má MD i Dal vyplněný a kladnou částku. Rozdíl proti
+        ``castka_celkem`` je jen warning (žlutý), ne blokace.
+        """
+        return self.je_podvojne
 
     # ─── Commands ─────────────────────────────────────────────────────
 
@@ -202,7 +244,9 @@ class ZauctovaniViewModel:
         except Exception as exc:  # noqa: BLE001
             self._ucty = []
             self._error = str(exc) or exc.__class__.__name__
-        # Pre-fill: jeden prázdný řádek s celkovou částkou (Q4 rozhodnutí).
+        # Pre-fill: jeden řádek s celkovou částkou a standardními účty
+        # podle typu dokladu (FV: 311/602, FP: 518/321). `prefill_dal_ucet`
+        # parametr má přednost před defaultem.
         # POZN: ZF se NEÚČTUJE — účtuje se až úhrada (přes spárování platby
         # v Bance). Zaúčtovat ZF samotnou nemá účetní smysl pro identifikovanou
         # osobu. UI tlačítko Zaúčtovat pro ZF je proto skryto (can_zauctovat
@@ -211,11 +255,27 @@ class ZauctovaniViewModel:
             if self._doklad.dph_rezim == DphRezim.REVERSE_CHARGE:
                 self._prefill_reverse_charge()
             else:
+                md_default, dal_default = self._default_ucty_dle_typu()
                 self._radky.append(PredpisRadek(
                     castka=self._doklad.castka_celkem,
-                    dal_ucet=self._prefill_dal_ucet or "",
+                    md_ucet=md_default,
+                    dal_ucet=self._prefill_dal_ucet or dal_default,
                 ))
         self._loaded = True
+
+    def _default_ucty_dle_typu(self) -> tuple[str, str]:
+        """Standardní MD/Dal prefill pro hlavní řádek dle typu dokladu.
+
+        Vrací prázdný tuple pro typy bez jasného standardu (uživatel
+        vyplní ručně). Pro FV a FP účet pohledávky/závazku je standardně
+        prefillnut + očekávaný protistrana.
+        """
+        typ = self._doklad.typ
+        if typ == TypDokladu.FAKTURA_VYDANA:
+            return "311.100", "602.100"
+        if typ == TypDokladu.FAKTURA_PRIJATA:
+            return "518.001", "321.001"
+        return "", ""
 
     def _prefill_reverse_charge(self) -> None:
         """Pre-fill řádky pro reverse charge doklad (FP z EU).
@@ -307,50 +367,62 @@ class ZauctovaniViewModel:
         self._radky.append(PredpisRadek(castka=castka))
 
     def nacti_zalohy_partnera(self, zalohy: list) -> None:
-        """Přidá řádky odečet zálohy + sníží hlavní řádek o sumu záloh.
+        """Přidá řádky odečet zálohy proti pohledávce/závazku.
 
-        Standardní český účetní pattern pro zúčtování zálohy ve finální FV/FP:
+        Standardní český účetní pattern (transparentní pro audit):
 
-        FV 10000, předchozí ZF 3000 (klient už zaplatil zálohu):
-            Hlavní:  MD 311 / Dal 601 = 7000  (čistá fakturace)
-            Odečet:  MD 324 / Dal 601 = 3000  (odpis přijaté zálohy do výnosu)
+        Vystavení FV 50 000 + ZF 50 000 zaplacená klientem:
+            Hlavní:  MD 311 / Dal 601 = 50 000  (vznik pohledávky a výnosu)
+            Odečet:  MD 324 / Dal 311 = 50 000  (zúčtování zálohy
+                     proti pohledávce — 311 se vynuluje, 324 také)
 
-        FP 10000, předchozí ZF 3000 (PRAUT už zaplatila zálohu dodavateli):
-            Hlavní:  MD 518 / Dal 321 = 7000  (čistý náklad)
-            Odečet:  MD 518 / Dal 314 = 3000  (odpis poskytnuté zálohy do nákladu)
+        Vystavení FP 50 000 + ZF 50 000 zaplacená PRAUT dodavateli:
+            Hlavní:  MD 518 / Dal 321 = 50 000  (vznik nákladu a závazku)
+            Odečet:  MD 321 / Dal 314 = 50 000  (zúčtování zálohy
+                     proti závazku — 321 se vynuluje, 314 také)
 
-        Volající (page) zajistí, že zálohy mají správný směr.
+        Hlavní řádek se NESNIŽUJE — zachová plnou částku, takže auditní
+        stopa je jasná: pohledávka/závazek vznikla a okamžitě byla
+        zúčtována se zálohou. Odečetní řádky se vyloučí z podvojnosti
+        (`_is_zaloha_row` v `soucet_zakladnich`).
         """
-        from dataclasses import replace as _replace
         from domain.doklady.typy import TypDokladu as _T
 
         if not zalohy:
             return
 
         is_fv = self._doklad.typ == _T.FAKTURA_VYDANA
-        suma_zaloh_hal = sum(z.castka_celkem.to_halire() for z in zalohy)
 
-        # Sniž první ne-DPH řádek o sumu záloh — to bude "hlavní" řádek
-        hlavni_md = ""
-        hlavni_dal = ""
-        for i, r in enumerate(self._radky):
-            if not self._is_dph_row(r):
-                nova = Money(r.castka.to_halire() - suma_zaloh_hal)
-                self._radky[i] = _replace(r, castka=nova)
-                hlavni_md = r.md_ucet
-                hlavni_dal = r.dal_ucet
-                break
-
-        # Přidej řádky odečtu — pro každou ZF jeden zápis
-        for z in zalohy:
+        # Najdi účet pohledávky/závazku z prvního ne-DPH řádku — tam jde
+        # odečet zálohy proti.
+        proti_ucet = ""
+        for r in self._radky:
+            if self._is_dph_row(r):
+                continue
             if is_fv:
-                # Vystavená záloha → MD 324.x / Dal <stejný výnos jako hlavní>
-                md = "324.001"
-                dal = hlavni_dal or "601"
+                # Pohledávka je na MD straně hlavního řádku
+                proti_ucet = r.md_ucet
             else:
-                # Přijatá záloha → MD <stejný náklad jako hlavní> / Dal 314.x
-                md = hlavni_md or "518"
-                dal = "314.001"
+                # Závazek je na Dal straně hlavního řádku
+                proti_ucet = r.dal_ucet
+            break
+
+        # Přidej řádky odečtu — pro každou ZF jeden zápis.
+        # Popis "Odečet zálohy {cislo}" je detekován v _is_zaloha_row
+        # → vyloučen z `soucet_zakladnich` (nemění castku dokladu).
+        # Analytika 324/314 jde z `z.ucet_zaloha` — odvozeno ze zápisu ZF.
+        for z in zalohy:
+            ucet_zaloha = getattr(z, "ucet_zaloha", "") or (
+                "324.001" if is_fv else "314.001"
+            )
+            if is_fv:
+                # MD 324.xxx / Dal <pohledávka>: záloha snižuje pohledávku
+                md = ucet_zaloha
+                dal = proti_ucet or "311.100"
+            else:
+                # MD <závazek> / Dal 314.xxx: záloha snižuje závazek
+                md = proti_ucet or "321.001"
+                dal = ucet_zaloha
             self._radky.append(PredpisRadek(
                 md_ucet=md,
                 dal_ucet=dal,

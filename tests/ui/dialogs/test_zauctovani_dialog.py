@@ -81,9 +81,12 @@ class TestZauctovaniDialog:
         assert len(d._rows_list) == 1
 
     def test_submit_disabled_bez_vybranych_uctu(self, qtbot):
-        d = ZauctovaniDialog(_vm())
+        vm = _vm()
+        d = ZauctovaniDialog(vm)
         qtbot.addWidget(d)
-        # Jeden řádek, ale MD a Dal nevybrány — neval.
+        # Smaž default prefill účty — pak je doklad nevalidní
+        vm.update_row(0, md_ucet="", dal_ucet="")
+        d._sync_ui()
         assert d._submit_widget.isEnabled() is False
 
     def test_add_row_pridat_radek(self, qtbot):

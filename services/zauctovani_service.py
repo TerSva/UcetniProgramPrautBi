@@ -58,10 +58,11 @@ class ZauctovaniDokladuService:
 
             doklad = doklady_repo.get_by_id(doklad_id)
 
-            # Detekce RC z předpisu: pokud obsahuje řádky 343/343, jde o RC
-            # (přenos daňové povinnosti). User mohl zaškrtnout RC v dialogu
-            # i pro doklad s dph_rezim=TUZEMSKO — pak validace musí to
-            # respektovat a dorovnat doklad.dph_rezim.
+            # Detekce speciálních řádků v předpisu — vylučují se z porovnání
+            # se castka_celkem dokladu, protože nejsou součástí "základu":
+            #   * RC DPH řádky (343/343) — průtokové (přenos daňové povinnosti)
+            #   * Odečet zálohy (popis "Odečet zálohy …") — zúčtování proti
+            #     pohledávce/závazku, netto efekt na castka_celkem je 0
             ma_dph_radek = any(
                 z.md_ucet.startswith("343") and z.dal_ucet.startswith("343")
                 for z in predpis.zaznamy
@@ -70,36 +71,104 @@ class ZauctovaniDokladuService:
                 doklad.dph_rezim == DphRezim.REVERSE_CHARGE or ma_dph_radek
             )
 
-            if je_rc:
-                # DPH řádky (343/343) jsou průtokové — porovnáváme jen
-                # základ (ne-DPH řádky) s částkou dokladu.
-                zaklad = Money.zero()
-                for z in predpis.zaznamy:
-                    if not (z.md_ucet.startswith("343") and z.dal_ucet.startswith("343")):
-                        zaklad = zaklad + z.castka
-                if doklad.castka_celkem != zaklad:
-                    raise PodvojnostError(
-                        f"Základ předpisu ({zaklad}) nesouhlasí "
-                        f"s celkovou částkou dokladu ({doklad.castka_celkem})"
-                    )
-                # Pokud doklad neměl dph_rezim=RC, dorovnáme — předpis
-                # obsahuje DPH řádky, takže RC je realitou.
-                if doklad.dph_rezim != DphRezim.REVERSE_CHARGE:
-                    doklad.nastav_dph_rezim(DphRezim.REVERSE_CHARGE)
-            elif doklad.castka_celkem != predpis.celkova_castka:
+            def _je_dph(z: UcetniZaznam) -> bool:
+                return (
+                    z.md_ucet.startswith("343")
+                    and z.dal_ucet.startswith("343")
+                )
+
+            def _je_odecet_zalohy(z: UcetniZaznam) -> bool:
+                return bool(z.popis and z.popis.startswith("Odečet zálohy"))
+
+            zaklad = Money.zero()
+            for z in predpis.zaznamy:
+                if _je_dph(z) or _je_odecet_zalohy(z):
+                    continue
+                zaklad = zaklad + z.castka
+
+            if doklad.castka_celkem != zaklad:
                 raise PodvojnostError(
-                    f"Předpis ({predpis.celkova_castka}) nesouhlasí "
+                    f"Základ předpisu ({zaklad}) nesouhlasí "
                     f"s celkovou částkou dokladu ({doklad.castka_celkem})"
                 )
 
+            # Pokud doklad neměl dph_rezim=RC ale předpis obsahuje 343/343,
+            # dorovnáme dph_rezim na REVERSE_CHARGE.
+            if je_rc and doklad.dph_rezim != DphRezim.REVERSE_CHARGE:
+                doklad.nastav_dph_rezim(DphRezim.REVERSE_CHARGE)
+
+            # Detekce zúčtování zálohy v předpisu — pokud existuje řádek
+            # odečtu zálohy a součet odečtů >= castka_celkem, doklad je
+            # de facto plně uhrazený (záloha pokryla vše). Po zaúčtování
+            # ho označíme UHRAZENY místo ZAUCTOVANY.
+            suma_odpoctu = Money.zero()
+            zalohy_cisla: list[str] = []
+            for z in predpis.zaznamy:
+                if _je_odecet_zalohy(z):
+                    suma_odpoctu = suma_odpoctu + z.castka
+                    # Vyzískat cislo zálohy z popisu "Odečet zálohy ZF-..."
+                    if z.popis:
+                        cislo_zalohy = z.popis.replace(
+                            "Odečet zálohy", "",
+                        ).strip()
+                        if cislo_zalohy:
+                            zalohy_cisla.append(cislo_zalohy)
+
             doklad.zauctuj()
+
+            # Auto-UHRAZENÍ: pokud zálohy pokrývají celou pohledávku/závazek
+            if (
+                suma_odpoctu.to_halire() > 0
+                and suma_odpoctu.to_halire() >= doklad.castka_celkem.to_halire()
+            ):
+                doklad.oznac_uhrazeny()
 
             ulozene = denik_repo.zauctuj(predpis)
             doklady_repo.update(doklad)
 
+            # Označ zúčtované ZF dokladu poznámkou
+            if zalohy_cisla:
+                self._oznac_zalohy_zuctovane(
+                    doklady_repo, zalohy_cisla, doklad.cislo,
+                )
+
             uow.commit()
 
         return doklad, ulozene
+
+    def _oznac_zalohy_zuctovane(
+        self,
+        doklady_repo,
+        zalohy_cisla: list[str],
+        finalni_doklad_cislo: str,
+    ) -> None:
+        """Označí ZF doklady poznámkou „Zúčtováno s {finalni}".
+
+        Volá se po úspěšném zaúčtování finální FV/FP, která obsahuje
+        odečetní řádky zálohy. Pokud ZF už má poznámku, přepíše ji
+        — záloha může být zúčtována jen jednou.
+
+        Pokud ZF neexistuje (popis byl ručně napsán bez existující ZF),
+        ignoruje (best-effort).
+        """
+        for cislo_zf in zalohy_cisla:
+            try:
+                zf = doklady_repo.get_by_cislo(cislo_zf)
+            except Exception:  # noqa: BLE001
+                continue
+            if zf is None:
+                continue
+            poznamka = (
+                f"Zúčtováno s {finalni_doklad_cislo}"
+            )
+            puvodni = zf.popis or ""
+            if poznamka not in puvodni:
+                novy_popis = (
+                    f"{puvodni} | {poznamka}".strip(" |")
+                    if puvodni else poznamka
+                )
+                zf.uprav_popis(novy_popis)
+                doklady_repo.update(zf)
 
     def stornuj_doklad(
         self,

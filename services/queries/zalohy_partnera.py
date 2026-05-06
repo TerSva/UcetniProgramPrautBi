@@ -33,6 +33,7 @@ class ZalohaItem:
     castka_mena: Money | None
     mena: Mena
     je_vystavena: bool
+    ucet_zaloha: str  # 324.xxx (FV) / 314.xxx (FP) — odvozeno ze zápisu ZF
 
 
 class ZalohyPartneraQuery:
@@ -94,6 +95,10 @@ class ZalohyPartneraQuery:
                 if je_zauctovana_finalni:
                     continue
 
+                ucet_zaloha = self._najdi_ucet_zaloha(
+                    uow, r["id"], je_vystavena,
+                )
+
                 result.append(ZalohaItem(
                     id=r["id"],
                     cislo=cislo,
@@ -105,8 +110,49 @@ class ZalohyPartneraQuery:
                     ),
                     mena=Mena(r["mena"]) if r["mena"] else Mena.CZK,
                     je_vystavena=je_vystavena,
+                    ucet_zaloha=ucet_zaloha,
                 ))
             return result
+
+    def _najdi_ucet_zaloha(
+        self,
+        uow: SqliteUnitOfWork,
+        doklad_id: int,
+        je_vystavena: bool,
+    ) -> str:
+        """Vrátí účet 324.xxx (FV) nebo 314.xxx (FP) ze zápisu ZF v deníku.
+
+        Pro vystavenou ZF (úhrada od klienta): MD 221 / Dal 324.xxx
+            → vezmeme dal_ucet.
+        Pro přijatou ZF (odeslaná platba): MD 314.xxx / Dal 221
+            → vezmeme md_ucet.
+
+        Pokud zápis neexistuje (ZF ještě v NOVY a nezúčtovaná v bance),
+        fallback na syntetický účet bez analytiky.
+        """
+        if je_vystavena:
+            sloupec = "dal_ucet"
+            prefix = "324"
+            fallback = "324.001"
+        else:
+            sloupec = "md_ucet"
+            prefix = "314"
+            fallback = "314.001"
+        # noqa: S608 — sloupec/prefix jsou kontrolované konstanty
+        row = uow.connection.execute(
+            f"""
+            SELECT {sloupec} FROM ucetni_zaznamy
+            WHERE doklad_id = ?
+              AND {sloupec} LIKE ?
+              AND je_storno = 0
+            ORDER BY id ASC
+            LIMIT 1
+            """,
+            (doklad_id, f"{prefix}%"),
+        ).fetchone()
+        if row is None:
+            return fallback
+        return row[sloupec]
 
     def _je_zaloha_zuctovana(
         self,

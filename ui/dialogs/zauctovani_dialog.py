@@ -516,12 +516,22 @@ class ZauctovaniDialog(QDialog):
         self._sum_label.setText(f"Součet: {soucet.format_cz()}")
         self._rozdil_label.setText(f"Rozdíl: {rozdil.format_cz()}")
 
-        if self._vm.je_podvojne:
+        # Status: 3 stavy
+        # 1) ⛔ Nepodvojné — chybí MD/Dal nebo nulová částka (blokace)
+        # 2) ⚠ Rozdíl proti částce dokladu — strukturálně OK, ale castka
+        #    nesedí (warning, ale POVOLENO — uživatelka může zaúčtovat).
+        # 3) ✓ Podvojné — strukturálně OK i sedí s castka_celkem.
+        if not self._vm.je_podvojne:
+            self._status_label.setText("⛔ Nepodvojné")
+            self._status_label.setProperty("class", "status-error")
+        elif not self._vm.castka_sedi:
+            self._status_label.setText(
+                f"⚠ Rozdíl {rozdil.format_cz()} proti částce dokladu"
+            )
+            self._status_label.setProperty("class", "status-warning")
+        else:
             self._status_label.setText("✓ Podvojné")
             self._status_label.setProperty("class", "status-ok")
-        else:
-            self._status_label.setText("⚠ Nepodvojné")
-            self._status_label.setProperty("class", "status-error")
         # Refresh property-based styling
         self._status_label.style().unpolish(self._status_label)
         self._status_label.style().polish(self._status_label)
