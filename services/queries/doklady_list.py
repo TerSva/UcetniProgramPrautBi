@@ -60,13 +60,13 @@ class DokladyFilter:
     castka_do: Money | None = None
     dph_rezim: DphRezim | None = None
     search_text: str = ""
+    # Pro typ ZALOHA_FAKTURA — filter Vystavená/Přijatá:
+    # None = bez filtru (zobrazit obě), True = jen vystavené, False = jen přijaté.
+    je_vystavena: bool | None = None
 
     @property
     def je_vychozi(self) -> bool:
-        """True pokud jsou všechny filtry na výchozích hodnotách.
-
-        Slouží k odlišení "prázdná DB" vs. "žádné výsledky kvůli filtru".
-        """
+        """True pokud jsou všechny filtry na výchozích hodnotách."""
         return (
             self.rok is None
             and self.typ is None
@@ -79,6 +79,7 @@ class DokladyFilter:
             and self.castka_do is None
             and self.dph_rezim is None
             and not self.search_text.strip()
+            and self.je_vystavena is None
         )
 
 
@@ -109,6 +110,7 @@ class DokladyListItem:
     variabilni_symbol: str | None = None
     dph_rezim: DphRezim = DphRezim.TUZEMSKO
     datum_storna: date | None = None
+    je_vystavena: bool | None = None
 
     @classmethod
     def from_domain(
@@ -147,6 +149,7 @@ class DokladyListItem:
             variabilni_symbol=doklad.variabilni_symbol,
             dph_rezim=doklad.dph_rezim,
             datum_storna=datum_storna,
+            je_vystavena=doklad.je_vystavena,
         )
 
 
@@ -248,6 +251,12 @@ class DokladyListQuery:
                     continue
                 if f.dph_rezim is not None and d.dph_rezim != f.dph_rezim:
                     continue
+                # Pro ZF: filter podle vystavená/přijatá
+                if f.je_vystavena is not None:
+                    if d.typ != TypDokladu.ZALOHA_FAKTURA:
+                        continue
+                    if d.je_vystavena != f.je_vystavena:
+                        continue
                 if (
                     f.castka_od is not None
                     and d.castka_celkem.to_halire() < f.castka_od.to_halire()

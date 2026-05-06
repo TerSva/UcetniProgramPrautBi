@@ -174,6 +174,7 @@ class OcrUploadCommand:
         k_doreseni: bool = False,
         variabilni_symbol: str | None = None,
         dph_rezim: DphRezim = DphRezim.TUZEMSKO,
+        je_vystavena: bool | None = None,
     ) -> int:
         """Vytvoří doklad z uploadu. Vrátí doklad_id."""
         uow = self._uow_factory()
@@ -199,6 +200,7 @@ class OcrUploadCommand:
                 k_doreseni=k_doreseni,
                 variabilni_symbol=variabilni_symbol,
                 dph_rezim=dph_rezim,
+                je_vystavena=je_vystavena,
             )
             drepo.add(doklad)
             loaded = drepo.get_by_cislo(cislo)

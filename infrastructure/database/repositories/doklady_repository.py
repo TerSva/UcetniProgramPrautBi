@@ -38,8 +38,8 @@ class SqliteDokladyRepository(DokladyRepository):
                    (cislo, typ, datum_vystaveni, datum_zdanitelneho_plneni,
                     datum_splatnosti, partner_id, castka_celkem, mena, stav, popis,
                     k_doreseni, poznamka_doreseni, castka_mena, kurz,
-                    variabilni_symbol, dph_rezim)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    variabilni_symbol, dph_rezim, je_vystavena)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doklad.cislo,
                     doklad.typ.value,
@@ -63,6 +63,8 @@ class SqliteDokladyRepository(DokladyRepository):
                     str(doklad.kurz) if doklad.kurz is not None else None,
                     doklad.variabilni_symbol,
                     doklad.dph_rezim.value,
+                    None if doklad.je_vystavena is None
+                    else (1 if doklad.je_vystavena else 0),
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -89,6 +91,7 @@ class SqliteDokladyRepository(DokladyRepository):
             kurz=doklad.kurz,
             variabilni_symbol=doklad.variabilni_symbol,
             dph_rezim=doklad.dph_rezim,
+            je_vystavena=doklad.je_vystavena,
             id=cursor.lastrowid,
         )
 
@@ -104,7 +107,7 @@ class SqliteDokladyRepository(DokladyRepository):
                partner_id = ?, castka_celkem = ?, mena = ?, stav = ?, popis = ?,
                k_doreseni = ?, poznamka_doreseni = ?,
                castka_mena = ?, kurz = ?, variabilni_symbol = ?,
-               dph_rezim = ?,
+               dph_rezim = ?, je_vystavena = ?,
                upraveno = strftime('%Y-%m-%d %H:%M:%S', 'now')
                WHERE id = ?""",
             (
@@ -130,6 +133,8 @@ class SqliteDokladyRepository(DokladyRepository):
                 str(doklad.kurz) if doklad.kurz is not None else None,
                 doklad.variabilni_symbol,
                 doklad.dph_rezim.value,
+                None if doklad.je_vystavena is None
+                else (1 if doklad.je_vystavena else 0),
                 doklad.id,
             ),
         )
@@ -292,4 +297,10 @@ class SqliteDokladyRepository(DokladyRepository):
             ),
             variabilni_symbol=row["variabilni_symbol"],
             dph_rezim=DphRezim(row["dph_rezim"]) if row["dph_rezim"] else DphRezim.TUZEMSKO,
+            je_vystavena=(
+                None
+                if "je_vystavena" not in row.keys()
+                or row["je_vystavena"] is None
+                else bool(row["je_vystavena"])
+            ),
         )

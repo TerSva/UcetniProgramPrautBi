@@ -500,6 +500,7 @@ class NahratDokladyPage(QWidget):
                     k_doreseni=True,
                     variabilni_symbol=dlg.variabilni_symbol,
                     is_reverse_charge=item.parsed_is_reverse_charge,
+                    je_vystavena=dlg.je_vystavena,
                 )
                 if self._vm.error:
                     self._show_error(self._vm.error)

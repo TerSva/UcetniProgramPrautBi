@@ -93,6 +93,7 @@ class FilterBar(QWidget):
             castka_do=self._castka_do.value(),
             dph_rezim=self._combo_dph.currentData(),
             search_text=self._search_input.text().strip(),
+            je_vystavena=self._combo_zaloha.currentData(),
         )
 
     def set_filter(self, f: DokladyFilter) -> None:
@@ -105,6 +106,7 @@ class FilterBar(QWidget):
             self._set_combo_data(self._combo_doreseni, f.k_doreseni)
             self._set_combo_data(self._combo_partner, f.partner_id)
             self._set_combo_data(self._combo_dph, f.dph_rezim)
+            self._set_combo_data(self._combo_zaloha, f.je_vystavena)
             self._castka_od.set_value(f.castka_od)
             self._castka_do.set_value(f.castka_do)
             self._search_input.setText(f.search_text or "")
@@ -164,6 +166,8 @@ class FilterBar(QWidget):
         if f.dph_rezim is not None:
             count += 1
         if f.search_text.strip():
+            count += 1
+        if f.je_vystavena is not None:
             count += 1
         return count
 
@@ -283,6 +287,13 @@ class FilterBar(QWidget):
         self._combo_dph.addItem("Reverse charge", DphRezim.REVERSE_CHARGE)
         row2.addLayout(_labeled("DPH režim", self._combo_dph))
 
+        # Druh zálohy — pro typ ZF: Vystavená / Přijatá
+        self._combo_zaloha = QComboBox(self)
+        self._combo_zaloha.addItem("Všechny zálohy", None)
+        self._combo_zaloha.addItem("Vystavené (odběratel)", True)
+        self._combo_zaloha.addItem("Přijaté (dodavatel)", False)
+        row2.addLayout(_labeled("Druh zálohy", self._combo_zaloha))
+
         self._combo_partner = QComboBox(self)
         self._combo_partner.addItem("Všichni partneři", None)
         self._combo_partner.setMinimumWidth(180)
@@ -321,6 +332,7 @@ class FilterBar(QWidget):
             self._combo_doreseni,
             self._combo_partner,
             self._combo_dph,
+            self._combo_zaloha,
         ):
             combo.currentIndexChanged.connect(self._on_any_changed)
         self._date_range.range_changed.connect(self._on_date_range_changed)

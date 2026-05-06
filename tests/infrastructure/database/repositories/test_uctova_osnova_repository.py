@@ -19,7 +19,7 @@ class TestSeedOsnovy:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
             # 68 + 9 z 022 (daňové analytiky) + 2 z 024 (kurzové analytiky)
-            assert len(ucty) == 79
+            assert len(ucty) == 82
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -197,7 +197,9 @@ class TestAnalytikaRoundTrip:
             assert len(analytiky_518) == 4
 
             analytiky_314 = repo2.get_analytiky("314")
-            assert len(analytiky_314) == 0
+            # 314.001 přidána v 026_zalohove_faktury (Poskytnuté zálohy CZK)
+            assert len(analytiky_314) == 1
+            assert analytiky_314[0].cislo == "314.001"
 
     def test_update_popis(self, db_factory):
         """Update analytiky — popis se uloží."""

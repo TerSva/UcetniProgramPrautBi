@@ -279,12 +279,13 @@ class DokladyPage(QWidget):
 
         # Content / empty stack
         self._stack = QStackedWidget(self)
-        # Klikatelné sortování (Číslo / Datum / Částka) ve FV i FP preset.
+        # Klikatelné sortování (Číslo / Datum / Částka / Stav) ve FV, FP, ZF.
         # V ostatních seznamech (PD, ID, OD, „Vše") zachováváme query order
         # (DESC datum, DESC id).
         sortable = self._preset_typ in (
             TypDokladu.FAKTURA_VYDANA,
             TypDokladu.FAKTURA_PRIJATA,
+            TypDokladu.ZALOHA_FAKTURA,
         )
         self._table = DokladyTable(self, sortable=sortable)
         self._stack.addWidget(self._table)             # _STACK_CONTENT = 0
@@ -368,6 +369,7 @@ class DokladyPage(QWidget):
                 castka_do=full_filter.castka_do,
                 dph_rezim=full_filter.dph_rezim,
                 search_text=full_filter.search_text,
+                je_vystavena=full_filter.je_vystavena,
             )
         self._vm.apply_filters(full_filter)
         self._sync_ui_with_vm()
@@ -443,7 +445,18 @@ class DokladyPage(QWidget):
         if self._zauctovani_vm_factory is None:
             return
         vm = self._zauctovani_vm_factory(item)
-        dialog = ZauctovaniDialog(vm, parent=parent_dialog)
+        # Factory pro ZalohyPartneraQuery — pokud máme uow_factory, vytvoříme.
+        zalohy_query_factory = None
+        if self._uow_factory is not None:
+            from services.queries.zalohy_partnera import ZalohyPartneraQuery
+            zalohy_query_factory = lambda: ZalohyPartneraQuery(  # noqa: E731
+                self._uow_factory,
+            )
+        dialog = ZauctovaniDialog(
+            vm,
+            zalohy_query_factory=zalohy_query_factory,
+            parent=parent_dialog,
+        )
         if dialog.exec() and dialog.posted_item is not None:
             parent_dialog.refresh_after_zauctovani(dialog.posted_item)
 

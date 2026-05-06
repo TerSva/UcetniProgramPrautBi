@@ -703,3 +703,50 @@ class TestStavFlagKombinace:
     def test_stornovany_flag_zakazano(self):
         with pytest.raises(ValidationError):
             _doklad(stav=StavDokladu.STORNOVANY, k_doreseni=True)
+
+
+class TestZalohovaFaktura:
+    """Zálohové faktury (ZF) — vyžadují je_vystavena pro rozlišení směru."""
+
+    def test_zf_vystavena(self):
+        d = _doklad(typ=TypDokladu.ZALOHA_FAKTURA, je_vystavena=True)
+        assert d.je_vystavena is True
+
+    def test_zf_prijata(self):
+        d = _doklad(typ=TypDokladu.ZALOHA_FAKTURA, je_vystavena=False)
+        assert d.je_vystavena is False
+
+    def test_zf_bez_je_vystavena_selze(self):
+        with pytest.raises(ValidationError, match="je_vystavena"):
+            _doklad(typ=TypDokladu.ZALOHA_FAKTURA)
+
+    def test_non_zf_je_vystavena_je_none(self):
+        """Pro non-ZF typy je je_vystavena None — směr derivovaný z typu."""
+        d = _doklad(typ=TypDokladu.FAKTURA_VYDANA)
+        assert d.je_vystavena is None
+        d = _doklad(typ=TypDokladu.FAKTURA_PRIJATA)
+        assert d.je_vystavena is None
+
+    def test_zf_nesmi_byt_typ_string(self):
+        with pytest.raises(TypeError):
+            _doklad(typ=TypDokladu.ZALOHA_FAKTURA, je_vystavena="ano")  # type: ignore[arg-type]
+
+    def test_zf_lze_oznac_uhrazeny_z_novy(self):
+        """ZF se neúčtuje — přechod NOVY → UHRAZENY je povolený."""
+        d = _doklad(typ=TypDokladu.ZALOHA_FAKTURA, je_vystavena=True)
+        assert d.stav == StavDokladu.NOVY
+        d.oznac_uhrazeny()
+        assert d.stav == StavDokladu.UHRAZENY
+
+    def test_zf_lze_oznac_castecne_uhrazeny_z_novy(self):
+        """Částečná platba ZF z NOVY → CASTECNE_UHRAZENY."""
+        d = _doklad(typ=TypDokladu.ZALOHA_FAKTURA, je_vystavena=False)
+        assert d.stav == StavDokladu.NOVY
+        d.oznac_castecne_uhrazeny()
+        assert d.stav == StavDokladu.CASTECNE_UHRAZENY
+
+    def test_fv_nelze_oznac_uhrazeny_z_novy(self):
+        """Pro FV/FP zůstává: NOVY → UHRAZENY je zakázán (přes ZAUCTOVANY)."""
+        d = _doklad(typ=TypDokladu.FAKTURA_VYDANA)
+        with pytest.raises(ValidationError):
+            d.oznac_uhrazeny()

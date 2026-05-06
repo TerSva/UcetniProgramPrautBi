@@ -54,6 +54,7 @@ class Doklad:
         kurz: Decimal | None = None,
         variabilni_symbol: str | None = None,
         dph_rezim: DphRezim = DphRezim.TUZEMSKO,
+        je_vystavena: bool | None = None,
         id: int | None = None,
     ) -> None:
         # Validace cislo
@@ -180,6 +181,22 @@ class Doklad:
         self._kurz = kurz
         self._variabilni_symbol = variabilni_symbol
         self._dph_rezim = dph_rezim
+        # je_vystavena — relevant pouze pro ZALOHA_FAKTURA.
+        # True = PRAUT vystavila zálohu odběrateli (pohledávka, MD 311 / Dal 324).
+        # False = PRAUT obdržela zálohovku od dodavatele (závazek, MD 314 / Dal 321).
+        # Pro ZF musí být explicitně True/False; pro ostatní typy je None
+        # (směr je derivovatelný z typu — FV vystavená, FP přijatá).
+        if typ == TypDokladu.ZALOHA_FAKTURA:
+            if je_vystavena is None:
+                raise ValidationError(
+                    "Pro typ ZALOHA_FAKTURA je je_vystavena povinné "
+                    "(True = vystavená odběrateli, False = přijatá od dodavatele)."
+                )
+            if not isinstance(je_vystavena, bool):
+                raise TypeError("je_vystavena musí být bool")
+            self._je_vystavena: bool | None = je_vystavena
+        else:
+            self._je_vystavena = None  # ignored pro non-ZF
 
     # --- Properties ---
 
@@ -251,6 +268,14 @@ class Doklad:
     def dph_rezim(self) -> DphRezim:
         return self._dph_rezim
 
+    @property
+    def je_vystavena(self) -> bool | None:
+        """Pro ZALOHA_FAKTURA: True/False rozlišení vystavená/přijatá ZF.
+
+        Pro non-ZF typy vrací None — směr je derivovatelný z typu.
+        """
+        return self._je_vystavena
+
     def nastav_dph_rezim(self, rezim: DphRezim) -> None:
         """Změní DPH režim dokladu.
 
@@ -274,9 +299,18 @@ class Doklad:
         )
 
     def oznac_uhrazeny(self) -> None:
-        """ZAUCTOVANY/CASTECNE_UHRAZENY → UHRAZENY."""
+        """NOVY/ZAUCTOVANY/CASTECNE_UHRAZENY → UHRAZENY.
+
+        NOVY → UHRAZENY je povolen jen pro typ ZALOHA_FAKTURA — ZF se
+        neúčtuje samostatně, takže přechází přímo z NOVY do UHRAZENY
+        při spárování platby. Pro ostatní typy (FV/FP) je NOVY → UHRAZENY
+        zakázán (musí projít přes ZAUCTOVANY).
+        """
+        povolene = {StavDokladu.ZAUCTOVANY, StavDokladu.CASTECNE_UHRAZENY}
+        if self._typ == TypDokladu.ZALOHA_FAKTURA:
+            povolene = povolene | {StavDokladu.NOVY}
         self._prechod(
-            povolene_z={StavDokladu.ZAUCTOVANY, StavDokladu.CASTECNE_UHRAZENY},
+            povolene_z=povolene,
             cilovy=StavDokladu.UHRAZENY,
             akce="označit jako uhrazený",
         )
@@ -290,9 +324,17 @@ class Doklad:
         )
 
     def oznac_castecne_uhrazeny(self) -> None:
-        """ZAUCTOVANY → CASTECNE_UHRAZENY."""
+        """NOVY/ZAUCTOVANY → CASTECNE_UHRAZENY.
+
+        NOVY → CASTECNE_UHRAZENY je povolen jen pro typ ZALOHA_FAKTURA
+        (ZF se neúčtuje samostatně, takže částečná platba ji posune
+        přímo z NOVY na CASTECNE_UHRAZENY).
+        """
+        povolene = {StavDokladu.ZAUCTOVANY}
+        if self._typ == TypDokladu.ZALOHA_FAKTURA:
+            povolene = povolene | {StavDokladu.NOVY}
         self._prechod(
-            povolene_z={StavDokladu.ZAUCTOVANY},
+            povolene_z=povolene,
             cilovy=StavDokladu.CASTECNE_UHRAZENY,
             akce="označit jako částečně uhrazený",
         )

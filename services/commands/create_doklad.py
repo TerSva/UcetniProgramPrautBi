@@ -47,6 +47,7 @@ class CreateDokladInput:
     kurz: Decimal | None = None
     variabilni_symbol: str | None = None
     dph_rezim: DphRezim = DphRezim.TUZEMSKO
+    je_vystavena: bool | None = None  # povinné pro typ ZALOHA_FAKTURA
 
 
 class CreateDokladCommand:
@@ -81,6 +82,7 @@ class CreateDokladCommand:
             kurz=data.kurz,
             variabilni_symbol=data.variabilni_symbol,
             dph_rezim=data.dph_rezim,
+            je_vystavena=data.je_vystavena,
         )
 
         uow = self._uow_factory()

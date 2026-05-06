@@ -97,7 +97,8 @@ class TestSaldokontoPerUcet355:
         q = VykazyQuery(lambda: SqliteUnitOfWork(factory))
         sekce = q.get_saldokonto_per_ucet(2025)
         # 4 sekce: 311, 321, 355, 365
-        assert len(sekce) == 4
+        # 6 sekcí: 311, 321, 314, 324, 355, 365
+        assert len(sekce) == 6
         sekce_355 = next(s for s in sekce if s.ucet == "355")
         assert sekce_355.je_pohledavka is True
         assert sekce_355.celkem == Money.zero()

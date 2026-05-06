@@ -200,6 +200,22 @@ class TestComputed:
         )
         assert vm.can_storno is False
 
+    def test_zaloha_faktura_nelze_zauctovat(self):
+        """ZF se neúčtuje samostatně — can_zauctovat = False i pro NOVY."""
+        zf = DokladyListItem(
+            id=99, cislo="ZF-2025-001",
+            typ=TypDokladu.ZALOHA_FAKTURA,
+            datum_vystaveni=date(2026, 3, 1),
+            datum_splatnosti=None,
+            partner_id=None, partner_nazev=None,
+            castka_celkem=Money.from_koruny("1000"),
+            stav=StavDokladu.NOVY,
+            k_doreseni=False, poznamka_doreseni=None, popis=None,
+            je_vystavena=True,
+        )
+        vm = DokladDetailViewModel(zf, _StubActions())
+        assert vm.can_zauctovat is False
+
 
 class TestEditMode:
 

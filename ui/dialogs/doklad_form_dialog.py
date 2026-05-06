@@ -299,6 +299,16 @@ class DokladFormDialog(QDialog):
             self._typ_combo.set_value(TypDokladu.FAKTURA_VYDANA)
         root.addWidget(self._typ_combo)
 
+        # Druh zálohy (jen pro ZF) — visible jen když typ == ZALOHA_FAKTURA
+        self._zaloha_combo = LabeledComboBox("Druh zálohy", self)
+        self._zaloha_combo.add_item("Vystavená (odběrateli)", True)
+        self._zaloha_combo.add_item("Přijatá (od dodavatele)", False)
+        self._zaloha_combo.set_value(True)  # default vystavená (Tereza ji vystavuje častěji)
+        self._zaloha_combo.setVisible(
+            self._preset_typ == TypDokladu.ZALOHA_FAKTURA
+        )
+        root.addWidget(self._zaloha_combo)
+
         # Partner selector
         self._partner_selector = PartnerSelector(self)
         self._partner_selector.set_items(self._partner_items)
@@ -760,6 +770,8 @@ class DokladFormDialog(QDialog):
         self._spolecnik_section.setVisible(
             value in (TypDokladu.FAKTURA_PRIJATA, TypDokladu.POKLADNI_DOKLAD)
         )
+        # Show Druh zálohy combo jen pro ZF
+        self._zaloha_combo.setVisible(value == TypDokladu.ZALOHA_FAKTURA)
 
     def _on_submit(self) -> None:
         # Vyresetuj error badges
@@ -824,6 +836,12 @@ class DokladFormDialog(QDialog):
                 return
 
         vs_raw = self._vs_input.value().strip() or None
+        # Pro ZF: je_vystavena z combo (default True)
+        je_vystavena: bool | None = None
+        if typ == TypDokladu.ZALOHA_FAKTURA:
+            je_vystavena = self._zaloha_combo.value()
+            if je_vystavena is None:
+                je_vystavena = True
         data = CreateDokladInput(
             cislo=cislo,
             typ=typ,
@@ -836,6 +854,7 @@ class DokladFormDialog(QDialog):
             castka_mena=castka_mena_val,
             kurz=kurz_val,
             variabilni_symbol=vs_raw,
+            je_vystavena=je_vystavena,
         )
 
         k_doreseni = self._k_doreseni_check.isChecked()

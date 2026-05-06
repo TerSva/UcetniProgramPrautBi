@@ -96,6 +96,7 @@ class OcrInboxViewModel:
         k_doreseni: bool = False,
         variabilni_symbol: str | None = None,
         is_reverse_charge: bool = False,
+        je_vystavena: bool | None = None,
     ) -> int | None:
         """Schválí upload a vytvoří doklad."""
         dph_rezim = (
@@ -118,6 +119,7 @@ class OcrInboxViewModel:
                 k_doreseni=k_doreseni,
                 variabilni_symbol=variabilni_symbol,
                 dph_rezim=dph_rezim,
+                je_vystavena=je_vystavena,
             )
             self._error = None
             self.load()

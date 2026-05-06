@@ -97,6 +97,8 @@ class SaldokontoPage(QWidget):
         self._rok_combo: QComboBox
         self._saldo_311: QTableWidget
         self._saldo_321: QTableWidget
+        self._saldo_314: QTableWidget
+        self._saldo_324: QTableWidget
         self._saldo_355: QTableWidget
         self._saldo_365: QTableWidget
 
@@ -166,11 +168,26 @@ class SaldokontoPage(QWidget):
         self._saldo_321 = _make_table(cols_doklady)
         root.addWidget(self._saldo_321)
 
+        cols_ucty = ("Účet", "Název / partner", "Saldo")
+
+        # 314 — Poskytnuté zálohy (PRAUT zaplatila zálohy dodavatelům)
+        sec_314 = QLabel("Poskytnuté zálohy (314)", self)
+        sec_314.setProperty("class", "section-title")
+        root.addWidget(sec_314)
+        self._saldo_314 = _make_table(cols_ucty)
+        root.addWidget(self._saldo_314)
+
+        # 324 — Přijaté zálohy od odběratelů
+        sec_324 = QLabel("Přijaté zálohy od odběratelů (324)", self)
+        sec_324.setProperty("class", "section-title")
+        root.addWidget(sec_324)
+        self._saldo_324 = _make_table(cols_ucty)
+        root.addWidget(self._saldo_324)
+
         # 355
         sec3 = QLabel("Pohledávky za společníky (355)", self)
         sec3.setProperty("class", "section-title")
         root.addWidget(sec3)
-        cols_ucty = ("Účet", "Název / partner", "Saldo")
         self._saldo_355 = _make_table(cols_ucty)
         root.addWidget(self._saldo_355)
 
@@ -199,6 +216,8 @@ class SaldokontoPage(QWidget):
         sekce_map = {s.ucet: s for s in sekce}
         self._fill_doklady(self._saldo_311, sekce_map.get("311"))
         self._fill_doklady(self._saldo_321, sekce_map.get("321"))
+        self._fill_ucty(self._saldo_314, sekce_map.get("314"))
+        self._fill_ucty(self._saldo_324, sekce_map.get("324"))
         self._fill_ucty(self._saldo_355, sekce_map.get("355"))
         self._fill_ucty(self._saldo_365, sekce_map.get("365"))
 

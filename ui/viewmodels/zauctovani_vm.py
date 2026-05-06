@@ -203,6 +203,10 @@ class ZauctovaniViewModel:
             self._ucty = []
             self._error = str(exc) or exc.__class__.__name__
         # Pre-fill: jeden prázdný řádek s celkovou částkou (Q4 rozhodnutí).
+        # POZN: ZF se NEÚČTUJE — účtuje se až úhrada (přes spárování platby
+        # v Bance). Zaúčtovat ZF samotnou nemá účetní smysl pro identifikovanou
+        # osobu. UI tlačítko Zaúčtovat pro ZF je proto skryto (can_zauctovat
+        # = False v DokladDetailViewModel).
         if not self._radky:
             if self._doklad.dph_rezim == DphRezim.REVERSE_CHARGE:
                 self._prefill_reverse_charge()
@@ -301,6 +305,58 @@ class ZauctovaniViewModel:
         """
         castka = self.rozdil if self.rozdil > Money.zero() else Money.zero()
         self._radky.append(PredpisRadek(castka=castka))
+
+    def nacti_zalohy_partnera(self, zalohy: list) -> None:
+        """Přidá řádky odečet zálohy + sníží hlavní řádek o sumu záloh.
+
+        Standardní český účetní pattern pro zúčtování zálohy ve finální FV/FP:
+
+        FV 10000, předchozí ZF 3000 (klient už zaplatil zálohu):
+            Hlavní:  MD 311 / Dal 601 = 7000  (čistá fakturace)
+            Odečet:  MD 324 / Dal 601 = 3000  (odpis přijaté zálohy do výnosu)
+
+        FP 10000, předchozí ZF 3000 (PRAUT už zaplatila zálohu dodavateli):
+            Hlavní:  MD 518 / Dal 321 = 7000  (čistý náklad)
+            Odečet:  MD 518 / Dal 314 = 3000  (odpis poskytnuté zálohy do nákladu)
+
+        Volající (page) zajistí, že zálohy mají správný směr.
+        """
+        from dataclasses import replace as _replace
+        from domain.doklady.typy import TypDokladu as _T
+
+        if not zalohy:
+            return
+
+        is_fv = self._doklad.typ == _T.FAKTURA_VYDANA
+        suma_zaloh_hal = sum(z.castka_celkem.to_halire() for z in zalohy)
+
+        # Sniž první ne-DPH řádek o sumu záloh — to bude "hlavní" řádek
+        hlavni_md = ""
+        hlavni_dal = ""
+        for i, r in enumerate(self._radky):
+            if not self._is_dph_row(r):
+                nova = Money(r.castka.to_halire() - suma_zaloh_hal)
+                self._radky[i] = _replace(r, castka=nova)
+                hlavni_md = r.md_ucet
+                hlavni_dal = r.dal_ucet
+                break
+
+        # Přidej řádky odečtu — pro každou ZF jeden zápis
+        for z in zalohy:
+            if is_fv:
+                # Vystavená záloha → MD 324.x / Dal <stejný výnos jako hlavní>
+                md = "324.001"
+                dal = hlavni_dal or "601"
+            else:
+                # Přijatá záloha → MD <stejný náklad jako hlavní> / Dal 314.x
+                md = hlavni_md or "518"
+                dal = "314.001"
+            self._radky.append(PredpisRadek(
+                md_ucet=md,
+                dal_ucet=dal,
+                castka=z.castka_celkem,
+                popis=f"Odečet zálohy {z.cislo}",
+            ))
 
     def remove_row(self, index: int) -> None:
         if 0 <= index < len(self._radky):

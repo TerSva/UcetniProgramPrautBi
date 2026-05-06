@@ -123,6 +123,14 @@ class OcrUploadDetailDialog(QDialog):
         return val if val else None
 
     @property
+    def je_vystavena(self) -> bool | None:
+        """Pro ZF: True/False; pro non-ZF: None."""
+        if self.typ != TypDokladu.ZALOHA_FAKTURA:
+            return None
+        val = self._zaloha_combo.value()
+        return True if val is None else val
+
+    @property
     def mena(self) -> Mena:
         val = self._mena_combo.value()
         return val if val else Mena.CZK
@@ -192,9 +200,20 @@ class OcrUploadDetailDialog(QDialog):
         self._typ_combo = LabeledComboBox("Typ dokladu")
         self._typ_combo.add_item("Faktura přijatá", TypDokladu.FAKTURA_PRIJATA)
         self._typ_combo.add_item("Faktura vydaná", TypDokladu.FAKTURA_VYDANA)
+        self._typ_combo.add_item(
+            "Zálohová faktura", TypDokladu.ZALOHA_FAKTURA,
+        )
         self._typ_combo.add_item("Pokladní doklad", TypDokladu.POKLADNI_DOKLAD)
         self._typ_combo.add_item("Interní doklad", TypDokladu.INTERNI_DOKLAD)
         right_layout.addWidget(self._typ_combo)
+
+        # Druh zálohy — visible jen pro ZALOHA_FAKTURA
+        self._zaloha_combo = LabeledComboBox("Druh zálohy")
+        self._zaloha_combo.add_item("Vystavená (odběrateli)", True)
+        self._zaloha_combo.add_item("Přijatá (od dodavatele)", False)
+        self._zaloha_combo.set_value(True)
+        self._zaloha_combo.setVisible(False)
+        right_layout.addWidget(self._zaloha_combo)
 
         # Číselná řada — visible jen pro FAKTURA_PRIJATA
         self._rada_combo = LabeledComboBox("Číselná řada")
@@ -396,14 +415,20 @@ class OcrUploadDetailDialog(QDialog):
         )
 
     def _on_typ_changed(self, _value: object) -> None:
-        """Změna typu — sync visibility řady + regenerace čísla."""
+        """Změna typu — sync visibility řady + Druhu zálohy + regenerace čísla."""
         self._sync_rada_visibility()
+        self._sync_zaloha_visibility()
         self._refresh_cislo()
 
     def _sync_rada_visibility(self) -> None:
         """Combo Číselná řada se zobrazí jen pro FAKTURA_PRIJATA."""
         is_fp = self._typ_combo.value() == TypDokladu.FAKTURA_PRIJATA
         self._rada_combo.setVisible(is_fp)
+
+    def _sync_zaloha_visibility(self) -> None:
+        """Combo Druh zálohy se zobrazí jen pro ZALOHA_FAKTURA."""
+        is_zf = self._typ_combo.value() == TypDokladu.ZALOHA_FAKTURA
+        self._zaloha_combo.setVisible(is_zf)
 
     def _refresh_cislo(self) -> None:
         """Vygeneruj nové číslo z aktuální řady + roku přes loader.

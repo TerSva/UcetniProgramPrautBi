@@ -887,7 +887,7 @@ class VykazyQuery:
             celkem=celkem_fp,
         )
 
-        # 355 / 365 — saldo z účetních zápisů
+        # 355 / 365 — saldo z účetních zápisů (společníci)
         sekce_355 = self._saldo_zaznamu_per_ucet(
             rok, prefix="355",
             nazev="Pohledávky za společníky (355)",
@@ -899,7 +899,22 @@ class VykazyQuery:
             je_pohledavka=False,
         )
 
-        return (sekce_311, sekce_321, sekce_355, sekce_365)
+        # 314 / 324 — zálohy z účetních zápisů
+        sekce_314 = self._saldo_zaznamu_per_ucet(
+            rok, prefix="314",
+            nazev="Poskytnuté zálohy (314)",
+            je_pohledavka=True,
+        )
+        sekce_324 = self._saldo_zaznamu_per_ucet(
+            rok, prefix="324",
+            nazev="Přijaté zálohy od odběratelů (324)",
+            je_pohledavka=False,
+        )
+
+        return (
+            sekce_311, sekce_321, sekce_314, sekce_324,
+            sekce_355, sekce_365,
+        )
 
     def _saldo_zaznamu_per_ucet(
         self,

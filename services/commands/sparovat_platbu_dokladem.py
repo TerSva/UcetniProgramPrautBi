@@ -112,10 +112,15 @@ class SparovatPlatbuDoklademCommand:
 
             # Načti doklad
             doklad = doklady_repo.get_by_id(doklad_id)
-            if doklad.stav not in (
+            # ZF se neúčtuje samostatně — povolíme párování i z NOVY
+            # stavu (úhrada převede ZF rovnou na UHRAZENY/CASTECNE).
+            povolene_stavy = {
                 StavDokladu.ZAUCTOVANY,
                 StavDokladu.CASTECNE_UHRAZENY,
-            ):
+            }
+            if doklad.typ == TypDokladu.ZALOHA_FAKTURA:
+                povolene_stavy.add(StavDokladu.NOVY)
+            if doklad.stav not in povolene_stavy:
                 raise ValidationError(
                     f"Doklad {doklad.cislo} je ve stavu {doklad.stav.value} "
                     f"— lze párovat jen zaúčtované doklady.",
@@ -123,10 +128,11 @@ class SparovatPlatbuDoklademCommand:
             if doklad.typ not in (
                 TypDokladu.FAKTURA_PRIJATA,
                 TypDokladu.FAKTURA_VYDANA,
+                TypDokladu.ZALOHA_FAKTURA,
             ):
                 raise ValidationError(
                     f"Doklad {doklad.cislo} je typu {doklad.typ.value} "
-                    f"— párovat lze jen FP/FV.",
+                    f"— párovat lze jen FP/FV/ZF.",
                 )
 
             # Zjisti BV doklad a účet 221
@@ -154,14 +160,36 @@ class SparovatPlatbuDoklademCommand:
 
             # Účty podle typu dokladu — preferuj override (z dialogu),
             # jinak najdi reálný účet závazku/pohledávky z původního
-            # zaúčtování (jakýkoli účet třídy 3 — 321, 379, 365, …)
-            if doklad.typ == TypDokladu.FAKTURA_PRIJATA:
+            # zaúčtování (jakýkoli účet třídy 3 — 321, 314, 311, 365, …)
+            #
+            # Směr platby:
+            #   FP, ZF přijatá   → PRAUT platí (MD závazek/záloha, Dal bank)
+            #   FV, ZF vystavená → PRAUT inkasuje (MD bank, Dal pohledávka)
+            je_uhrada_zavazku = (
+                doklad.typ == TypDokladu.FAKTURA_PRIJATA
+                or (
+                    doklad.typ == TypDokladu.ZALOHA_FAKTURA
+                    and doklad.je_vystavena is False
+                )
+            )
+            # Default fallback účet pokud zaúčtování neprozradí — ZF přijatá
+            # používá 314 (záloha), ZF vystavená 324 nebo 311.
+            if doklad.typ == TypDokladu.ZALOHA_FAKTURA:
+                fallback_zavazek = "314.001"  # ZF přijatá — záloha
+                fallback_pohledavka = "311.100"  # ZF vystavená — pohledávka
+            else:
+                fallback_zavazek = "321"
+                fallback_pohledavka = "311"
+
+            if je_uhrada_zavazku:
                 if md_ucet_override and dal_ucet_override:
                     md_ucet, dal_ucet = md_ucet_override, dal_ucet_override
                 else:
                     ucet_zavazku = _najdi_ucet_zavazku(
                         uow, doklad_id, "dal_ucet",
-                    ) or "321"
+                    ) or _najdi_ucet_zavazku(
+                        uow, doklad_id, "md_ucet",
+                    ) or fallback_zavazek
                     md_ucet, dal_ucet = ucet_zavazku, ucet_221
                 ucet_protistrany = md_ucet
             else:
@@ -170,7 +198,9 @@ class SparovatPlatbuDoklademCommand:
                 else:
                     ucet_pohledavky = _najdi_ucet_zavazku(
                         uow, doklad_id, "md_ucet",
-                    ) or "311"
+                    ) or _najdi_ucet_zavazku(
+                        uow, doklad_id, "dal_ucet",
+                    ) or fallback_pohledavka
                     md_ucet, dal_ucet = ucet_221, ucet_pohledavky
                 ucet_protistrany = dal_ucet
 
@@ -288,9 +318,11 @@ class SparovatPlatbuDoklademCommand:
             if doklad_uhrazen:
                 doklad.oznac_uhrazeny()
             else:
-                # Z NOVY/ZAUCTOVANY → CASTECNE; pokud už je CASTECNE,
-                # přechod není potřeba (zůstává).
-                if doklad.stav == StavDokladu.ZAUCTOVANY:
+                # NOVY/ZAUCTOVANY → CASTECNE_UHRAZENY. ZF přejde z NOVY
+                # rovnou (neúčtuje se samostatně), FV/FP musí být ZAUCTOVANY.
+                if doklad.stav in (
+                    StavDokladu.ZAUCTOVANY, StavDokladu.NOVY,
+                ):
                     doklad.oznac_castecne_uhrazeny()
             doklady_repo.update(doklad)
 

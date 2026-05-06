@@ -566,13 +566,30 @@ class VykazyPage(QWidget):
         self._saldo_321 = _make_table(cols_doklady)
         layout.addWidget(self._saldo_321)
 
+        cols_ucty = ("Účet", "Název / partner", "Saldo")
+
+        # 314 — Poskytnuté zálohy
+        self._saldo_314_label = QLabel("Poskytnuté zálohy (314)", w)
+        self._saldo_314_label.setProperty("class", "section-title")
+        layout.addWidget(self._saldo_314_label)
+        self._saldo_314 = _make_table(cols_ucty)
+        layout.addWidget(self._saldo_314)
+
+        # 324 — Přijaté zálohy od odběratelů
+        self._saldo_324_label = QLabel(
+            "Přijaté zálohy od odběratelů (324)", w,
+        )
+        self._saldo_324_label.setProperty("class", "section-title")
+        layout.addWidget(self._saldo_324_label)
+        self._saldo_324 = _make_table(cols_ucty)
+        layout.addWidget(self._saldo_324)
+
         # 355 — Pohledávky vůči společníkům
         self._saldo_355_label = QLabel(
             "Pohledávky za společníky (355)", w,
         )
         self._saldo_355_label.setProperty("class", "section-title")
         layout.addWidget(self._saldo_355_label)
-        cols_ucty = ("Účet", "Název / partner", "Saldo")
         self._saldo_355 = _make_table(cols_ucty)
         layout.addWidget(self._saldo_355)
 
@@ -596,6 +613,8 @@ class VykazyPage(QWidget):
         sekce_map = {s.ucet: s for s in sekce}
         self._fill_saldo_doklady(self._saldo_311, sekce_map.get("311"))
         self._fill_saldo_doklady(self._saldo_321, sekce_map.get("321"))
+        self._fill_saldo_ucty(self._saldo_314, sekce_map.get("314"))
+        self._fill_saldo_ucty(self._saldo_324, sekce_map.get("324"))
         self._fill_saldo_ucty(self._saldo_355, sekce_map.get("355"))
         self._fill_saldo_ucty(self._saldo_365, sekce_map.get("365"))
 

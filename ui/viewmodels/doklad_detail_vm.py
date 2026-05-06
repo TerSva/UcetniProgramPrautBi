@@ -167,7 +167,12 @@ class DokladDetailViewModel:
 
     @property
     def can_zauctovat(self) -> bool:
-        """Zaúčtovat jen NOVY doklady."""
+        """Zaúčtovat jen NOVY doklady. ZF se NEÚČTUJE samostatně —
+        účtuje se až úhrada přes spárování platby v Bance.
+        """
+        from domain.doklady.typy import TypDokladu as _T
+        if self._doklad.typ == _T.ZALOHA_FAKTURA:
+            return False
         return self._doklad.stav == StavDokladu.NOVY
 
     # ─── Edit mode ────────────────────────────────────────────────────

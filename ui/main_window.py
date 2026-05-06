@@ -63,6 +63,7 @@ from ui.widgets import Sidebar
 _DOKLADY_TYP_PAGES: tuple[tuple[str, TypDokladu, str], ...] = (
     ("doklady_fv", TypDokladu.FAKTURA_VYDANA, "Vydané faktury"),
     ("doklady_fp", TypDokladu.FAKTURA_PRIJATA, "Přijaté faktury"),
+    ("doklady_zf", TypDokladu.ZALOHA_FAKTURA, "Zálohové faktury"),
     ("doklady_pd", TypDokladu.POKLADNI_DOKLAD, "Pokladní doklady"),
     ("doklady_id", TypDokladu.INTERNI_DOKLAD, "Interní doklady"),
     ("doklady_od", TypDokladu.OPRAVNY_DOKLAD, "Opravné doklady"),

@@ -79,5 +79,9 @@ class TestVSSKombinace:
 
     def test_vs_vsechny_typy_dokladu(self):
         for typ in TypDokladu:
-            d = _doklad(typ=typ, variabilni_symbol="42")
+            kwargs = {"typ": typ, "variabilni_symbol": "42"}
+            # ZF vyžaduje je_vystavena
+            if typ == TypDokladu.ZALOHA_FAKTURA:
+                kwargs["je_vystavena"] = True
+            d = _doklad(**kwargs)
             assert d.variabilni_symbol == "42"

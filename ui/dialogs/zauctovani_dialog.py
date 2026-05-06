@@ -31,12 +31,14 @@ from PyQt6.QtWidgets import (
     QDialog,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from domain.doklady.typy import TypDokladu
 from domain.shared.money import Money
 from services.queries.doklady_list import DokladyListItem
 from services.queries.uctova_osnova import UcetItem
@@ -119,6 +121,7 @@ class ZauctovaniDialog(QDialog):
     def __init__(
         self,
         view_model: ZauctovaniViewModel,
+        zalohy_query_factory: object = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -129,6 +132,7 @@ class ZauctovaniDialog(QDialog):
         self.resize(860, 600)
 
         self._vm = view_model
+        self._zalohy_query_factory = zalohy_query_factory
         self._posted_item: DokladyListItem | None = None
         self._rows: list[_RadekRow] = []
 
@@ -258,6 +262,23 @@ class ZauctovaniDialog(QDialog):
         rows_title.setProperty("class", "section-title")
         rows_header.addWidget(rows_title)
         rows_header.addStretch(1)
+        # Tlačítko Načíst zálohy — visible jen pro FV/FP s vybraným partnerem
+        self._zalohy_button = QPushButton("Načíst zálohy partnera", self)
+        self._zalohy_button.setProperty("class", "secondary")
+        self._zalohy_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._zalohy_button.setToolTip(
+            "Pro FV: nabídne nezúčtované vystavené zálohy odběratele.\n"
+            "Pro FP: nabídne nezúčtované přijaté zálohy od dodavatele.\n"
+            "Po výběru: hlavní řádek se sníží + přidá se odečet zálohy."
+        )
+        # Visible jen pro FV/FP s partnerem
+        is_fv_fp = self._vm.doklad.typ in (
+            TypDokladu.FAKTURA_VYDANA, TypDokladu.FAKTURA_PRIJATA,
+        )
+        self._zalohy_button.setVisible(
+            is_fv_fp and self._vm.doklad.partner_id is not None
+        )
+        rows_header.addWidget(self._zalohy_button)
         self._add_row_button = QPushButton("+ Řádek", self)
         self._add_row_button.setProperty("class", "secondary")
         self._add_row_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -322,6 +343,7 @@ class ZauctovaniDialog(QDialog):
             self._on_dph_sazba_changed,
         )
         self._add_row_button.clicked.connect(self._on_add_row)
+        self._zalohy_button.clicked.connect(self._on_nacti_zalohy)
         self._submit_button.clicked.connect(self._on_submit)
         self._cancel_button.clicked.connect(self.reject)
 
@@ -371,6 +393,47 @@ class ZauctovaniDialog(QDialog):
 
     def _on_add_row(self) -> None:
         self._vm.add_row()
+        self._rebuild_rows()
+        self._sync_ui()
+
+    def _on_nacti_zalohy(self) -> None:
+        """Otevře dialog výběru ZF stejného partnera, zúčtuje vybrané."""
+        from ui.dialogs.vyber_zaloh_dialog import VyberZalohDialog
+        from services.queries.zalohy_partnera import ZalohyPartneraQuery
+
+        partner_id = self._vm.doklad.partner_id
+        if partner_id is None:
+            QMessageBox.information(
+                self, "Načíst zálohy",
+                "Doklad nemá vybraného partnera — nelze najít jeho zálohy."
+            )
+            return
+
+        is_fv = self._vm.doklad.typ == TypDokladu.FAKTURA_VYDANA
+        if not self._zalohy_query_factory:
+            QMessageBox.warning(
+                self, "Načíst zálohy",
+                "Funkce načtení záloh není nakonfigurována."
+            )
+            return
+
+        query = self._zalohy_query_factory()
+        zalohy = query.execute(partner_id=partner_id, je_vystavena=is_fv)
+        if not zalohy:
+            QMessageBox.information(
+                self, "Načíst zálohy",
+                f"Žádné nezúčtované {'vystavené' if is_fv else 'přijaté'} "
+                f"zálohy partnera nenalezeny."
+            )
+            return
+
+        dlg = VyberZalohDialog(zalohy, parent=self)
+        if not dlg.exec():
+            return
+        vybrane = dlg.selected_zalohy
+        if not vybrane:
+            return
+        self._vm.nacti_zalohy_partnera(vybrane)
         self._rebuild_rows()
         self._sync_ui()
 
