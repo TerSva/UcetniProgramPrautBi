@@ -99,6 +99,16 @@ _UHRAZENO_COLOR: dict[StavDokladu, str] = {
     StavDokladu.STORNOVANY: Colors.GRAY_700,
 }
 
+#: Pořadí stavů pro sortování (ASC = Nový nahoře, DESC = Stornovaný nahoře).
+#: Business priorita: nezpracované doklady první (vyžadují pozornost).
+_STAV_SORT_ORDER: dict[StavDokladu, int] = {
+    StavDokladu.NOVY: 0,
+    StavDokladu.ZAUCTOVANY: 1,
+    StavDokladu.CASTECNE_UHRAZENY: 2,
+    StavDokladu.UHRAZENY: 3,
+    StavDokladu.STORNOVANY: 4,
+}
+
 
 #: Badge variant → barva textu v buňce tabulky (tabulka je read-only, badge
 #: widget do tabulky nenaháníme — jen barvíme text přes ForegroundRole).
@@ -267,6 +277,9 @@ class DokladyTableModel(QAbstractTableModel):
             if col == _COL_CASTKA:
                 # Přepočet do CZK (haléře) — porovnává se napříč měnami
                 return item.castka_celkem.to_halire()
+            if col == _COL_STAV:
+                # Business priorita (Nový nahoře při ASC, Stornovaný dole)
+                return _STAV_SORT_ORDER.get(item.stav, 99)
             return None
 
         # ── Tooltip pro k_doreseni sloupec ──
@@ -339,7 +352,9 @@ class KDoreseniIconDelegate(QStyledItemDelegate):
 
 
 #: Sloupce, které jsou klikatelně sortovatelné (pro sortable=True tabulky).
-_SORTABLE_COLUMNS: frozenset[int] = frozenset({_COL_CISLO, _COL_DATUM, _COL_CASTKA})
+_SORTABLE_COLUMNS: frozenset[int] = frozenset(
+    {_COL_CISLO, _COL_DATUM, _COL_CASTKA, _COL_STAV}
+)
 
 
 class _SortableProxy(QSortFilterProxyModel):
@@ -356,9 +371,12 @@ class _SortableProxy(QSortFilterProxyModel):
 class DokladyTable(QTableView):
     """QTableView s vypnutými grid lines, alternate-row barvami a delegatem.
 
-    ``sortable=True`` zapne klikatelné sortování pro sloupce Číslo, Datum
-    a Částka (3 ze 9 sloupců). Default sort: Datum DESC. Šipka v hlavičce
-    se zobrazí standardně přes Qt header.
+    ``sortable=True`` zapne klikatelné sortování pro sloupce Číslo, Datum,
+    Částka a Stav (4 ze 9 sloupců). Default sort: Datum DESC. Šipka
+    v hlavičce se zobrazí standardně přes Qt header.
+
+    Sloupec Stav řadí podle business priority — ASC = Nový → Zaúčtovaný
+    → Částečně uhrazený → Uhrazený → Stornovaný (nezpracované první).
     """
 
     #: Emitováno při double-click / Enter — doklad_id z modelu.

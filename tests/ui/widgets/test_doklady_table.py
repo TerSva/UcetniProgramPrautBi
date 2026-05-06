@@ -243,6 +243,47 @@ class TestSortableTable:
         table.doubleClicked.emit(model.index(0, 0))
         assert received == [2]
 
+    def test_sortable_radi_stav_asc_novy_nahore(self, qtbot):
+        """Klik na sloupec Stav ASC → Nový doklady jsou nahoře."""
+        from PyQt6.QtCore import Qt
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        table.set_items([
+            _item(id=1, stav=StavDokladu.UHRAZENY),
+            _item(id=2, stav=StavDokladu.NOVY),
+            _item(id=3, stav=StavDokladu.ZAUCTOVANY),
+            _item(id=4, stav=StavDokladu.NOVY),
+            _item(id=5, stav=StavDokladu.STORNOVANY),
+        ])
+        # Sort podle Stavu (col 7) ASC — Nový nahoře, Stornovaný dole
+        table.sortByColumn(7, Qt.SortOrder.AscendingOrder)
+        # První dva řádky musí být oba NOVY (id=2, id=4)
+        received: list[int] = []
+        table.row_activated.connect(lambda i: received.append(i))
+        model = table.model()
+        table.doubleClicked.emit(model.index(0, 0))
+        table.doubleClicked.emit(model.index(1, 0))
+        # Pořadí mezi stejnými stavy zachová insertion order (stable sort)
+        assert set(received[:2]) == {2, 4}
+
+    def test_sortable_radi_stav_desc_stornovane_nahore(self, qtbot):
+        """Klik na sloupec Stav DESC → Stornované doklady jsou nahoře."""
+        from PyQt6.QtCore import Qt
+        table = DokladyTable(sortable=True)
+        qtbot.addWidget(table)
+        table.set_items([
+            _item(id=1, stav=StavDokladu.NOVY),
+            _item(id=2, stav=StavDokladu.STORNOVANY),
+            _item(id=3, stav=StavDokladu.UHRAZENY),
+        ])
+        table.sortByColumn(7, Qt.SortOrder.DescendingOrder)
+        received: list[int] = []
+        table.row_activated.connect(lambda i: received.append(i))
+        model = table.model()
+        table.doubleClicked.emit(model.index(0, 0))
+        # První řádek = id=2 (STORNOVANY)
+        assert received == [2]
+
     def test_sortable_klik_na_neactive_sloupec_je_noop(self, qtbot):
         """Klik na sloupec Typ (col 1) nesortuje — pořadí zůstane jak default."""
         from PyQt6.QtCore import Qt
