@@ -61,6 +61,7 @@ from services.queries.ocr_inbox import OcrInboxQuery
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand
 from services.banka.import_vypisu import ImportVypisuCommand
 from services.banka.smazat_vypis import SmazatVypisCommand
+from services.commands.rozparovat_platbu import RozparovatPlatbuCommand
 from services.commands.sparovat_platbu_dokladem import SparovatPlatbuDoklademCommand
 from services.queries.banka import (
     BankovniTransakceQuery,
@@ -356,6 +357,7 @@ def _build_bankovni_vypisy_vm(
     auto_cmd = AutoUctovaniBankyCommand(uow_factory=uow_factory)
     smazat_cmd = SmazatVypisCommand(uow_factory=uow_factory)
     sparovat_cmd = SparovatPlatbuDoklademCommand(uow_factory=uow_factory)
+    rozparovat_cmd = RozparovatPlatbuCommand(uow_factory=uow_factory)
     neuhrazene_query = NeuhrazeneDokladyQuery(uow_factory=uow_factory)
     return BankovniVypisyViewModel(
         ucty_query=ucty_query,
@@ -364,6 +366,7 @@ def _build_bankovni_vypisy_vm(
         auto_uctovani_cmd=auto_cmd,
         smazat_cmd=smazat_cmd,
         sparovat_cmd=sparovat_cmd,
+        rozparovat_cmd=rozparovat_cmd,
         neuhrazene_query=neuhrazene_query,
         uow_factory=uow_factory,
     )

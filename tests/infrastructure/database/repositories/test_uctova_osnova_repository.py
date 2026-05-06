@@ -18,8 +18,8 @@ class TestSeedOsnovy:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
-            # 68 + 9 z 022 (daňové analytiky) + 2 z 024 (kurzové analytiky)
-            assert len(ucty) == 82
+            # 82 + 1 z 027 (479)
+            assert len(ucty) == 83
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)

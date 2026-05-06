@@ -71,3 +71,22 @@ class BankovniTransakce:
                 f"aktuální stav: {self.stav.value}"
             )
         self.stav = StavTransakce.NESPAROVANO
+
+    def rozparuj(self) -> None:
+        """Vrátí spárovanou transakci zpět na NESPAROVANO.
+
+        Reset vazeb na doklad/účetní zápis. Volající (command vrstva)
+        musí zajistit storno protizápisů v deníku — tato metoda jen
+        resetuje stav transakce.
+        """
+        if self.stav not in (
+            StavTransakce.SPAROVANO,
+            StavTransakce.AUTO_ZAUCTOVANO,
+        ):
+            raise ValidationError(
+                f"Rozpárovat lze jen spárovanou nebo auto zaúčtovanou "
+                f"transakci, aktuální stav: {self.stav.value}"
+            )
+        self.stav = StavTransakce.NESPAROVANO
+        self.sparovany_doklad_id = None
+        self.ucetni_zapis_id = None

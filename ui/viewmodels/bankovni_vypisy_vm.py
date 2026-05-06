@@ -14,6 +14,7 @@ from infrastructure.database.repositories.banka_repository import (
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand, AutoUctovaniResult
 from services.banka.smazat_vypis import SmazatVypisCommand, SmazatVypisResult
+from services.commands.rozparovat_platbu import RozparovatPlatbuCommand
 from services.commands.sparovat_platbu_dokladem import (
     SparovatPlatbuDoklademCommand,
     SparovaniResult,
@@ -39,6 +40,7 @@ class BankovniVypisyViewModel:
         auto_uctovani_cmd: AutoUctovaniBankyCommand,
         smazat_cmd: SmazatVypisCommand | None = None,
         sparovat_cmd: SparovatPlatbuDoklademCommand | None = None,
+        rozparovat_cmd: RozparovatPlatbuCommand | None = None,
         neuhrazene_query: NeuhrazeneDokladyQuery | None = None,
         uow_factory: Callable[[], SqliteUnitOfWork] | None = None,
     ) -> None:
@@ -48,6 +50,7 @@ class BankovniVypisyViewModel:
         self._auto_uctovani_cmd = auto_uctovani_cmd
         self._smazat_cmd = smazat_cmd
         self._sparovat_cmd = sparovat_cmd
+        self._rozparovat_cmd = rozparovat_cmd
         self._neuhrazene_query = neuhrazene_query
         self._uow_factory = uow_factory
 
@@ -314,6 +317,26 @@ class BankovniVypisyViewModel:
                 tx.obnov()
                 repo.update(tx)
                 uow.commit()
+            if self._selected_vypis_id is not None:
+                self.select_vypis(self._selected_vypis_id)
+            self._error = None
+            return True
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc)
+            return False
+
+    def rozparuj_transakci(self, tx_id: int) -> bool:
+        """Rozpáruje spárovanou transakci s dokladem.
+
+        Vytvoří storno protizápisy v deníku (audit trail), resetuje
+        stav transakce na NESPAROVANO a vrátí stav dokladu zpět dle
+        zbývajících úhrad.
+        """
+        if self._rozparovat_cmd is None:
+            self._error = "Rozpárovat command není k dispozici"
+            return False
+        try:
+            self._rozparovat_cmd.execute(transakce_id=tx_id)
             if self._selected_vypis_id is not None:
                 self.select_vypis(self._selected_vypis_id)
             self._error = None

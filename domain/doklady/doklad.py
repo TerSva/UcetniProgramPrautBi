@@ -316,21 +316,38 @@ class Doklad:
         )
 
     def zrus_uhradu(self) -> None:
-        """UHRAZENY → ZAUCTOVANY (reverz při smazání výpisu / odpárování)."""
+        """UHRAZENY/CASTECNE_UHRAZENY → ZAUCTOVANY (nebo NOVY pro ZF).
+
+        Reverz při smazání výpisu nebo rozpárování platby. Pro ZF se
+        vrací do NOVY, protože ZF se neúčtuje samostatně (ZAUCTOVANY
+        stav pro ni nemá smysl).
+        """
+        cilovy = (
+            StavDokladu.NOVY
+            if self._typ == TypDokladu.ZALOHA_FAKTURA
+            else StavDokladu.ZAUCTOVANY
+        )
         self._prechod(
-            povolene_z={StavDokladu.UHRAZENY},
-            cilovy=StavDokladu.ZAUCTOVANY,
+            povolene_z={
+                StavDokladu.UHRAZENY,
+                StavDokladu.CASTECNE_UHRAZENY,
+            },
+            cilovy=cilovy,
             akce="zrušit úhradu",
         )
 
     def oznac_castecne_uhrazeny(self) -> None:
-        """NOVY/ZAUCTOVANY → CASTECNE_UHRAZENY.
+        """ZAUCTOVANY/UHRAZENY → CASTECNE_UHRAZENY (NOVY pro ZF).
+
+        UHRAZENY → CASTECNE_UHRAZENY se používá při rozpárování jedné
+        z více úhrad — doklad byl plně uhrazený, ale po stornu jedné
+        úhrady zbývá pohledávka/závazek.
 
         NOVY → CASTECNE_UHRAZENY je povolen jen pro typ ZALOHA_FAKTURA
         (ZF se neúčtuje samostatně, takže částečná platba ji posune
         přímo z NOVY na CASTECNE_UHRAZENY).
         """
-        povolene = {StavDokladu.ZAUCTOVANY}
+        povolene = {StavDokladu.ZAUCTOVANY, StavDokladu.UHRAZENY}
         if self._typ == TypDokladu.ZALOHA_FAKTURA:
             povolene = povolene | {StavDokladu.NOVY}
         self._prechod(

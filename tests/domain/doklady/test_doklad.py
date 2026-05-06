@@ -271,14 +271,22 @@ class TestStavovyStroj:
         with pytest.raises(ValidationError, match="castecne_uhrazeny"):
             d.oznac_castecne_uhrazeny()
 
-    def test_uhrazeny_je_terminal(self):
+    def test_uhrazeny_nelze_zpet_zauctovat_primo(self):
+        """Z UHRAZENY zpět na ZAUCTOVANY jen přes ``zrus_uhradu``,
+        ne přímým ``zauctuj``."""
         d = _doklad()
         d.zauctuj()
         d.oznac_uhrazeny()
         with pytest.raises(ValidationError):
             d.zauctuj()
-        with pytest.raises(ValidationError):
-            d.oznac_castecne_uhrazeny()
+
+    def test_uhrazeny_lze_castecne_pri_rozparovani(self):
+        """Z UHRAZENY → CASTECNE_UHRAZENY je povolený přechod
+        pro scénář rozpárování jedné z více úhrad."""
+        d = _doklad()
+        d.zauctuj()
+        d.oznac_uhrazeny()
+        d.oznac_castecne_uhrazeny()  # OK — zbytkové úhrady kryjí část
 
 
 class TestEditace:

@@ -507,6 +507,28 @@ class BankaVypisyPage(QWidget):
             )
         self._refresh_transakce()
 
+    def _on_rozparovat(self, tx_id: int) -> None:
+        """Zruší spárování — confirm dialog + storno přes command."""
+        reply = QMessageBox.question(
+            self,
+            "Rozpárovat platbu",
+            "Opravdu chcete rozpárovat tuto platbu?\n\n"
+            "K úhradovým zápisům v deníku vzniknou storno protizápisy "
+            "(audit trail zůstává), transakce se vrátí mezi nespárované "
+            "a doklad zpět do stavu zaúčtováno (případně částečně uhrazeno).",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        ok = self._vm.rozparuj_transakci(tx_id)
+        if not ok:
+            QMessageBox.warning(
+                self, "Chyba",
+                self._vm.error or "Nepodařilo se rozpárovat transakci.",
+            )
+        self._refresh_transakce()
+
     def _on_sparovat(self, tx_id: int) -> None:
         """Otevře dialog pro ruční párování transakce s dokladem.
 
@@ -829,6 +851,29 @@ class BankaVypisyPage(QWidget):
                 obnovit_btn.clicked.connect(partial(self._on_obnovit, tx.id))
 
                 actions_layout.addWidget(obnovit_btn)
+                self._tx_table.setCellWidget(i, 8, actions_widget)
+            elif tx.stav in (
+                StavTransakce.SPAROVANO,
+                StavTransakce.AUTO_ZAUCTOVANO,
+            ):
+                actions_widget = QWidget()
+                actions_layout = QHBoxLayout(actions_widget)
+                actions_layout.setContentsMargins(2, 2, 2, 2)
+                actions_layout.setSpacing(4)
+
+                rozparovat_btn = QPushButton("Rozpárovat")
+                rozparovat_btn.setProperty("class", "table-action-gray")
+                rozparovat_btn.setFlat(True)
+                rozparovat_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                rozparovat_btn.setToolTip(
+                    "Zruší spárování s dokladem — vytvoří storno protizápisy "
+                    "v deníku, transakce se vrátí mezi nespárované."
+                )
+                rozparovat_btn.clicked.connect(
+                    partial(self._on_rozparovat, tx.id),
+                )
+
+                actions_layout.addWidget(rozparovat_btn)
                 self._tx_table.setCellWidget(i, 8, actions_widget)
             else:
                 self._tx_table.setItem(i, 8, QTableWidgetItem(""))
