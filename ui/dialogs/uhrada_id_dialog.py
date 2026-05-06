@@ -100,8 +100,12 @@ class UhradaIntDoklademDialog(QDialog):
             self._spolecnik_combo.add_item(label, ucet)
         root.addWidget(self._spolecnik_combo)
 
+        # Default: splatnost > vystavení > dnes (viz UhradaPokladnouDialog)
+        default_datum = (
+            d.datum_splatnosti or d.datum_vystaveni or date.today()
+        )
         self._datum_input = LabeledDateEdit("Datum úhrady", parent=self)
-        self._datum_input.set_value(date.today())
+        self._datum_input.set_value(default_datum)
         root.addWidget(self._datum_input)
 
         self._cislo_input = LabeledLineEdit(

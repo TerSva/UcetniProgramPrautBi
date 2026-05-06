@@ -97,8 +97,15 @@ class UhradaPokladnouDialog(QDialog):
         uctovani_label.setProperty("class", "form-help")
         root.addWidget(uctovani_label)
 
+        # Default datum úhrady: splatnost > vystavení > dnes.
+        # Důvod: úhrady jsou typicky k datu splatnosti dokladu, ne dnešní;
+        # default `date.today()` vedl k chybnému přiřazení do nesprávného
+        # účetního roku (uživatel zaúčtoval historický doklad dneškem).
+        default_datum = (
+            d.datum_splatnosti or d.datum_vystaveni or date.today()
+        )
         self._datum_input = LabeledDateEdit("Datum úhrady", parent=self)
-        self._datum_input.set_value(date.today())
+        self._datum_input.set_value(default_datum)
         root.addWidget(self._datum_input)
 
         self._cislo_input = LabeledLineEdit(
