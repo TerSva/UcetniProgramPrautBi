@@ -351,6 +351,68 @@ class Doklad:
                 )
         self._partner_id = partner_id
 
+    def uprav_castku(
+        self,
+        nova_castka: Money,
+        castka_mena: Money | None = None,
+        kurz: Decimal | None = None,
+        nova_mena: Mena | None = None,
+    ) -> None:
+        """Upraví částku (a volitelně i měnu) dokladu — jen ve stavu NOVY.
+
+        Pro zaúčtovaný doklad částku měnit nelze (rozbilo by to účetní zápisy).
+        Pro úpravu po zaúčtování je nutné doklad stornovat a vytvořit nový.
+
+        Použití:
+          * **CZK doklad**: ``uprav_castku(Money(...))`` — bez kurz/castka_mena.
+          * **EUR/USD doklad**: ``uprav_castku(czk_castka, castka_mena=EUR_amount,
+            kurz=Decimal(...))`` — castka_celkem je CZK přepočet.
+          * **Změna měny CZK ↔ EUR**: navíc ``nova_mena=Mena.EUR`` (a kurz +
+            castka_mena pokud měníš na cizí). Pro CZK target nesmí být
+            kurz/castka_mena.
+
+        ``nova_mena=None`` = ponech stávající měnu.
+
+        Raises:
+            ValidationError: stav ≠ NOVY; pro cizí měnu chybí kurz/castka_mena;
+                pro CZK target zadán kurz nebo castka_mena.
+        """
+        if self._stav != StavDokladu.NOVY:
+            raise ValidationError(
+                f"Částku lze měnit jen ve stavu NOVY, "
+                f"aktuální stav: {self._stav.value}. "
+                f"Pro úpravu po zaúčtování doklad stornujte a vytvořte nový."
+            )
+        if not isinstance(nova_castka, Money):
+            raise TypeError(
+                f"nova_castka musí být Money, dostal {type(nova_castka).__name__}."
+            )
+        # Cílová měna — pokud nezadána, ponech stávající
+        target_mena = nova_mena if nova_mena is not None else self._mena
+
+        if target_mena != Mena.CZK:
+            if kurz is None or kurz <= 0:
+                raise ValidationError(
+                    f"Pro měnu {target_mena.value} je kurz povinný a musí být kladný."
+                )
+            if castka_mena is None:
+                raise ValidationError(
+                    f"Pro měnu {target_mena.value} je částka v cizí měně povinná."
+                )
+            self._castka_mena = castka_mena
+            self._kurz = kurz
+        else:
+            if kurz is not None or castka_mena is not None:
+                raise ValidationError(
+                    "Pro CZK nelze zadávat kurz ani částku v cizí měně."
+                )
+            # Při přechodu na CZK vyčisti cizoměnová pole
+            self._castka_mena = None
+            self._kurz = None
+
+        self._castka_celkem = nova_castka
+        self._mena = target_mena
+
     def uprav_popis(self, novy_popis: str | None) -> None:
         """Popis lze měnit kdykoli kromě STORNOVANY."""
         if self._stav == StavDokladu.STORNOVANY:

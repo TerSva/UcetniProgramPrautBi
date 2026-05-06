@@ -326,6 +326,78 @@ class TestEditace:
         d.uprav_splatnost(None)
         assert d.datum_splatnosti is None
 
+    def test_uprav_castku_novy_czk(self):
+        """NOVY CZK doklad — castka jde upravit."""
+        d = _doklad()
+        d.uprav_castku(Money.from_koruny("2500"))
+        assert d.castka_celkem == Money.from_koruny("2500")
+
+    def test_uprav_castku_zauctovany_zakazano(self):
+        d = _doklad()
+        d.zauctuj()
+        with pytest.raises(ValidationError, match="NOVY"):
+            d.uprav_castku(Money.from_koruny("999"))
+
+    def test_uprav_castku_eur_vyzaduje_kurz_a_castka_mena(self):
+        from decimal import Decimal as _D
+        from domain.doklady.typy import Mena
+        d = _doklad(
+            mena=Mena.EUR,
+            castka_mena=Money.from_koruny("100"),
+            kurz=_D("25.00"),
+        )
+        # Změna na novou částku 200 EUR @ 25 = 5000 CZK
+        d.uprav_castku(
+            Money.from_koruny("5000"),
+            castka_mena=Money.from_koruny("200"),
+            kurz=_D("25.00"),
+        )
+        assert d.castka_celkem == Money.from_koruny("5000")
+        assert d.castka_mena == Money.from_koruny("200")
+
+    def test_uprav_castku_czk_nesmi_obsahovat_kurz(self):
+        from decimal import Decimal as _D
+        d = _doklad()  # default CZK
+        with pytest.raises(ValidationError, match="CZK"):
+            d.uprav_castku(
+                Money.from_koruny("1000"),
+                kurz=_D("25"),
+            )
+
+    def test_uprav_castku_zmena_mena_czk_na_eur(self):
+        """Změna měny CZK → EUR musí mít kurz a castka_mena."""
+        from decimal import Decimal as _D
+        from domain.doklady.typy import Mena
+        d = _doklad()  # default CZK
+        d.uprav_castku(
+            Money.from_koruny("2500"),
+            castka_mena=Money.from_koruny("100"),
+            kurz=_D("25.00"),
+            nova_mena=Mena.EUR,
+        )
+        assert d.mena == Mena.EUR
+        assert d.castka_celkem == Money.from_koruny("2500")
+        assert d.castka_mena == Money.from_koruny("100")
+        assert d.kurz == _D("25.00")
+
+    def test_uprav_castku_zmena_mena_eur_na_czk_vyclisti_kurz(self):
+        """Změna měny EUR → CZK vyčistí kurz a castka_mena."""
+        from decimal import Decimal as _D
+        from domain.doklady.typy import Mena
+        d = _doklad(
+            mena=Mena.EUR,
+            castka_mena=Money.from_koruny("100"),
+            kurz=_D("25"),
+        )
+        d.uprav_castku(
+            Money.from_koruny("2500"),
+            nova_mena=Mena.CZK,
+        )
+        assert d.mena == Mena.CZK
+        assert d.castka_celkem == Money.from_koruny("2500")
+        assert d.castka_mena is None
+        assert d.kurz is None
+
 
 class TestEditDatumVystaveni:
 

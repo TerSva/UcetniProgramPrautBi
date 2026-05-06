@@ -180,6 +180,10 @@ class DokladActionsCommand:
         poznamka_doreseni: str | None,
         partner_id: object = ...,
         datum_vystaveni: date | None = None,
+        castka_celkem: object = ...,
+        castka_mena: object = ...,
+        kurz: object = ...,
+        mena: object = ...,
     ) -> DokladyListItem:
         """Atomicky upraví všechna editovatelná pole NOVY dokladu.
 
@@ -230,6 +234,21 @@ class DokladActionsCommand:
             # Partner — sentinel ... = nezměněno
             if partner_id is not ...:
                 doklad.uprav_partner(partner_id)
+
+            # Částka — sentinel ... = nezměněno (jen pro NOVY doklady).
+            # Pokud se mění měna (mena!=...), zavolá se uprav_castku i kdyby
+            # samotná castka byla stejná — měna potřebuje validaci kurz/cm.
+            if castka_celkem is not ... or mena is not ...:
+                if castka_celkem is not ...:
+                    nova_castka = castka_celkem
+                else:
+                    nova_castka = doklad.castka_celkem
+                cm = castka_mena if castka_mena is not ... else None
+                k = kurz if kurz is not ... else None
+                m = mena if mena is not ... else None
+                doklad.uprav_castku(
+                    nova_castka, castka_mena=cm, kurz=k, nova_mena=m,
+                )
 
             repo.update(doklad)
             uow.commit()

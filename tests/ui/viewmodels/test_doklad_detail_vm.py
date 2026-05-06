@@ -72,6 +72,10 @@ class _StubActions:
         poznamka_doreseni: str | None,
         partner_id: object = ...,
         datum_vystaveni: date | None = None,
+        castka_celkem: object = ...,
+        castka_mena: object = ...,
+        kurz: object = ...,
+        mena: object = ...,
     ) -> DokladyListItem:
         self.calls.append(("upravit_pole_novy", {
             "id": doklad_id,
@@ -81,6 +85,7 @@ class _StubActions:
             "poznamka_doreseni": poznamka_doreseni,
             "partner_id": partner_id,
             "datum_vystaveni": datum_vystaveni,
+            "castka_celkem": castka_celkem,
         }))
         assert self.result is not None
         return self.result
@@ -111,6 +116,7 @@ class _ErrorActions:
     def upravit_pole_novy_dokladu(
         self, doklad_id, popis, splatnost, k_doreseni, poznamka_doreseni,
         partner_id=..., datum_vystaveni=None,
+        castka_celkem=..., castka_mena=..., kurz=..., mena=...,
     ):
         raise self.exc
 
@@ -353,6 +359,33 @@ class TestEditModeKDoreseni:
         assert actions.calls[0][1]["popis"] == "x"
         assert actions.calls[0][1]["k_doreseni"] is True
         assert actions.calls[0][1]["poznamka_doreseni"] == "pz"
+
+    def test_save_edit_novy_propaguje_castku(self):
+        """NOVY doklad → změna draft_castka se propaguje do command."""
+        result = _item(popis="x", k_doreseni=False)
+        actions = _StubActions(result=result)
+        vm = DokladDetailViewModel(_item(StavDokladu.NOVY), actions)
+        vm.enter_edit()
+        vm.set_draft_castka_celkem(Money.from_koruny("2500"))
+        vm.save_edit()
+        assert actions.calls[0][0] == "upravit_pole_novy"
+        assert actions.calls[0][1]["castka_celkem"] == Money.from_koruny("2500")
+
+    def test_save_edit_novy_bez_zmeny_castky_neposila_argument(self):
+        """Pokud user castku nemenil, argument je sentinel ..."""
+        result = _item()
+        actions = _StubActions(result=result)
+        vm = DokladDetailViewModel(_item(StavDokladu.NOVY), actions)
+        vm.enter_edit()
+        vm.save_edit()
+        assert actions.calls[0][1]["castka_celkem"] is ...
+
+    def test_can_edit_castka_jen_pro_novy(self):
+        """can_edit_castka = True pouze pro NOVY."""
+        for stav in StavDokladu:
+            vm = DokladDetailViewModel(_item(stav), _StubActions())
+            expected = stav == StavDokladu.NOVY
+            assert vm.can_edit_castka is expected
 
     def test_save_edit_zauctovany_vola_upravit_popis_a_splatnost(self):
         """Non-NOVY → jen upravit_popis_a_splatnost, bez flagu."""

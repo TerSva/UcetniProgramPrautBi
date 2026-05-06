@@ -60,7 +60,13 @@ from ui.widgets.badge import (
 )
 from ui.widgets.icon import load_icon
 from services.queries.partneri_list import PartneriListItem
-from ui.widgets.labeled_inputs import LabeledDateEdit, LabeledTextEdit
+from ui.widgets.labeled_inputs import (
+    LabeledComboBox,
+    LabeledDateEdit,
+    LabeledLineEdit,
+    LabeledMoneyEdit,
+    LabeledTextEdit,
+)
 from ui.widgets.partner_selector import PartnerSelector
 from ui.widgets.pdf_upload_zone import PdfUploadZone
 from ui.widgets.pdf_viewer import PdfViewerWidget
@@ -231,6 +237,22 @@ class DokladDetailDialog(QDialog):
     def _doreseni_note_widget(self) -> QLabel:
         return self._doreseni_note
 
+    @property
+    def _castka_edit_widget(self) -> LabeledMoneyEdit:
+        return self._castka_edit
+
+    @property
+    def _mena_edit_widget(self) -> LabeledComboBox:
+        return self._mena_edit
+
+    @property
+    def _castka_mena_edit_widget(self) -> LabeledLineEdit:
+        return self._castka_mena_edit
+
+    @property
+    def _kurz_edit_widget(self) -> LabeledLineEdit:
+        return self._kurz_edit
+
     # ─── Build ───────────────────────────────────────────────────
 
     def _build_ui(self) -> None:
@@ -358,9 +380,15 @@ class DokladDetailDialog(QDialog):
         )
         form.addRow(self._dph_rezim_label, self._dph_rezim_value)
 
-        castka = self._form_value(item.castka_celkem.format_cz())
-        castka.setProperty("class", "dialog-value-strong")
-        form.addRow(self._form_label("Částka celkem:"), castka)
+        # Hlavní zobrazení castka_celkem (read-only). Aktualizuje se ve
+        # _sync_ui po edit-save, aby uživatelka viděla novou hodnotu.
+        self._castka_value_label = self._form_value(
+            item.castka_celkem.format_cz()
+        )
+        self._castka_value_label.setProperty("class", "dialog-value-strong")
+        form.addRow(
+            self._form_label("Částka celkem:"), self._castka_value_label,
+        )
 
         # Zbyva uhradit
         self._zbyva_label = QLabel("", self)
@@ -448,6 +476,42 @@ class DokladDetailDialog(QDialog):
         )
         self._splatnost_edit.setVisible(False)
         right_layout.addWidget(self._splatnost_edit)
+
+        # Měna edit (NOVY doklad). Při přepnutí na EUR/USD se ukáží i
+        # vstupy pro originál hodnotu a kurz; CZK pole je auto-přepočet.
+        self._mena_edit = LabeledComboBox("Měna", parent=self)
+        self._mena_edit.add_item("CZK (Kč)", Mena.CZK)
+        self._mena_edit.add_item("EUR", Mena.EUR)
+        self._mena_edit.add_item("USD", Mena.USD)
+        self._mena_edit.setVisible(False)
+        right_layout.addWidget(self._mena_edit)
+
+        # Castka v cizí měně + kurz — visible jen pro EUR/USD měnu.
+        # Visibility řídíme přes wrapper widget (NEsetVisible(False) na
+        # vnitřních inputech, jinak by zůstaly hidden i když je wrapper visible).
+        self._cizi_wrap = QWidget(self)
+        cizi_row = QHBoxLayout(self._cizi_wrap)
+        cizi_row.setContentsMargins(0, 0, 0, 0)
+        cizi_row.setSpacing(Spacing.S2)
+        self._castka_mena_edit = LabeledLineEdit(
+            "Částka v cizí měně", placeholder="123,45",
+        )
+        cizi_row.addWidget(self._castka_mena_edit)
+        self._kurz_edit = LabeledLineEdit(
+            "Kurz (CZK / 1 jednotka)", placeholder="25,00",
+        )
+        cizi_row.addWidget(self._kurz_edit)
+        self._cizi_wrap.setVisible(False)
+        right_layout.addWidget(self._cizi_wrap)
+
+        # Castka v CZK — pro NOVY je vždy editovatelná. Pro EUR/USD měnu se
+        # auto-přepočítá z (cizí měna × kurz), ale Tereza ji může taky ručně
+        # přepsat (pro neobvyklé případy, např. když chce zaokrouhlit).
+        self._castka_edit = LabeledMoneyEdit(
+            "Částka celkem (Kč)", parent=self,
+        )
+        self._castka_edit.setVisible(False)
+        right_layout.addWidget(self._castka_edit)
 
         # Partner edit
         self._partner_edit = PartnerSelector(self)
@@ -653,6 +717,15 @@ class DokladDetailDialog(QDialog):
             self._on_k_doreseni_toggled_edit
         )
 
+        # Měna: change → toggle visibility EUR fields + auto recalc CZK
+        self._mena_edit.current_value_changed.connect(self._on_mena_changed)
+        self._castka_mena_edit.text_changed.connect(
+            lambda _t: self._recalc_czk_from_eur(),
+        )
+        self._kurz_edit.text_changed.connect(
+            lambda _t: self._recalc_czk_from_eur(),
+        )
+
     def _on_k_doreseni_toggled_edit(self, checked: bool) -> None:
         if self._vm.edit_mode and self._is_novy():
             self._poznamka_doreseni_edit.setVisible(checked)
@@ -724,12 +797,74 @@ class DokladDetailDialog(QDialog):
         self._splatnost_edit.inner_widget.setEnabled(
             self._vm.can_edit_splatnost
         )
+        # Měna + cizoměnová pole + CZK — editace povolena pro NOVY.
+        # CZK input je VŽDY editovatelný (i pro EUR/USD — auto-přepočet
+        # z EUR×kurz se aplikuje při změně EUR/kurz, ale uživatel může
+        # CZK i ručně přepsat).
+        self._mena_edit.set_value(self._vm.draft_mena)
+        if self._vm.draft_castka_mena is not None:
+            cm_str = f"{self._vm.draft_castka_mena.to_koruny():.2f}".replace(
+                ".", ",",
+            )
+            self._castka_mena_edit.set_value(cm_str)
+        else:
+            self._castka_mena_edit.set_value("")
+        if self._vm.draft_kurz is not None:
+            self._kurz_edit.set_value(
+                str(self._vm.draft_kurz).replace(".", ",")
+            )
+        else:
+            self._kurz_edit.set_value("")
+        self._castka_edit.set_value(self._vm.draft_castka_celkem)
+        # Enabled = stav umožňuje editaci (NOVY). Měna nehraje roli — všechny
+        # inputy editovatelné, protože pro EUR jdou upravit CZK i EUR i kurz.
+        can_edit_castka = self._vm.can_edit_castka
+        self._mena_edit.setEnabled(can_edit_castka)
+        self._castka_mena_edit.setEnabled(can_edit_castka)
+        self._kurz_edit.setEnabled(can_edit_castka)
+        self._castka_edit.line_widget.setEnabled(can_edit_castka)
+        self._sync_mena_visibility()
+
         self._partner_edit.set_selected_id(self._vm.draft_partner_id)
         self._k_doreseni_check.setChecked(self._vm.draft_k_doreseni)
         self._poznamka_doreseni_edit.set_value(
             self._vm.draft_poznamka_doreseni or ""
         )
         self._sync_ui()
+
+    def _sync_mena_visibility(self) -> None:
+        """Visibilita EUR/kurz polí podle aktuální draft_mena.
+
+        CZK input je vždy editovatelný (nezávisle na měně) — pro EUR/USD
+        slouží auto-přepočet, ale Tereza může CZK i ručně přepsat.
+        """
+        is_cizi = self._mena_edit.value() != Mena.CZK
+        self._cizi_wrap.setVisible(self._vm.edit_mode and is_cizi)
+
+    def _on_mena_changed(self, _value: object) -> None:
+        """Změna měny — přepni viditelnost EUR pole + spočítej CZK."""
+        self._sync_mena_visibility()
+        self._recalc_czk_from_eur()
+
+    def _recalc_czk_from_eur(self) -> None:
+        """Auto-přepočet CZK = EUR × kurz pro cizí měnu."""
+        from decimal import Decimal as _D, InvalidOperation
+        if self._mena_edit.value() == Mena.CZK:
+            return
+        cm_text = self._castka_mena_edit.value().strip().replace(",", ".")
+        kurz_text = self._kurz_edit.value().strip().replace(",", ".")
+        if not cm_text or not kurz_text:
+            return
+        try:
+            cm = _D(cm_text)
+            k = _D(kurz_text)
+            if k <= 0:
+                return
+            from domain.shared.money import Money as _Money
+            czk = _Money.from_koruny((cm * k).quantize(_D("0.01")))
+            self._castka_edit.set_value(czk)
+        except (InvalidOperation, ValueError):
+            pass
 
     def _on_new_partner_edit(self) -> None:
         """Inline vytvoření partnera z edit módu."""
@@ -763,6 +898,32 @@ class DokladDetailDialog(QDialog):
         self._vm.set_draft_datum_vystaveni(novy_datum)
         self._vm.set_draft_splatnost(splatnost)
         self._vm.set_draft_partner_id(self._partner_edit.selected_id())
+        # Měna + castka + EUR/kurz — pouze pokud je editovatelná (NOVY)
+        if self._vm.can_edit_castka:
+            nova_mena = self._mena_edit.value() or Mena.CZK
+            self._vm.set_draft_mena(nova_mena)
+            if nova_mena == Mena.CZK:
+                nova_castka = self._castka_edit.value()
+                if nova_castka is not None:
+                    self._vm.set_draft_castka_celkem(nova_castka)
+            else:
+                # EUR/USD — parse castka_mena + kurz, draft_castka_celkem
+                # už bylo aktualizováno auto-přepočtem
+                from decimal import Decimal as _D, InvalidOperation
+                from domain.shared.money import Money as _Money
+                cm_text = self._castka_mena_edit.value().strip().replace(",", ".")
+                kurz_text = self._kurz_edit.value().strip().replace(",", ".")
+                try:
+                    cm = _Money.from_koruny(_D(cm_text)) if cm_text else None
+                    k = _D(kurz_text) if kurz_text else None
+                    self._vm.set_draft_castka_mena(cm)
+                    self._vm.set_draft_kurz(k)
+                except (InvalidOperation, ValueError):
+                    pass
+                # CZK přepočet z UI inputu (auto-přepočet ho už nastavil)
+                czk = self._castka_edit.value()
+                if czk is not None:
+                    self._vm.set_draft_castka_celkem(czk)
 
         if self._is_novy():
             flag = self._k_doreseni_check.isChecked()
@@ -1090,6 +1251,28 @@ class DokladDetailDialog(QDialog):
         self._stav_badge.setText(stav_display_text(item.stav))
         self._stav_badge.set_variant(badge_variant_for_stav(item.stav))
 
+        # Castka celkem — aktualizuj po edit-save (jinak by zůstala
+        # původní hodnota uvnitř formu).
+        self._castka_value_label.setText(item.castka_celkem.format_cz())
+
+        # Cizoměnový řádek "Puvodne: X EUR (kurz Y)"
+        if (
+            item.mena != Mena.CZK
+            and item.castka_mena is not None
+            and item.kurz is not None
+        ):
+            foreign_koruny = item.castka_mena.to_koruny()
+            foreign_text = (
+                f"{foreign_koruny:,.2f} {item.mena.value} "
+                f"(kurz {item.kurz})"
+            ).replace(",", " ").replace(".", ",")
+            self._foreign_value.setText(foreign_text)
+            self._foreign_label.setVisible(True)
+            self._foreign_value.setVisible(True)
+        else:
+            self._foreign_label.setVisible(False)
+            self._foreign_value.setVisible(False)
+
         # Splatnost + popis + partner
         splatnost_text = (
             _format_date_long(item.datum_splatnosti)
@@ -1138,6 +1321,14 @@ class DokladDetailDialog(QDialog):
         self._popis_edit.setVisible(edit)
         self._datum_vystaveni_edit.setVisible(edit)
         self._splatnost_edit.setVisible(edit)
+        # Měna + castka editor — visible v edit mode pro NOVY.
+        self._mena_edit.setVisible(edit and self._vm.can_edit_castka)
+        self._castka_edit.setVisible(edit and self._vm.can_edit_castka)
+        # EUR/kurz fields — visible jen pro EUR/USD měnu (řeší _sync_mena_visibility)
+        if edit and self._vm.can_edit_castka:
+            self._sync_mena_visibility()
+        else:
+            self._cizi_wrap.setVisible(False)
         self._partner_edit.setVisible(edit)
         self._popis_display.setVisible(not edit)
         self._datum_vystaveni_display.setVisible(not edit)

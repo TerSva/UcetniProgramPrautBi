@@ -15,9 +15,11 @@ Akce:
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import Protocol
 
-from domain.doklady.typy import StavDokladu
+from domain.doklady.typy import Mena, StavDokladu
+from domain.shared.money import Money
 from services.queries.doklady_list import DokladyListItem
 
 
@@ -70,6 +72,10 @@ class DokladDetailViewModel:
         self._draft_poznamka_doreseni: str | None = doklad.poznamka_doreseni
         self._draft_partner_id: int | None = doklad.partner_id
         self._draft_datum_vystaveni: date = doklad.datum_vystaveni
+        self._draft_castka_celkem: Money = doklad.castka_celkem
+        self._draft_castka_mena: Money | None = doklad.castka_mena
+        self._draft_kurz: Decimal | None = doklad.kurz
+        self._draft_mena: Mena = doklad.mena
         self._error: str | None = None
         self._deleted: bool = False
 
@@ -121,6 +127,16 @@ class DokladDetailViewModel:
         return self._doklad.stav == StavDokladu.NOVY
 
     @property
+    def can_edit_castka(self) -> bool:
+        """Částka editovatelná jen ve stavu NOVY.
+
+        Pro zaúčtovaný doklad částku měnit nelze, protože by to rozbilo
+        účetní zápisy. Pro úpravu po zaúčtování je nutné stornovat
+        a vytvořit nový.
+        """
+        return self._doklad.stav == StavDokladu.NOVY
+
+    @property
     def can_edit_datum_vystaveni(self) -> bool:
         """Datum vystavení editovatelné ve všech stavech kromě STORNOVANY.
 
@@ -168,6 +184,10 @@ class DokladDetailViewModel:
         self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
         self._draft_partner_id = self._doklad.partner_id
         self._draft_datum_vystaveni = self._doklad.datum_vystaveni
+        self._draft_castka_celkem = self._doklad.castka_celkem
+        self._draft_castka_mena = self._doklad.castka_mena
+        self._draft_kurz = self._doklad.kurz
+        self._draft_mena = self._doklad.mena
         self._error = None
 
     def cancel_edit(self) -> None:
@@ -179,6 +199,10 @@ class DokladDetailViewModel:
         self._draft_poznamka_doreseni = self._doklad.poznamka_doreseni
         self._draft_partner_id = self._doklad.partner_id
         self._draft_datum_vystaveni = self._doklad.datum_vystaveni
+        self._draft_castka_celkem = self._doklad.castka_celkem
+        self._draft_castka_mena = self._doklad.castka_mena
+        self._draft_kurz = self._doklad.kurz
+        self._draft_mena = self._doklad.mena
         self._error = None
 
     def set_draft_popis(self, popis: str | None) -> None:
@@ -207,6 +231,40 @@ class DokladDetailViewModel:
     def set_draft_datum_vystaveni(self, datum: date) -> None:
         self._draft_datum_vystaveni = datum
 
+    @property
+    def draft_castka_celkem(self) -> Money:
+        return self._draft_castka_celkem
+
+    def set_draft_castka_celkem(self, castka: Money) -> None:
+        """Pro CZK doklad: přímo. Pro EUR/USD: setter castka_mena
+        + kurz se použije pro přepočet (volá se z dialogu zvlášť)."""
+        self._draft_castka_celkem = castka
+
+    @property
+    def draft_castka_mena(self) -> Money | None:
+        return self._draft_castka_mena
+
+    def set_draft_castka_mena(self, castka: Money | None) -> None:
+        self._draft_castka_mena = castka
+
+    @property
+    def draft_kurz(self) -> Decimal | None:
+        return self._draft_kurz
+
+    def set_draft_kurz(self, kurz: Decimal | None) -> None:
+        self._draft_kurz = kurz
+
+    @property
+    def draft_mena(self) -> Mena:
+        return self._draft_mena
+
+    def set_draft_mena(self, mena: Mena) -> None:
+        """Změna měny — pokud se přechází na CZK, vyčistí EUR/kurz draft."""
+        self._draft_mena = mena
+        if mena == Mena.CZK:
+            self._draft_castka_mena = None
+            self._draft_kurz = None
+
     def save_edit(self) -> DokladyListItem | None:
         """Uloží draft přes DokladActionsCommand.
 
@@ -230,6 +288,25 @@ class DokladDetailViewModel:
                 else None
             )
             if self._doklad.stav == StavDokladu.NOVY:
+                # Castka/měna/kurz — argumenty jen pokud se něco změnilo.
+                # Pokud uživatel změnil měnu, posíláme všechno (i castku),
+                # protože domain potřebuje konzistentní set kurz/cm/mena.
+                castka_changed = (
+                    self._draft_castka_celkem != self._doklad.castka_celkem
+                )
+                mena_changed = self._draft_mena != self._doklad.mena
+                if castka_changed or mena_changed:
+                    _castka_arg = self._draft_castka_celkem
+                    _castka_mena_arg = self._draft_castka_mena
+                    _kurz_arg = self._draft_kurz
+                    _mena_arg = (
+                        self._draft_mena if mena_changed else ...
+                    )
+                else:
+                    _castka_arg = ...
+                    _castka_mena_arg = ...
+                    _kurz_arg = ...
+                    _mena_arg = ...
                 item = self._actions.upravit_pole_novy_dokladu(
                     self._doklad.id,
                     popis=self._draft_popis,
@@ -238,6 +315,10 @@ class DokladDetailViewModel:
                     poznamka_doreseni=self._draft_poznamka_doreseni,
                     partner_id=_partner_arg,
                     datum_vystaveni=_datum_arg,
+                    castka_celkem=_castka_arg,
+                    castka_mena=_castka_mena_arg,
+                    kurz=_kurz_arg,
+                    mena=_mena_arg,
                 )
             else:
                 item = self._actions.upravit_popis_a_splatnost(
