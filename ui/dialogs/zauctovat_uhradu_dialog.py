@@ -73,7 +73,9 @@ class ZauctovatUhraduDialog(QDialog):
         self._zbyva_uhradit = (
             zbyva_uhradit if zbyva_uhradit is not None else self._doklad_castka
         )
-        self._rozdil = Money(tx_abs - doklad_abs)
+        # Rozdíl počítáme proti ZBÝVAJÍCÍ částce, ne celé faktuře — jinak
+        # by částečně uhrazená faktura měla falešně velký rozdíl.
+        self._rozdil = Money(tx_abs - self._zbyva_uhradit.to_halire())
 
         self.setWindowTitle("Zaúčtovat úhradu")
         self.setMinimumWidth(520)
