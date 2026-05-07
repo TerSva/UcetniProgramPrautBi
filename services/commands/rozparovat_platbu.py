@@ -230,4 +230,33 @@ class RozparovatPlatbuCommand:
                 continue
             seen.add(r["id"])
             total += r["castka"]
+
+        # Kurzové rozdíly k dokladu — popis „Kurzov…{cislo}", filtrovat
+        # storna i jejich originály (aby po stornu kurz zase odešel).
+        kurz_rows = uow.connection.execute(
+            """
+            SELECT uz.id, uz.castka, uz.md_ucet, uz.dal_ucet
+            FROM ucetni_zaznamy uz
+            WHERE uz.popis LIKE 'Kurzov%'
+              AND uz.popis LIKE ?
+              AND uz.je_storno = 0
+              AND uz.id NOT IN (
+                SELECT stornuje_zaznam_id FROM ucetni_zaznamy
+                WHERE je_storno = 1 AND stornuje_zaznam_id IS NOT NULL
+              )
+            """,
+            (f"%{doklad_cislo}%",),
+        ).fetchall()
+        for r in kurz_rows:
+            if r["id"] in seen:
+                continue
+            seen.add(r["id"])
+            md = r["md_ucet"] or ""
+            dal = r["dal_ucet"] or ""
+            is_md_pohl_zav = md.startswith("321") or md.startswith("311")
+            is_dal_pohl_zav = dal.startswith("321") or dal.startswith("311")
+            if is_md_pohl_zav and not is_dal_pohl_zav:
+                total += r["castka"]
+            elif is_dal_pohl_zav and not is_md_pohl_zav:
+                total -= r["castka"]
         return Money(total)

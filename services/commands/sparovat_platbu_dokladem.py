@@ -347,10 +347,16 @@ def _spocitej_uhrazeno_celkem(
         (sparovany_doklad_id = doklad_id)
       - úhradové zápisy v PD/ID dokladech, kde popis začíná „Úhrada "
         a obsahuje číslo dokladu (hotovostní/interní úhrady)
+      - kurzové rozdíly k dokladu (popis „Kurzov…{cislo}"). Bez nich
+        by EUR doklady s kurzovým rozdílem zůstávaly v CASTECNE
+        i po plné úhradě (úhrada v CZK je menší než castka_celkem
+        kvůli pohybu kurzu, kurz zisk doplní rozdíl).
 
-    Záměrně **nezahrnuje** kurzové rozdíly (popis „Kurzov…") ani
-    rozdílové zápisy úhrady (568/663) — ty mají vlastní logiku a
-    nepatří do bilance saldokonta.
+    Znaménko kurzového rozdílu se odvozuje z MD/Dal strany na účtu
+    pohledávky/závazku dokladu (321 pro FP, 311 pro FV — preferuje
+    se konkrétní účet z hlavního zaúčtování):
+      * MD strana = +castka (zisk u FP, doplnění u FV)
+      * Dal strana = -castka (ztráta — opak úhrady)
     """
     rows = uow.connection.execute(
         """
@@ -381,6 +387,37 @@ def _spocitej_uhrazeno_celkem(
             continue
         seen.add(r["id"])
         total += r["castka"]
+
+    # Kurzové rozdíly k dokladu — popis „Kurzov…{cislo}"
+    kurz_rows = uow.connection.execute(
+        """
+        SELECT uz.id, uz.castka, uz.md_ucet, uz.dal_ucet
+        FROM ucetni_zaznamy uz
+        WHERE uz.popis LIKE 'Kurzov%'
+          AND uz.popis LIKE ?
+          AND uz.je_storno = 0
+        """,
+        (f"%{doklad_cislo}%",),
+    ).fetchall()
+    for r in kurz_rows:
+        if r["id"] in seen:
+            continue
+        seen.add(r["id"])
+        # Kurzový rozdíl + znaménko podle strany na účtu pohl/záv:
+        # 321/311 na MD = úhrada (+), na Dal = ztráta (−)
+        md = r["md_ucet"] or ""
+        dal = r["dal_ucet"] or ""
+        is_md_pohl_zav = (
+            md.startswith("321") or md.startswith("311")
+        )
+        is_dal_pohl_zav = (
+            dal.startswith("321") or dal.startswith("311")
+        )
+        if is_md_pohl_zav and not is_dal_pohl_zav:
+            total += r["castka"]
+        elif is_dal_pohl_zav and not is_md_pohl_zav:
+            total -= r["castka"]
+        # 321↔311 (oboustranně) nebo žádný = nezapočítat
     return Money(total)
 
 
