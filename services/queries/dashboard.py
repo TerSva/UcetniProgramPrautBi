@@ -19,7 +19,7 @@ from decimal import Decimal
 from typing import Callable, Final
 
 from domain.doklady.repository import DokladyRepository
-from domain.doklady.typy import StavDokladu
+from domain.doklady.typy import StavDokladu, TypDokladu
 from domain.shared.money import Money
 from domain.ucetnictvi.repository import (
     UcetniDenikRepository,
@@ -119,8 +119,17 @@ class DashboardDataQuery:
                 davno, today, limit=100_000
             )
             doklady_celkem = len(doklady_all)
+            # K zaúčtování patří jen FP a FV v NOVY. Ostatní typy:
+            #   * ZF (zálohové) se neúčtují samostatně (jen úhrada)
+            #   * BV (bank. výpisy) — zápisy přes spárování / auto-účtování
+            #   * PD/ID — vytváří se rovnou v ZAUCTOVANY stavu
             doklady_k_zauctovani = sum(
-                1 for d in doklady_all if d.stav == StavDokladu.NOVY
+                1 for d in doklady_all
+                if d.stav == StavDokladu.NOVY
+                and d.typ in (
+                    TypDokladu.FAKTURA_PRIJATA,
+                    TypDokladu.FAKTURA_VYDANA,
+                )
             )
             doklady_k_doreseni = len(
                 doklady_repo.list_k_doreseni(limit=100_000)

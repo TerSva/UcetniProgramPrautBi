@@ -211,6 +211,34 @@ class TestDokladyPocty:
         assert data.doklady_k_zauctovani == 1
         assert d_novy != d_zauct  # sanity
 
+    def test_k_zauctovani_ignoruje_bv_zf_pd_id(
+        self, dashboard_query, service_factories,
+    ):
+        """K zaúčtování patří jen FP/FV v NOVY. BV/ZF/PD/ID se neúčtují
+        manuálně (BV: spárování/auto, ZF: jen úhrada, PD/ID: rovnou
+        ZAUCTOVANY) — nesmí se počítat."""
+        _add_doklad(
+            service_factories, "FP-X", TypDokladu.FAKTURA_PRIJATA,
+            date(2026, 4, 1), "1000",
+        )
+        _add_doklad(
+            service_factories, "BV-X", TypDokladu.BANKOVNI_VYPIS,
+            date(2026, 4, 1), "0",
+        )
+        _add_doklad(
+            service_factories, "PD-X", TypDokladu.POKLADNI_DOKLAD,
+            date(2026, 4, 1), "1000",
+        )
+        _add_doklad(
+            service_factories, "ID-X", TypDokladu.INTERNI_DOKLAD,
+            date(2026, 4, 1), "1000",
+        )
+
+        data = dashboard_query.execute(today=date(2026, 4, 13))
+        assert data.doklady_celkem == 4
+        # Pouze FP-X spadá do NOVY FP/FV
+        assert data.doklady_k_zauctovani == 1
+
     def test_k_doreseni_pocet_pres_repository(
         self, dashboard_query, service_factories,
     ):
