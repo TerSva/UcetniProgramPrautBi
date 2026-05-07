@@ -63,7 +63,7 @@ ROZVAHA_PASIVA: tuple[tuple, ...] = (
     ("A.VI.",  "Rozhodnuto o zálohách na výplatu",       (), 2, "leaf"),
     ("B+C.",   "Cizí zdroje",                            (), 1, "sum_group"),
     ("B.",     "Rezervy",                                (), 2, "leaf"),
-    ("C.",     "Závazky",                                ("321", "331", "336", "341", "342", "343.200", "345", "365", "379"), 2, "leaf"),
+    ("C.",     "Závazky",                                ("321", "331", "336", "341", "342", "343.200", "345", "365", "379", "479"), 2, "leaf"),
     ("D.",     "Časové rozlišení pasiv",                 (), 2, "leaf"),
 )
 
