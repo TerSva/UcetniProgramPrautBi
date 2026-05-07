@@ -224,6 +224,79 @@ class TestRozparovatPlatbu:
         with pytest.raises(ValidationError, match="rozpárovat"):
             cmd.execute(transakce_id=tx_id)
 
+    def test_rozparuje_rucne_zauctovanou_bez_dokladu(self, db_factory):
+        """AUTO_ZAUCTOVANO bez vazby na doklad — stornuje jen účetní zápis."""
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            ucet_repo = SqliteBankovniUcetRepository(uow)
+            vypis_repo = SqliteBankovniVypisRepository(uow)
+            tx_repo = SqliteBankovniTransakceRepository(uow)
+            drepo = SqliteDokladyRepository(uow)
+            denik = SqliteUcetniDenikRepository(uow)
+
+            u_id = ucet_repo.add(BankovniUcet(
+                nazev="T", cislo_uctu="123/0800", ucet_kod="221.001",
+                format_csv=FormatCsv.CESKA_SPORITELNA,
+            ))
+            bv = drepo.add(Doklad(
+                cislo="BV-X", typ=TypDokladu.BANKOVNI_VYPIS,
+                datum_vystaveni=date(2025, 1, 1),
+                castka_celkem=Money(0),
+            ))
+            v_id = vypis_repo.add(BankovniVypis(
+                bankovni_ucet_id=u_id, cislo_vypisu="x", rok=2025, mesic=1,
+                pocatecni_stav=Money.zero(), konecny_stav=Money.zero(),
+                pdf_path="/tmp/x.pdf",
+                datum_od=date(2025, 1, 1), datum_do=date(2025, 1, 31),
+                bv_doklad_id=bv.id,
+            ))
+            zapis_id = denik.add(UcetniZaznam(
+                doklad_id=bv.id, datum=date(2025, 1, 1),
+                md_ucet="518.200", dal_ucet="221.001",
+                castka=Money(50000),
+                popis="Platba kartou — Náklad XYZ",
+            ))
+            tx_id = tx_repo.add(BankovniTransakce(
+                bankovni_vypis_id=v_id,
+                datum_transakce=date(2025, 1, 1),
+                datum_zauctovani=date(2025, 1, 1),
+                castka=Money(-50000), smer="V", row_hash="h-rucni",
+                stav=StavTransakce.AUTO_ZAUCTOVANO,
+                ucetni_zapis_id=zapis_id,
+                # sparovany_doklad_id zůstane None — ručně zaúčtovaná
+            ))
+            uow.commit()
+
+        cmd = RozparovatPlatbuCommand(
+            uow_factory=lambda: SqliteUnitOfWork(db_factory),
+        )
+        result = cmd.execute(transakce_id=tx_id)
+
+        assert result.novy_stav_dokladu is None
+        assert len(result.storno_zapis_ids) == 1
+
+        # TX zpět NESPAROVANO + bez vazby na zápis
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            tx_repo = SqliteBankovniTransakceRepository(uow)
+            tx = tx_repo.get(tx_id)
+            assert tx.stav == StavTransakce.NESPAROVANO
+            assert tx.ucetni_zapis_id is None
+
+        # Storno protizápis v deníku — prohozené strany
+        uow = SqliteUnitOfWork(db_factory)
+        with uow:
+            row = uow.connection.execute(
+                "SELECT md_ucet, dal_ucet, castka, je_storno, "
+                "stornuje_zaznam_id FROM ucetni_zaznamy "
+                "WHERE id = ?",
+                (result.storno_zapis_ids[0],),
+            ).fetchone()
+            assert row["md_ucet"] == "221.001"  # prohozené
+            assert row["dal_ucet"] == "518.200"
+            assert row["je_storno"] == 1
+            assert row["stornuje_zaznam_id"] == zapis_id
+
     def test_idempotence_dvojite_rozparovani(self, db_factory):
         """Druhé volání rozpárování na stejné TX selže (už NESPAROVANO)."""
         fp_id, tx_id, _, _ = _create_paired_setup(db_factory)

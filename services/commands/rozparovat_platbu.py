@@ -40,11 +40,15 @@ from infrastructure.database.unit_of_work import SqliteUnitOfWork
 
 @dataclass(frozen=True)
 class RozparovaniResult:
-    """Výsledek rozpárování."""
+    """Výsledek rozpárování.
+
+    Pro ručně zaúčtovanou transakci bez vazby na doklad
+    je `novy_stav_dokladu = None` (žádný doklad nebyl modifikován).
+    """
 
     stornovane_zapis_ids: list[int]   # ID původních zápisů, k nimž vznikl storno
     storno_zapis_ids: list[int]        # ID nově vytvořených storno protizápisů
-    novy_stav_dokladu: StavDokladu
+    novy_stav_dokladu: StavDokladu | None
 
 
 class RozparovatPlatbuCommand:
@@ -76,14 +80,16 @@ class RozparovatPlatbuCommand:
                     f"Transakce je ve stavu {tx.stav.value} — rozpárovat "
                     f"lze jen spárovanou.",
                 )
-            if tx.sparovany_doklad_id is None:
-                raise ValidationError(
-                    "Transakce nemá vazbu na doklad — nelze rozpárovat.",
-                )
             if tx.ucetni_zapis_id is None:
                 raise ValidationError(
                     "Transakce nemá účetní zápis — nelze rozpárovat.",
                 )
+
+            # Bezdokladová varianta: ručně zaúčtovaná TX (AUTO_ZAUCTOVANO
+            # bez vazby na doklad) — stornuje JEN účetní zápis,
+            # neexistuje doklad k přepočtu stavu.
+            if tx.sparovany_doklad_id is None:
+                return self._rozparuj_bez_dokladu(uow, tx, denik_repo, tx_repo)
 
             doklad = doklady_repo.get_by_id(tx.sparovany_doklad_id)
 
@@ -160,6 +166,46 @@ class RozparovatPlatbuCommand:
             stornovane_zapis_ids=stornovane_ids,
             storno_zapis_ids=storno_ids,
             novy_stav_dokladu=doklad.stav,
+        )
+
+    def _rozparuj_bez_dokladu(
+        self,
+        uow: SqliteUnitOfWork,
+        tx,
+        denik_repo,
+        tx_repo,
+    ) -> RozparovaniResult:
+        """Rozpárování ručně zaúčtované TX (bez vazby na doklad).
+
+        Stornuje jediný účetní zápis (úhrada), resetuje stav transakce
+        zpět na NESPAROVANO. Žádný doklad k modifikaci.
+        """
+        zapis = self._nacti_zapis(uow, tx.ucetni_zapis_id)
+        if zapis is None:
+            raise ValidationError(
+                f"Účetní zápis {tx.ucetni_zapis_id} nenalezen.",
+            )
+        # Storno protizápis: prohozené strany, je_storno=1
+        storno = UcetniZaznam(
+            doklad_id=zapis["doklad_id"],
+            datum=zapis["datum_obj"],
+            md_ucet=zapis["dal_ucet"],
+            dal_ucet=zapis["md_ucet"],
+            castka=Money(zapis["castka"]),
+            popis=f"Storno: {zapis['popis'] or ''} (rozpárování)".strip(),
+            je_storno=True,
+            stornuje_zaznam_id=zapis["id"],
+        )
+        novy_id = denik_repo.add(storno)
+
+        tx.rozparuj()
+        tx_repo.update(tx)
+        uow.commit()
+
+        return RozparovaniResult(
+            stornovane_zapis_ids=[zapis["id"]],
+            storno_zapis_ids=[novy_id],
+            novy_stav_dokladu=None,
         )
 
     @staticmethod
