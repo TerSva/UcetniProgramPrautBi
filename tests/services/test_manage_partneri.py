@@ -44,6 +44,27 @@ class TestCreate:
         with pytest.raises(ValidationError):
             cmd.create(nazev="", kategorie=KategoriePartnera.DODAVATEL)
 
+    def test_create_neexistujici_ucet_zavazku_je_odmitnut(self, cmd):
+        """Pokud uživatel zadá ucet_zavazek, který v osnově není,
+        ValidationError s jasnou hláškou (předchází FK violation crashi)."""
+        with pytest.raises(ValidationError, match="365.999"):
+            cmd.create(
+                nazev="Martin",
+                kategorie=KategoriePartnera.SPOLECNIK,
+                podil_procent=Decimal("90"),
+                ucet_zavazek="365.999",  # neexistuje v seedu
+            )
+
+    def test_create_existujici_ucet_zavazku_projde(self, cmd):
+        """Existující 365.001 v seedu osnovy projde."""
+        p = cmd.create(
+            nazev="Martin",
+            kategorie=KategoriePartnera.SPOLECNIK,
+            podil_procent=Decimal("90"),
+            ucet_zavazek="365.001",
+        )
+        assert p.ucet_zavazek == "365.001"
+
 
 class TestUpdate:
 

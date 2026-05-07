@@ -7,7 +7,24 @@ from typing import Callable
 
 from domain.partneri.partner import KategoriePartnera, Partner
 from domain.partneri.repository import PartneriRepository
+from domain.shared.errors import ValidationError
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
+
+
+def _overit_ucet_v_osnove(uow: SqliteUnitOfWork, cislo: str | None) -> None:
+    """Pokud je `cislo` nastaveno (a není sentinel ...), ověří, že
+    účet existuje v účtové osnově. Jinak ValidationError s jasnou hláškou.
+    """
+    if cislo is None or cislo is ... or not cislo:
+        return
+    row = uow.connection.execute(
+        "SELECT 1 FROM uctova_osnova WHERE cislo = ?", (cislo,),
+    ).fetchone()
+    if row is None:
+        raise ValidationError(
+            f"Účet '{cislo}' neexistuje v účtové osnově. "
+            f"Založte ho nejdřív v sekci Osnova, nebo zvolte jiný."
+        )
 
 
 class ManagePartneriCommand:
@@ -53,6 +70,8 @@ class ManagePartneriCommand:
         )
         uow = self._uow_factory()
         with uow:
+            _overit_ucet_v_osnove(uow, ucet_pohledavka)
+            _overit_ucet_v_osnove(uow, ucet_zavazek)
             repo = self._partneri_repo_factory(uow)
             saved = repo.add(partner)
             uow.commit()
@@ -76,6 +95,8 @@ class ManagePartneriCommand:
     ) -> None:
         uow = self._uow_factory()
         with uow:
+            _overit_ucet_v_osnove(uow, ucet_pohledavka)
+            _overit_ucet_v_osnove(uow, ucet_zavazek)
             repo = self._partneri_repo_factory(uow)
             partner = repo.get_by_id(partner_id)
             partner.uprav(

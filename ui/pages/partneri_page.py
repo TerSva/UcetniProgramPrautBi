@@ -192,12 +192,19 @@ class PartneriPage(QWidget):
     # ─── Slots ───────────────────────────────────────────
 
     def _on_new(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
         dialog = PartnerDialog(parent=self)
         if dialog.exec() and dialog.result is not None:
-            self._vm.create(dialog.result)
+            ok = self._vm.create(dialog.result)
+            if not ok:
+                QMessageBox.warning(
+                    self, "Nelze uložit partnera",
+                    self._vm.error or "Neznámá chyba.",
+                )
             self.refresh()
 
     def _on_row_double_click(self, row: int, _col: int) -> None:
+        from PyQt6.QtWidgets import QMessageBox
         if row >= len(self._filtered_items):
             return
         item = self._filtered_items[row]
@@ -211,7 +218,12 @@ class PartneriPage(QWidget):
         )
         dialog = PartnerDialog(parent=self, edit_data=edit_data)
         if dialog.exec() and dialog.result is not None:
-            self._vm.update(item.id, dialog.result)
+            ok = self._vm.update(item.id, dialog.result)
+            if not ok:
+                QMessageBox.warning(
+                    self, "Nelze uložit změny",
+                    self._vm.error or "Neznámá chyba.",
+                )
             self.refresh()
 
     def _on_search(self, text: str) -> None:
