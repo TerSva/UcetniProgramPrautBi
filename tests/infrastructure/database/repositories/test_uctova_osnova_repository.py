@@ -18,8 +18,8 @@ class TestSeedOsnovy:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             ucty = repo.list_all(jen_aktivni=False)
-            # 82 + 1 z 027 (479)
-            assert len(ucty) == 83
+            # 83 + 1 z 028 (562)
+            assert len(ucty) == 84
 
     def test_pohledavky_311(self, db_factory):
         uow = SqliteUnitOfWork(db_factory)
@@ -38,8 +38,8 @@ class TestListByTyp:
         with uow:
             repo = SqliteUctovaOsnovaRepository(uow)
             naklady = repo.list_by_typ(TypUctu.NAKLADY)
-            # 23 + 9 z 022_je_danovy + 1 z 024 (563.100, V už tam je)
-            assert len(naklady) == 33
+            # 33 + 1 z 028 (562)
+            assert len(naklady) == 34
             cisla = {u.cislo for u in naklady}
             assert "501" in cisla
             assert "518" in cisla
