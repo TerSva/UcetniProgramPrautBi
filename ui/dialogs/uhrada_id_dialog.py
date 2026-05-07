@@ -161,7 +161,7 @@ class UhradaIntDoklademDialog(QDialog):
             self._error_label.setVisible(True)
             return
 
-        ucet = self._spolecnik_combo.current_data()
+        ucet = self._spolecnik_combo.value()
         if not ucet:
             self._error_label.setText("Vyberte společníka.")
             self._error_label.setVisible(True)

@@ -23,6 +23,12 @@ class PartneriListItem:
     adresa: str | None
     je_aktivni: bool
     podil_procent: Decimal | None
+    bankovni_ucet: str | None = None
+    email: str | None = None
+    telefon: str | None = None
+    poznamka: str | None = None
+    ucet_pohledavka: str | None = None
+    ucet_zavazek: str | None = None
 
     @classmethod
     def from_domain(cls, p: Partner) -> PartneriListItem:
@@ -36,6 +42,12 @@ class PartneriListItem:
             adresa=p.adresa,
             je_aktivni=p.je_aktivni,
             podil_procent=p.podil_procent,
+            bankovni_ucet=p.bankovni_ucet,
+            email=p.email,
+            telefon=p.telefon,
+            poznamka=p.poznamka,
+            ucet_pohledavka=p.ucet_pohledavka,
+            ucet_zavazek=p.ucet_zavazek,
         )
 
 

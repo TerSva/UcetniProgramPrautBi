@@ -214,7 +214,13 @@ class PartneriPage(QWidget):
             ico=item.ico,
             dic=item.dic,
             adresa=item.adresa,
+            bankovni_ucet=item.bankovni_ucet,
+            email=item.email,
+            telefon=item.telefon,
+            poznamka=item.poznamka,
             podil_procent=item.podil_procent,
+            ucet_pohledavka=item.ucet_pohledavka,
+            ucet_zavazek=item.ucet_zavazek,
         )
         dialog = PartnerDialog(parent=self, edit_data=edit_data)
         if dialog.exec() and dialog.result is not None:
