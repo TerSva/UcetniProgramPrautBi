@@ -38,18 +38,22 @@ from infrastructure.database.unit_of_work import SqliteUnitOfWork
 #         'leaf_vh'    — speciálně VH běžného období (z VZZ)
 
 ROZVAHA_AKTIVA: tuple[tuple, ...] = (
-    ("",       "AKTIVA CELKEM",                          (), 0, "sum_top"),
-    ("A.",     "Pohledávky za upsaný základní kapitál",  ("353",), 2, "leaf"),
-    ("B.",     "Stálá aktiva",                           (), 1, "sum_group"),
-    ("B.I.",   "Dlouhodobý nehmotný majetek",            (), 2, "leaf"),
-    ("B.II.",  "Dlouhodobý hmotný majetek",              ("022", "082"), 2, "leaf"),
-    ("B.III.", "Dlouhodobý finanční majetek",            (), 2, "leaf"),
-    ("C.",     "Oběžná aktiva",                          (), 1, "sum_group"),
-    ("C.I.",   "Zásoby",                                 (), 2, "leaf"),
-    ("C.II.",  "Pohledávky",                             ("311", "314", "355", "378", "343.100"), 2, "leaf"),
-    ("C.III.", "Krátkodobý finanční majetek",            (), 2, "leaf"),
-    ("C.IV.",  "Peněžní prostředky",                     ("211", "221", "261"), 2, "leaf"),
-    ("D.",     "Časové rozlišení aktiv",                 ("381", "395"), 2, "leaf"),
+    ("",         "AKTIVA CELKEM",                          (), 0, "sum_top"),
+    ("A.",       "Pohledávky za upsaný základní kapitál",  ("353",), 2, "leaf"),
+    ("B.",       "Stálá aktiva",                           (), 1, "sum_group"),
+    ("B.I.",     "Dlouhodobý nehmotný majetek",            (), 2, "leaf"),
+    ("B.II.",    "Dlouhodobý hmotný majetek",              ("022", "082"), 2, "leaf"),
+    ("B.III.",   "Dlouhodobý finanční majetek",            (), 2, "leaf"),
+    ("C.",       "Oběžná aktiva",                          (), 1, "sum_group"),
+    ("C.I.",     "Zásoby",                                 (), 2, "leaf"),
+    ("C.II.",    "Pohledávky",                             (), 2, "sum_group"),
+    ("C.II.1.",  "Pohledávky z obchodních vztahů",         ("311", "314"), 3, "leaf"),
+    ("C.II.2.",  "Pohledávky za společníky",               ("355",), 3, "leaf"),
+    ("C.II.3.",  "Daňové pohledávky vůči státu",           ("343.100",), 3, "leaf"),
+    ("C.II.4.",  "Jiné pohledávky",                        ("378",), 3, "leaf"),
+    ("C.III.",   "Krátkodobý finanční majetek",            (), 2, "leaf"),
+    ("C.IV.",    "Peněžní prostředky",                     ("211", "221", "261"), 2, "leaf"),
+    ("D.",       "Časové rozlišení aktiv",                 ("381", "395"), 2, "leaf"),
 )
 
 ROZVAHA_PASIVA: tuple[tuple, ...] = (
@@ -63,20 +67,32 @@ ROZVAHA_PASIVA: tuple[tuple, ...] = (
     ("A.VI.",  "Rozhodnuto o zálohách na výplatu",       (), 2, "leaf"),
     ("B+C.",   "Cizí zdroje",                            (), 1, "sum_group"),
     ("B.",     "Rezervy",                                (), 2, "leaf"),
-    ("C.",     "Závazky",                                ("321", "324", "331", "336", "341", "342", "343.200", "345", "365", "379", "479"), 2, "leaf"),
+    ("C.",     "Závazky",                                (), 2, "sum_group"),
+    ("C.1.",   "Závazky z obchodních vztahů",            ("321", "324", "379"), 3, "leaf"),
+    ("C.2.",   "Závazky ke společníkům",                 ("365",), 3, "leaf"),
+    ("C.3.",   "Závazky ze mzdy a soc./zdrav. pojištění", ("331", "336"), 3, "leaf"),
+    ("C.4.",   "Daňové závazky",                         ("341", "342", "343.200", "345"), 3, "leaf"),
+    ("C.5.",   "Ostatní dlouhodobé závazky",             ("479",), 3, "leaf"),
     ("D.",     "Časové rozlišení pasiv",                 (), 2, "leaf"),
 )
 
 # Mapování součtových skupin: parent oznaceni -> (řádky, které do něj patří).
-# Plní se v _spocitej_rozvaha_radky.
+# Klíče stejné v aktivech i pasivech (např. "C.") = nutnost rozdělit na
+# 2 mapy.
 ROZVAHA_AKTIVA_SUM_TOP_SOURCES = ("A.", "B.", "C.", "D.")
 ROZVAHA_PASIVA_SUM_TOP_SOURCES = ("A.", "B+C.", "D.")
-ROZVAHA_GROUPS = {
-    "B.":   ("B.I.", "B.II.", "B.III."),
-    "C.":   ("C.I.", "C.II.", "C.III.", "C.IV."),
+ROZVAHA_AKTIVA_GROUPS = {
+    "B.":     ("B.I.", "B.II.", "B.III."),
+    "C.":     ("C.I.", "C.II.", "C.III.", "C.IV."),
+    "C.II.":  ("C.II.1.", "C.II.2.", "C.II.3.", "C.II.4."),
+}
+ROZVAHA_PASIVA_GROUPS = {
     "A.":   ("A.I.", "A.II.", "A.III.", "A.IV.", "A.V.", "A.VI."),
     "B+C.": ("B.", "C."),
+    "C.":   ("C.1.", "C.2.", "C.3.", "C.4.", "C.5."),
 }
+# Zachováno pro backward kompatibilitu testů (deprecated).
+ROZVAHA_GROUPS = {**ROZVAHA_AKTIVA_GROUPS, **ROZVAHA_PASIVA_GROUPS, "A.": ROZVAHA_PASIVA_GROUPS["A."]}
 
 
 # Pro VZZ: (oznaceni, nazev, prefixes, druh, level)
@@ -392,10 +408,12 @@ class VykazyQuery:
         aktiva = self._sestav_rozvaha_stranu(
             ROZVAHA_AKTIVA, ROZVAHA_AKTIVA_SUM_TOP_SOURCES, ucty,
             vh_bezne=None, je_aktiva=True,
+            groups=ROZVAHA_AKTIVA_GROUPS,
         )
         pasiva = self._sestav_rozvaha_stranu(
             ROZVAHA_PASIVA, ROZVAHA_PASIVA_SUM_TOP_SOURCES, ucty,
             vh_bezne=vh_bezne, je_aktiva=False,
+            groups=ROZVAHA_PASIVA_GROUPS,
         )
         return aktiva, pasiva
 
@@ -1587,8 +1605,16 @@ class VykazyQuery:
         ucty: dict,
         vh_bezne: Money | None,
         je_aktiva: bool,
+        groups: dict[str, tuple[str, ...]] | None = None,
     ) -> tuple[RozvahaRadek, ...]:
-        """Sestaví řádky rozvahy včetně součtů."""
+        """Sestaví řádky rozvahy včetně součtů.
+
+        `groups` mapuje sum_group oznaceni → tuple podřízených oznaceni.
+        Aktiva a pasiva mají různé mapy (např. "C." je v aktivech
+        Oběžná aktiva, v pasivech Závazky).
+        """
+        if groups is None:
+            groups = ROZVAHA_GROUPS  # backward compat
         # 1. Spočítej leaf řádky
         leaf_hodnoty: dict[str, Money] = {}
         for oznaceni, _nazev, prefixes, _level, kind in layout:
@@ -1603,18 +1629,25 @@ class VykazyQuery:
                 # A.V. — vh běžného období (na pasivách)
                 leaf_hodnoty[oznaceni] = vh_bezne if vh_bezne is not None else Money.zero()
 
-        # 2. Spočítej skupinové součty
+        # 2. Spočítej skupinové součty — od nejhlubších nahoru
+        # (např. C.II. potřebuje znát C.II.1-4 dřív než se počítá C.)
         sum_hodnoty: dict[str, Money] = {}
-        for oznaceni, _nazev, _prefixes, _level, kind in layout:
-            if kind == "sum_group":
-                source = ROZVAHA_GROUPS.get(oznaceni, ())
-                hodnota = 0
-                for src in source:
-                    if src in leaf_hodnoty:
-                        hodnota += leaf_hodnoty[src].to_halire()
-                    elif src in sum_hodnoty:
-                        hodnota += sum_hodnoty[src].to_halire()
-                sum_hodnoty[oznaceni] = Money(hodnota)
+        # Iteruj v pořadí layoutu, ale projdi 2x — prvně leaf-aggregace,
+        # podruhé výše. Lepší: iteruj zezadu, hlubší level prvně.
+        sum_radky = [
+            r for r in layout if r[4] == "sum_group"
+        ]
+        # Seřaď podle úrovně sestupně (větší level = hlouběji)
+        sum_radky.sort(key=lambda r: -r[3])
+        for oznaceni, _nazev, _prefixes, _level, _kind in sum_radky:
+            source = groups.get(oznaceni, ())
+            hodnota = 0
+            for src in source:
+                if src in leaf_hodnoty:
+                    hodnota += leaf_hodnoty[src].to_halire()
+                elif src in sum_hodnoty:
+                    hodnota += sum_hodnoty[src].to_halire()
+            sum_hodnoty[oznaceni] = Money(hodnota)
 
         # 3. Spočítej top součet (AKTIVA CELKEM / PASIVA CELKEM)
         top_hodnota = 0
