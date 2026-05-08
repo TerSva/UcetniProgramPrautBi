@@ -435,6 +435,7 @@ def run(db_path: Path | None = None) -> int:
         path: Path,
         rozvahovy_den: "date | None" = None,
         datum_sestaveni: "date | None" = None,
+        s_prilohou: bool = True,
     ) -> None:
         from services.export.pdf_export import export_vykazy_pdf
         firma_nazev = "PRAUT s.r.o."
@@ -453,6 +454,7 @@ def run(db_path: Path | None = None) -> int:
             datum_sestaveni=datum_sestaveni,
             firma_nazev=firma_nazev,
             firma_ico=firma_ico,
+            s_prilohou=s_prilohou,
         )
 
     # Účetní deník VM

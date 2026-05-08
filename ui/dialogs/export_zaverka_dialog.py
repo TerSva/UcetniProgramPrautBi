@@ -11,6 +11,7 @@ from datetime import date
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -35,15 +36,17 @@ class ExportZaverkaDialog(QDialog):
         self._rok = rok
         self._rozvahovy_den: date | None = None
         self._datum_sestaveni: date | None = None
+        self._s_prilohou: bool = True
 
         self.setWindowTitle("Export účetní závěrky")
         self.setModal(True)
         self.setProperty("class", "export-zaverka-dialog")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.resize(440, 220)
+        self.resize(440, 280)
 
         self._rozvahovy_edit: LabeledDateEdit
         self._datum_sestaveni_edit: LabeledDateEdit
+        self._priloha_checkbox: QCheckBox
         self._ok_button: QPushButton
         self._cancel_button: QPushButton
 
@@ -83,6 +86,17 @@ class ExportZaverkaDialog(QDialog):
         self._datum_sestaveni_edit.set_value(date.today())
         root.addWidget(self._datum_sestaveni_edit)
 
+        # Volba — s přílohou (default zaškrtnuto, plná závěrka)
+        self._priloha_checkbox = QCheckBox(
+            "Včetně přílohy, saldokonta a nedaňových nákladů",
+            self,
+        )
+        self._priloha_checkbox.setChecked(True)
+        self._priloha_checkbox.setToolTip(
+            "Odznačte pro čistou závěrku — jen Cover + Rozvaha + VZZ.",
+        )
+        root.addWidget(self._priloha_checkbox)
+
         root.addStretch(1)
 
         footer = QHBoxLayout()
@@ -115,6 +129,7 @@ class ExportZaverkaDialog(QDialog):
             self._datum_sestaveni = date.today()
         else:
             self._datum_sestaveni = ds
+        self._s_prilohou = self._priloha_checkbox.isChecked()
         self.accept()
 
     @property
@@ -124,3 +139,7 @@ class ExportZaverkaDialog(QDialog):
     @property
     def datum_sestaveni(self) -> date | None:
         return self._datum_sestaveni
+
+    @property
+    def s_prilohou(self) -> bool:
+        return self._s_prilohou

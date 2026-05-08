@@ -139,7 +139,7 @@ class VykazyPage(QWidget):
         rok_default: int = 2025,
         firma_nazev: str = "PRAUT s.r.o.",
         firma_ico: str = "22545107",
-        export_pdf_fn: "Callable[[int, Path, date | None, date | None], None] | None" = None,
+        export_pdf_fn: "Callable[[int, Path, date | None, date | None, bool], None] | None" = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -1043,8 +1043,12 @@ class VykazyPage(QWidget):
             return
         rozvahovy_den = dlg.rozvahovy_den
         datum_sestaveni = dlg.datum_sestaveni
+        s_prilohou = dlg.s_prilohou
 
-        default_name = f"PRAUT_zaverka_{self._rok}.pdf"
+        default_name = (
+            f"PRAUT_zaverka_{self._rok}.pdf" if s_prilohou
+            else f"PRAUT_zaverka_{self._rok}_cista.pdf"
+        )
         path_str, _ = QFileDialog.getSaveFileName(
             self, "Uložit PDF", default_name, "PDF (*.pdf)",
         )
@@ -1055,7 +1059,9 @@ class VykazyPage(QWidget):
             path = path.with_suffix(".pdf")
 
         try:
-            self._export_pdf_fn(self._rok, path, rozvahovy_den, datum_sestaveni)
+            self._export_pdf_fn(
+                self._rok, path, rozvahovy_den, datum_sestaveni, s_prilohou,
+            )
         except Exception as e:
             QMessageBox.critical(
                 self, "Export PDF",

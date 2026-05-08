@@ -1052,16 +1052,21 @@ def export_vykazy_pdf(
     datum_sestaveni: date | None = None,
     firma_nazev: str = "PRAUT s.r.o.",
     firma_ico: str = "22545107",
+    s_prilohou: bool = True,
 ) -> Path:
     """Vygeneruje kompaktní PDF účetní závěrky pro mikro ÚJ (formulář 25 5404).
 
-    Obsah PDF:
+    Obsah PDF (plná verze, `s_prilohou=True`):
         1. Cover s plnými údaji ÚJ (název, sídlo, IČO, DIČ, právní forma,
            rozvahový den, datum sestavení, statutární orgán)
         2. Rozvaha (zkrácený rozsah A/B/C/D, vyhláška 500/2002 Sb. příl. 1)
         3. VZZ (druhové členění, vyhláška 500/2002 Sb. příl. 2)
         4. Příloha k závěrce (a obecné údaje, b účetní metody, c doplňkové)
         5. Saldokonto k rozvahovému dni (311, 321, 355, 365)
+        6. Nedaňové náklady
+
+    Když `s_prilohou=False`, vynechají se body 4-6 — vznikne jen čistá
+    závěrka (Cover + Rozvaha + VZZ), užitečná pro rychlou kontrolu.
 
     Pro DPH přiznání řádky EPO použijte tlačítko „Kopírovat pro EPO" v DPH
     detailu — ty patří do měsíčního přiznání, ne do roční závěrky.
@@ -1074,6 +1079,8 @@ def export_vykazy_pdf(
         datum_sestaveni: datum sestavení účetní závěrky (default dnes)
         firma_nazev, firma_ico: legacy parametry, ignorovány pokud Firma
             v DB existuje (bere se z entity Firma).
+        s_prilohou: True = plná závěrka s přílohou, saldokontem
+            a nedaňovými. False = jen Cover + Rozvaha + VZZ.
 
     Returns:
         Cesta k vytvořenému PDF.
@@ -1087,22 +1094,25 @@ def export_vykazy_pdf(
 
     aktiva, pasiva = vykazy_query.get_rozvaha(rok)
     vzz = vykazy_query.get_vzz(rok)
-    saldo_sekce = vykazy_query.get_saldokonto_per_ucet(rok)
     priloha = vykazy_query.get_minimum_priloha(
         rok=rok,
         rozvahovy_den=rozvahovy_den,
         datum_sestaveni=datum_sestaveni,
     )
-    nedanove = vykazy_query.get_nedanove_naklady(rok)
 
     body_parts = [
         _render_cover(rok, priloha),
         _render_rozvaha(aktiva, pasiva),
         _render_vzz(vzz),
-        _render_minimum_priloha(priloha),
-        _render_saldokonto_per_ucet(saldo_sekce),
-        _render_nedanove_naklady(nedanove),
     ]
+    if s_prilohou:
+        saldo_sekce = vykazy_query.get_saldokonto_per_ucet(rok)
+        nedanove = vykazy_query.get_nedanove_naklady(rok)
+        body_parts.extend([
+            _render_minimum_priloha(priloha),
+            _render_saldokonto_per_ucet(saldo_sekce),
+            _render_nedanove_naklady(nedanove),
+        ])
 
     today_str = _format_date(date.today())
     css_text = CSS.replace("{date}", today_str)
