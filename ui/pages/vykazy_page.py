@@ -276,6 +276,24 @@ class VykazyPage(QWidget):
         self._rozvaha_aktiva_table = _make_table(cols)
         self._rozvaha_pasiva_table = _make_table(cols)
 
+        # Single-click drilldown
+        self._rozvaha_aktiva_table.cellClicked.connect(
+            lambda r, c: self._on_rozvaha_clicked(
+                self._rozvaha_aktiva_table, r, je_aktiva=True,
+            )
+        )
+        self._rozvaha_pasiva_table.cellClicked.connect(
+            lambda r, c: self._on_rozvaha_clicked(
+                self._rozvaha_pasiva_table, r, je_aktiva=False,
+            )
+        )
+
+        hint = QLabel(
+            "Tip: klikni na řádek pro detail zápisů.", w,
+        )
+        hint.setProperty("class", "form-help")
+        layout.addWidget(hint)
+
         h_a = QLabel("AKTIVA", w)
         h_a.setProperty("class", "page-subtitle")
         layout.addWidget(h_a)
@@ -318,6 +336,7 @@ class VykazyPage(QWidget):
     def _fill_rozvaha_table(
         self, table: QTableWidget, radky: tuple[RozvahaRadek, ...],
     ) -> None:
+        from PyQt6.QtCore import Qt as _Qt
         table.setRowCount(len(radky))
         for i, r in enumerate(radky):
             bold = r.kind in ("sum_top", "sum_group")
@@ -326,9 +345,58 @@ class VykazyPage(QWidget):
             _set_text_cell(table, i, 1, r.nazev, bold=bold, indent=indent)
             _set_money_cell(table, i, 2, r.hodnota, bold=bold)
             _set_money_cell(table, i, 3, r.minule, bold=bold)
+            # Ulož metadata (oznaceni, kind, nazev, hodnota) pro drilldown
+            item0 = table.item(i, 0)
+            if item0 is not None:
+                item0.setData(_Qt.ItemDataRole.UserRole, {
+                    "oznaceni": r.oznaceni,
+                    "kind": r.kind,
+                    "nazev": r.nazev,
+                    "hodnota_halire": r.hodnota.to_halire(),
+                })
         table.resizeColumnsToContents()
         h = table.horizontalHeader()
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+
+    def _on_rozvaha_clicked(
+        self, table: QTableWidget, row: int, je_aktiva: bool,
+    ) -> None:
+        from PyQt6.QtCore import Qt as _Qt
+        from ui.dialogs.vzz_rozvaha_drilldown_dialog import (
+            VzzRozvahaDrilldownDialog,
+        )
+        item = table.item(row, 0)
+        if item is None:
+            return
+        meta = item.data(_Qt.ItemDataRole.UserRole)
+        if not meta:
+            return
+        # leaf_vh (VH běžného období v pasivech) — drilldown přes VZZ
+        if meta["kind"] == "leaf_vh":
+            try:
+                zapisy = self._query.get_vzz_drilldown(self._rok, "*")
+            except Exception as e:  # noqa: BLE001
+                self._show_warning(f"Chyba: {e}")
+                return
+        else:
+            try:
+                zapisy = self._query.get_rozvaha_drilldown(
+                    self._rok, je_aktiva=je_aktiva, oznaceni=meta["oznaceni"],
+                )
+            except Exception as e:  # noqa: BLE001
+                self._show_warning(f"Chyba: {e}")
+                return
+        if not zapisy:
+            return
+        nazev = f"{meta['oznaceni']} {meta['nazev']}".strip()
+        dlg = VzzRozvahaDrilldownDialog(
+            nazev_radku=nazev,
+            rok=self._rok,
+            zapisy=zapisy,
+            ocekavany_soucet=Money(meta["hodnota_halire"]),
+            parent=self,
+        )
+        dlg.exec()
 
     # ──────────────────────────────────────────────
     # Tab 2: VZZ
@@ -340,8 +408,45 @@ class VykazyPage(QWidget):
         layout.setContentsMargins(0, Spacing.S2, 0, 0)
         cols = ("Označení", "Název", "Běžné období", "Minulé období")
         self._vzz_table = _make_table(cols)
+        self._vzz_table.cellClicked.connect(self._on_vzz_clicked)
+
+        hint = QLabel(
+            "Tip: klikni na řádek pro detail zápisů.", w,
+        )
+        hint.setProperty("class", "form-help")
+        layout.addWidget(hint)
         layout.addWidget(self._vzz_table)
         return w
+
+    def _on_vzz_clicked(self, row: int, _col: int) -> None:
+        from PyQt6.QtCore import Qt as _Qt
+        from ui.dialogs.vzz_rozvaha_drilldown_dialog import (
+            VzzRozvahaDrilldownDialog,
+        )
+        item = self._vzz_table.item(row, 0)
+        if item is None:
+            return
+        meta = item.data(_Qt.ItemDataRole.UserRole)
+        if not meta:
+            return
+        try:
+            zapisy = self._query.get_vzz_drilldown(
+                self._rok, meta["oznaceni"],
+            )
+        except Exception as e:  # noqa: BLE001
+            self._show_warning(f"Chyba: {e}")
+            return
+        if not zapisy:
+            return
+        nazev = f"{meta['display_oznaceni']} {meta['nazev']}".strip()
+        dlg = VzzRozvahaDrilldownDialog(
+            nazev_radku=nazev,
+            rok=self._rok,
+            zapisy=zapisy,
+            ocekavany_soucet=Money(meta["hodnota_halire"]),
+            parent=self,
+        )
+        dlg.exec()
 
     def _load_vzz(self) -> None:
         try:
@@ -360,6 +465,7 @@ class VykazyPage(QWidget):
             "****":    "***",
         }
 
+        from PyQt6.QtCore import Qt as _Qt
         self._vzz_table.setRowCount(len(radky))
         for i, r in enumerate(radky):
             bold = r.druh.startswith("sum") or r.druh == "N_group"
@@ -369,6 +475,16 @@ class VykazyPage(QWidget):
             _set_text_cell(self._vzz_table, i, 1, r.nazev, bold=bold, indent=indent)
             _set_money_cell(self._vzz_table, i, 2, r.hodnota, bold=bold)
             _set_money_cell(self._vzz_table, i, 3, r.minule, bold=bold)
+            # Metadata pro drilldown
+            item0 = self._vzz_table.item(i, 0)
+            if item0 is not None:
+                item0.setData(_Qt.ItemDataRole.UserRole, {
+                    "oznaceni": r.oznaceni,         # interní (např. **fin)
+                    "display_oznaceni": display_oznaceni,
+                    "druh": r.druh,
+                    "nazev": r.nazev,
+                    "hodnota_halire": r.hodnota.to_halire(),
+                })
         self._vzz_table.resizeColumnsToContents()
         h = self._vzz_table.horizontalHeader()
         h.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)

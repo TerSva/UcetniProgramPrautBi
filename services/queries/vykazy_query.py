@@ -185,6 +185,30 @@ class HlavniKnihaRadek:
 
 
 @dataclass(frozen=True)
+class DrilldownZapis:
+    """Účetní zápis přispívající k částce v jednom řádku VZZ/rozvahy.
+
+    `znamenko` říká jak zápis přispívá k saldu řádku:
+      * +1 — částka se přičítá (např. MD na nákladovém účtu, Dal na výnosech)
+      * -1 — částka se odečítá (opačná strana téhož účtu)
+
+    Storno zápisy (`je_storno=True`) se zahrnují, aby drilldown souhlasil
+    s celkovou hodnotou ve výkazu. V dialogu se vizuálně odlišují.
+    """
+
+    id: int                     # ucetni_zaznam.id (pro klik na detail)
+    doklad_id: int
+    datum: date
+    cislo_dokladu: str
+    md_ucet: str
+    dal_ucet: str
+    castka: Money
+    popis: str | None
+    znamenko: int               # +1 / -1
+    je_storno: bool = False
+
+
+@dataclass(frozen=True)
 class HlavniKnihaUctu:
     ucet: str
     nazev: str
@@ -1179,7 +1203,212 @@ class VykazyQuery:
         )
 
     # ------------------------------------------------------------
-    # 7. Pokladní kniha
+    # 7. Drilldown — zápisy přispívající k řádku VZZ/rozvahy
+    # ------------------------------------------------------------
+
+    def get_vzz_drilldown(
+        self, rok: int, oznaceni: str,
+    ) -> tuple[DrilldownZapis, ...]:
+        """Zápisy tvořící částku konkrétního řádku VZZ.
+
+        Pro `sum_*` řádky agreguje prefixy všech podřízených leaf řádků.
+        """
+        prefixy, druhy = self._najdi_prefixy_vzz(oznaceni)
+        if not prefixy:
+            return tuple()
+        return self._nacti_zapisy_pro_prefixy(
+            rok=rok, prefixy=prefixy, druhy=druhy, je_aktiva=None,
+        )
+
+    def get_rozvaha_drilldown(
+        self, rok: int, je_aktiva: bool, oznaceni: str,
+    ) -> tuple[DrilldownZapis, ...]:
+        """Zápisy tvořící částku konkrétního řádku rozvahy.
+
+        Pro `sum_top` / `sum_group` agreguje prefixy podřízených.
+        """
+        prefixy = self._najdi_prefixy_rozvaha(oznaceni, je_aktiva)
+        if not prefixy:
+            return tuple()
+        return self._nacti_zapisy_pro_prefixy(
+            rok=rok, prefixy=prefixy, druhy=None, je_aktiva=je_aktiva,
+        )
+
+    def _najdi_prefixy_vzz(
+        self, oznaceni: str,
+    ) -> tuple[tuple[str, ...], dict[str, str]]:
+        """Vrátí (prefixy, druhy_pre_ucet) pro řádek VZZ.
+
+        Pro sum_* řádky agreguje prefixy všech leaf řádků (`druh`
+        in {'V', 'N', 'N_group'}). `druhy` mapuje prefix → 'V'/'N',
+        aby drilldown věděl znaménko.
+        """
+        # Najdi řádek
+        row = next(
+            (r for r in VZZ_RADKY if r[0] == oznaceni), None,
+        )
+        if row is None:
+            return tuple(), {}
+        oz, _, prefixy, druh, _ = row
+
+        if druh in ("V", "N", "N_group") and prefixy:
+            return prefixy, {p: druh for p in prefixy}
+
+        # Sumové řádky — agregace všech VZZ leaf řádků
+        # (zjednodušené: zahrnujeme všechny řádky s prefixy)
+        if druh.startswith("sum"):
+            agreg: list[str] = []
+            druhy: dict[str, str] = {}
+            for r in VZZ_RADKY:
+                d = r[3]
+                if d in ("V", "N", "N_group") and r[2]:
+                    for p in r[2]:
+                        if p not in druhy:
+                            agreg.append(p)
+                            druhy[p] = d
+            return tuple(agreg), druhy
+
+        return prefixy, {p: druh for p in prefixy}
+
+    def _najdi_prefixy_rozvaha(
+        self, oznaceni: str, je_aktiva: bool,
+    ) -> tuple[str, ...]:
+        rows = ROZVAHA_AKTIVA if je_aktiva else ROZVAHA_PASIVA
+        row = next((r for r in rows if r[0] == oznaceni), None)
+        if row is None:
+            return tuple()
+        _, _, prefixy, _, kind = row
+
+        if kind == "leaf":
+            return prefixy
+
+        # sum_top / sum_group → agregovat všechny leaf řádky strany
+        if kind in ("sum_top", "sum_group"):
+            agreg: list[str] = []
+            for r in rows:
+                if r[4] == "leaf" and r[2]:
+                    for p in r[2]:
+                        if p not in agreg:
+                            agreg.append(p)
+            return tuple(agreg)
+
+        return prefixy
+
+    def _nacti_zapisy_pro_prefixy(
+        self,
+        rok: int,
+        prefixy: tuple[str, ...],
+        druhy: dict[str, str] | None,
+        je_aktiva: bool | None,
+    ) -> tuple[DrilldownZapis, ...]:
+        """Načte zápisy z deníku, kde MD nebo Dal matchuje některý prefix.
+
+        Znaménko (+1/-1) určuje, jak zápis přispívá k saldu řádku:
+          * Pro VZZ:
+              - druh='V' (výnosy): Dal strana = +, MD strana = -
+              - druh='N' (náklady): MD strana = +, Dal strana = -
+          * Pro rozvahu:
+              - aktiva: MD = +, Dal = -
+              - pasiva: Dal = +, MD = -
+        """
+        od = date(rok, 1, 1)
+        do = date(rok, 12, 31)
+
+        uow = self._uow_factory()
+        with uow:
+            # Zahrnujeme i storno zápisy — originál + protizápis se ruší
+            # (netto = 0), ale jejich součet musí souhlasit s celkovou
+            # hodnotou ve výkazu (která taky storno započítává).
+            zaznamy = uow.connection.execute(
+                """
+                SELECT uz.id, uz.doklad_id, uz.datum, uz.md_ucet, uz.dal_ucet,
+                       uz.castka, uz.popis, uz.je_storno,
+                       d.cislo AS doklad_cislo
+                FROM ucetni_zaznamy uz
+                JOIN doklady d ON d.id = uz.doklad_id
+                WHERE uz.datum >= ? AND uz.datum <= ?
+                ORDER BY uz.datum, uz.id
+                """,
+                (od.isoformat(), do.isoformat()),
+            ).fetchall()
+
+        result: list[DrilldownZapis] = []
+        seen: set[int] = set()
+        for r in zaznamy:
+            if r["id"] in seen:
+                continue
+            md = r["md_ucet"]
+            dal = r["dal_ucet"]
+            md_match = next(
+                (p for p in prefixy if self._matches(md, p)), None,
+            )
+            dal_match = next(
+                (p for p in prefixy if self._matches(dal, p)), None,
+            )
+            if md_match is None and dal_match is None:
+                continue
+
+            znamenko = self._spocitej_znamenko(
+                md_match, dal_match, druhy, je_aktiva,
+            )
+            if znamenko == 0:
+                continue
+
+            seen.add(r["id"])
+            result.append(DrilldownZapis(
+                id=r["id"],
+                doklad_id=r["doklad_id"],
+                datum=date.fromisoformat(r["datum"]),
+                cislo_dokladu=r["doklad_cislo"],
+                md_ucet=md,
+                dal_ucet=dal,
+                castka=Money(r["castka"]),
+                popis=r["popis"],
+                znamenko=znamenko,
+                je_storno=bool(r["je_storno"]),
+            ))
+        return tuple(result)
+
+    @staticmethod
+    def _spocitej_znamenko(
+        md_match: str | None,
+        dal_match: str | None,
+        druhy: dict[str, str] | None,
+        je_aktiva: bool | None,
+    ) -> int:
+        """Vrátí +1, -1 nebo 0 (nematch / nejednoznačné)."""
+        if druhy is not None:
+            # VZZ
+            if md_match is not None:
+                d = druhy.get(md_match, "")
+                if d in ("N", "N_group"):
+                    return +1
+                if d == "V":
+                    return -1
+            if dal_match is not None:
+                d = druhy.get(dal_match, "")
+                if d == "V":
+                    return +1
+                if d in ("N", "N_group"):
+                    return -1
+            return 0
+
+        # Rozvaha
+        if je_aktiva:
+            if md_match is not None and dal_match is None:
+                return +1
+            if dal_match is not None and md_match is None:
+                return -1
+        else:
+            if dal_match is not None and md_match is None:
+                return +1
+            if md_match is not None and dal_match is None:
+                return -1
+        # Oboustranný match (převod uvnitř stejné strany) → ignoruj
+        return 0
+
+    # ------------------------------------------------------------
+    # 8. Pokladní kniha
     # ------------------------------------------------------------
 
     def get_pokladni_kniha(self, rok: int) -> PokladniKniha:

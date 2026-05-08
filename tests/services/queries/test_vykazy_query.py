@@ -286,6 +286,62 @@ class TestVZZ:
 
 
 # ────────────────────────────────────────────────────────────
+# Drilldown — VZZ + Rozvaha
+# ────────────────────────────────────────────────────────────
+
+class TestDrilldown:
+
+    def test_vzz_drilldown_vynosy_obsahuje_zapis(
+        self, vykazy_query, scenar_2025,
+    ):
+        """I. Tržby (601/602) — drilldown vrátí zápis Dal 601 = 10 000."""
+        zapisy = vykazy_query.get_vzz_drilldown(2025, "I.")
+        assert len(zapisy) >= 1
+        assert any(z.dal_ucet == "601" for z in zapisy)
+        assert all(z.znamenko == 1 for z in zapisy)
+
+    def test_vzz_drilldown_naklady_sluzby(
+        self, vykazy_query, scenar_2025,
+    ):
+        """A.3. Služby (511/512/513/518) — najde 518.200 zápis."""
+        zapisy = vykazy_query.get_vzz_drilldown(2025, "A.3.")
+        assert len(zapisy) >= 1
+        assert any(z.md_ucet == "518.200" for z in zapisy)
+
+    def test_vzz_drilldown_neexistujici_oznaceni(self, vykazy_query):
+        assert vykazy_query.get_vzz_drilldown(2025, "X.X.X") == ()
+
+    def test_vzz_drilldown_sumovy_radek(self, vykazy_query, scenar_2025):
+        """Sumový řádek '*' (Provozní VH) agreguje všechny leaf řádky."""
+        zapisy = vykazy_query.get_vzz_drilldown(2025, "*")
+        assert len(zapisy) > 0  # alespoň výnosy + náklady ze scénáře
+
+    def test_rozvaha_drilldown_aktiva_pohledavky(
+        self, vykazy_query, scenar_2025,
+    ):
+        """C.II. Pohledávky (311, 314, 355, 378, 343.100) — najde
+        zápis MD 311 (vznik pohledávky, +1) a Dal 311 (úhrada, -1)."""
+        zapisy = vykazy_query.get_rozvaha_drilldown(
+            2025, je_aktiva=True, oznaceni="C.II.",
+        )
+        assert len(zapisy) >= 1
+        # Vznik pohledávky: MD 311 — znamenko +1
+        md_311 = [z for z in zapisy if z.md_ucet.startswith("311")]
+        assert md_311
+        assert all(z.znamenko == 1 for z in md_311)
+
+    def test_rozvaha_drilldown_pasiva_zavazky(
+        self, vykazy_query, scenar_2025,
+    ):
+        """C. Závazky (321, ...) — najde zápis Dal 321 (závazek)."""
+        zapisy = vykazy_query.get_rozvaha_drilldown(
+            2025, je_aktiva=False, oznaceni="C.",
+        )
+        assert len(zapisy) >= 1
+        assert any(z.dal_ucet.startswith("321") for z in zapisy)
+
+
+# ────────────────────────────────────────────────────────────
 # Předvaha
 # ────────────────────────────────────────────────────────────
 
