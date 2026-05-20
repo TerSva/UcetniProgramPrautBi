@@ -1,0 +1,36 @@
+#!/bin/bash
+# PRAUT post-commit hook — auto-update PRAUT_kontext.md
+#
+# Sdílený v repu (.claude/hooks/post-commit) — aktivovat přes:
+#     bash .claude/hooks/install.sh
+
+# Ochrana proti rekurzi: amend uvnitř hooku by spustil hook znovu →
+# nekonečná smyčka. Env var KONTEXT_UPDATING přeruší druhý průchod.
+if [ -n "$KONTEXT_UPDATING" ]; then
+    exit 0
+fi
+export KONTEXT_UPDATING=1
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT" || exit 0
+
+# Použij venv Python pokud existuje (kvůli importu VykazyQuery z services/)
+if [ -x "$REPO_ROOT/.venv/bin/python" ]; then
+    PYTHON="$REPO_ROOT/.venv/bin/python"
+else
+    PYTHON="python3"
+fi
+
+# Spustit update skript (selhání neblokuje commit)
+"$PYTHON" "$REPO_ROOT/.claude/hooks/update_kontext.py" || {
+    echo "⚠️  update_kontext.py selhalo (nekritické, commit pokračuje)"
+    exit 0
+}
+
+# Amend jen pokud se PRAUT_kontext.md změnil. --no-verify přeskočí
+# pre-commit hooky, --no-edit zachová původní commit message.
+if ! git diff --quiet PRAUT_kontext.md 2>/dev/null; then
+    git add PRAUT_kontext.md
+    git commit --amend --no-edit --no-verify >/dev/null
+    echo "✅ PRAUT_kontext.md auto-updated a přidán do commitu"
+fi
