@@ -23,6 +23,10 @@ from infrastructure.database.repositories.ucetni_denik_repository import (
 from infrastructure.database.unit_of_work import SqliteUnitOfWork
 
 
+UCET_OTEVRACI_ROZVAZNY = "701.100"
+"""Účet 701.100 — Počáteční účet rozvažný (analytika)."""
+
+
 class PocatecniStavyCommand:
     """Přidání/smazání počátečních stavů + generování ID dokladu."""
 
@@ -118,7 +122,7 @@ class PocatecniStavyCommand:
                         doklad_id=loaded.id,
                         datum=datum,
                         md_ucet=s.ucet_kod,
-                        dal_ucet="701",
+                        dal_ucet=UCET_OTEVRACI_ROZVAZNY,
                         castka=s.castka,
                         popis=s.poznamka,
                     ))
@@ -126,7 +130,7 @@ class PocatecniStavyCommand:
                     zaznamy.append(UcetniZaznam(
                         doklad_id=loaded.id,
                         datum=datum,
-                        md_ucet="701",
+                        md_ucet=UCET_OTEVRACI_ROZVAZNY,
                         dal_ucet=s.ucet_kod,
                         castka=s.castka,
                         popis=s.poznamka,
