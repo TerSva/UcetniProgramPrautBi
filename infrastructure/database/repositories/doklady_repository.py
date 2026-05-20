@@ -38,8 +38,8 @@ class SqliteDokladyRepository(DokladyRepository):
                    (cislo, typ, datum_vystaveni, datum_zdanitelneho_plneni,
                     datum_splatnosti, partner_id, castka_celkem, mena, stav, popis,
                     k_doreseni, poznamka_doreseni, castka_mena, kurz,
-                    variabilni_symbol, dph_rezim, je_vystavena)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    variabilni_symbol, dph_rezim, je_vystavena, je_zaverka)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doklad.cislo,
                     doklad.typ.value,
@@ -65,6 +65,7 @@ class SqliteDokladyRepository(DokladyRepository):
                     doklad.dph_rezim.value,
                     None if doklad.je_vystavena is None
                     else (1 if doklad.je_vystavena else 0),
+                    1 if doklad.je_zaverka else 0,
                 ),
             )
         except sqlite3.IntegrityError as e:
@@ -92,6 +93,7 @@ class SqliteDokladyRepository(DokladyRepository):
             variabilni_symbol=doklad.variabilni_symbol,
             dph_rezim=doklad.dph_rezim,
             je_vystavena=doklad.je_vystavena,
+            je_zaverka=doklad.je_zaverka,
             id=cursor.lastrowid,
         )
 
@@ -107,7 +109,7 @@ class SqliteDokladyRepository(DokladyRepository):
                partner_id = ?, castka_celkem = ?, mena = ?, stav = ?, popis = ?,
                k_doreseni = ?, poznamka_doreseni = ?,
                castka_mena = ?, kurz = ?, variabilni_symbol = ?,
-               dph_rezim = ?, je_vystavena = ?,
+               dph_rezim = ?, je_vystavena = ?, je_zaverka = ?,
                upraveno = strftime('%Y-%m-%d %H:%M:%S', 'now')
                WHERE id = ?""",
             (
@@ -135,6 +137,7 @@ class SqliteDokladyRepository(DokladyRepository):
                 doklad.dph_rezim.value,
                 None if doklad.je_vystavena is None
                 else (1 if doklad.je_vystavena else 0),
+                1 if doklad.je_zaverka else 0,
                 doklad.id,
             ),
         )
@@ -302,5 +305,10 @@ class SqliteDokladyRepository(DokladyRepository):
                 if "je_vystavena" not in row.keys()
                 or row["je_vystavena"] is None
                 else bool(row["je_vystavena"])
+            ),
+            je_zaverka=(
+                bool(row["je_zaverka"])
+                if "je_zaverka" in row.keys() and row["je_zaverka"] is not None
+                else False
             ),
         )

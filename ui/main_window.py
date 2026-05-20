@@ -125,6 +125,7 @@ class MainWindow(QMainWindow):
         next_cislo_loader: object = None,
         vykazy_query: object = None,
         export_pdf_fn: object = None,
+        uzaverka_command: object = None,
     ) -> None:
         super().__init__()
         self.setWindowTitle("Účetní program")
@@ -167,6 +168,7 @@ class MainWindow(QMainWindow):
         self._next_cislo_loader = next_cislo_loader
         self._vykazy_query = vykazy_query
         self._export_pdf_fn = export_pdf_fn
+        self._uzaverka_command = uzaverka_command
 
         self._sidebar: Sidebar
         self._stack: QStackedWidget
@@ -397,6 +399,7 @@ class MainWindow(QMainWindow):
                 rok_default=rok_default,
                 firma_nazev=firma_nazev,
                 export_pdf_fn=export_fn,
+                uzaverka_command=self._uzaverka_command,
                 parent=self._stack,
             )
         else:

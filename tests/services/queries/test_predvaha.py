@@ -179,7 +179,7 @@ class TestDotceneUcty:
         p = predvaha_query.execute(
             date(2026, 4, 1), date(2026, 4, 30), jen_dotcene_ucty=False
         )
-        assert len(p.radky) == 84  # 83 + 1 z 028 (562)
+        assert len(p.radky) == 86  # 83 + 1 z 028 + 1 z 029 (431.100) + 1 z 030 (701.100)
         # Nedotčené mají nulové obraty
         radky = {r.ucet_cislo: r for r in p.radky}
         assert radky["211"].obrat_md == Money.zero()

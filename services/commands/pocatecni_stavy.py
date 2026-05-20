@@ -109,6 +109,11 @@ class PocatecniStavyCommand:
                 datum_vystaveni=datum,
                 castka_celkem=celkem,
                 popis=f"Počáteční stavy účtů — rok {rok}",
+                # Otevírací doklad — závěrkový mechanismus. Tabulka
+                # pocatecni_stavy je zdrojem pravdy pro PS, tento doklad
+                # je jen audit stopa v deníku. je_zaverka=True zaručí, že
+                # VykazyQuery nebude duplikovat PS (z tabulky + ze zápisů).
+                je_zaverka=True,
             )
             drepo.add(doklad)
             loaded = drepo.get_by_cislo(cislo)

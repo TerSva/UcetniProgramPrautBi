@@ -144,7 +144,6 @@ class ZalohyPartneraQuery:
             SELECT {sloupec} FROM ucetni_zaznamy
             WHERE doklad_id = ?
               AND {sloupec} LIKE ?
-              AND je_storno = 0
             ORDER BY id ASC
             LIMIT 1
             """,
@@ -178,7 +177,6 @@ class ZalohyPartneraQuery:
             SELECT 1 FROM ucetni_zaznamy
             WHERE popis LIKE ?
               AND {sloupec} LIKE ?
-              AND je_storno = 0
             LIMIT 1
             """,
             (f"%{cislo_zalohy}%", f"{prefix}%"),

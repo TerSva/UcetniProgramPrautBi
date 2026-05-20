@@ -411,6 +411,13 @@ def run(db_path: Path | None = None) -> int:
     # VykazyQuery + PDF export (Fáze 15)
     _vykazy_query = VykazyQuery(uow_factory=lambda: SqliteUnitOfWork(factory))
 
+    # UzaverkaRokuCommand — vystavení Z1/Z2/Z3
+    from services.commands.uzaverka_roku import UzaverkaRokuCommand
+    _uzaverka_command = UzaverkaRokuCommand(
+        uow_factory=lambda: SqliteUnitOfWork(factory),
+        vykazy_query=_vykazy_query,
+    )
+
     # DPH ViewModel (Fáze 11 + identifikovaná osoba)
     from services.commands.dph_podani import DphPodaniCommand
     from services.queries.dph_prehled import (
@@ -612,6 +619,7 @@ def run(db_path: Path | None = None) -> int:
         next_cislo_loader=_next_cislo_loader,
         vykazy_query=_vykazy_query,
         export_pdf_fn=_export_pdf_fn,
+        uzaverka_command=_uzaverka_command,
         dph_vm=dph_vm,
     )
     window.show()

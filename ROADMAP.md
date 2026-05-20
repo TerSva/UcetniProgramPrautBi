@@ -8,7 +8,47 @@ Aktualizováno: po dokončení Fáze 6.7 (filter-aware UI, form k_doreseni, dash
 
 ---
 
+## 🔧 TODO — známé issues a budoucí refaktory
+
+- [ ] **Banka validator** — `test_pdf_errors_propagated` padá pre-existing.
+      PDF parse chyba neoznačí `is_valid=False` (jen přidá do `varovani`).
+      Commit `43c1933 fix(banka): ČS PDF parser …` ho rozbil. Nesouvisí
+      se závěrkovým workflow.
+- [ ] **Rozdělit je_zaverka** na `je_uzaviraci` + `je_otviraci` —
+      pokud někdy bude potřeba samostatně auditovat otevírací vs.
+      uzavírací operace. Aktuálně jeden flag pokrývá oba (sémanticky
+      "závěrkový mechanismus, nepatří do běžných výkazů").
+- [ ] **Mapování účtové osnovy** — preventivně ověřit, že všechny
+      aktivní A/P účty mají prefix v ROZVAHA_AKTIVA / ROZVAHA_PASIVA
+      a všechny N/V účty v VZZ_RADKY. Bez tohoto se nový účet stane
+      "neviditelný" v rozvaze/VZZ a může způsobit nebilancování
+      (jak se stalo s účtem 426 do této PR).
+- [ ] **Bilanční kontrola jako runtime guard** — zvážit asserting
+      `aktiva == pasiva` v `get_rozvaha` a hlasit chybu uživateli
+      hned, ne tichý nesoulad jen ve warning baneru.
+
+---
+
 ## ✅ Dokončeno
+
+### Fáze: Roční uzávěrka (je_zaverka + UzaverkaRokuCommand) ✅
+- Nový sloupec `doklady.je_zaverka` (migrace 031) — odlišuje uzavírací
+  doklady (Z1/Z2/Z3 + otevírací PS) od běžných.
+- `VykazyQuery._nacti_obraty_a_ps(vcetne_zaverky=False)` defaultně vyloučí
+  uzavírací doklady. Parametr propagován do Rozvaha/VZZ/Předvaha (default
+  False), Hlavní kniha (default True — audit), drilldown (vždy True).
+- `UzaverkaRokuCommand.execute(rok)` vystaví Z1 (5xx/6xx → 710.100),
+  Z2 (VH → 431.100), Z3 (rozvahové → 702.100). Idempotentní, je_zaverka=True.
+- `PocatecniStavyCommand.generovat_id_doklad` nyní nastavuje
+  je_zaverka=True (otevírací PS doklad je závěrkový mechanismus —
+  odstraňuje duplicitu PS z tabulky + ze zápisů v rozvaze následujícího roku).
+- UI: tlačítko "Vystavit uzávěrku roku" ve Výkazech (danger styl,
+  confirm dialog) + 4 checkboxy "Včetně závěrkových zápisů" v každém tabu.
+- Storno bug fix: VykazyQuery napříč všemi metodami sjednoceno —
+  bez filtru `je_storno=0` (originál + protizápis se navzájem ruší).
+- Účet 426 přidán do ROZVAHA_PASIVA A.IV. (VH minulých let).
+
+
 
 ### Fáze 1-5: Backend (doména, persistence, services)
 - Money value object s INTEGER haléři + ROUND_HALF_UP

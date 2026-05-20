@@ -62,7 +62,7 @@ ROZVAHA_PASIVA: tuple[tuple, ...] = (
     ("A.I.",   "Základní kapitál",                       ("411",), 2, "leaf"),
     ("A.II.",  "Ážio a kapitálové fondy",                ("413",), 2, "leaf"),
     ("A.III.", "Fondy ze zisku",                         (), 2, "leaf"),
-    ("A.IV.",  "VH minulých let",                        ("428", "429", "431"), 2, "leaf"),
+    ("A.IV.",  "VH minulých let",                        ("426", "428", "429", "431"), 2, "leaf"),
     ("A.V.",   "VH běžného účetního období",             (), 2, "leaf_vh"),
     ("A.VI.",  "Rozhodnuto o zálohách na výplatu",       (), 2, "leaf"),
     ("B+C.",   "Cizí zdroje",                            (), 1, "sum_group"),
@@ -385,7 +385,25 @@ class VykazyQuery:
     """Read-only query — výkazy a sestavy.
 
     Používá raw SQL nad ucetni_zaznamy + doklady + pocatecni_stavy.
-    Storno zápisy (je_storno = 1) jsou ignorovány.
+
+    Storno protizápisy (je_storno = 1) se ZAHRNUJÍ do obratů — originál
+    a protizápis se navzájem ruší (netto = 0), což zaručuje konzistenci
+    mezi výkazy (Rozvaha, VZZ, Předvaha, Hlavní kniha, Nedaňové, DPH,
+    Saldokonto úhrad, Zálohy partnera). Pokud by se storno filtroval
+    pryč, originál stornovaného dokladu by zůstal jako falešný obrat.
+
+    Parametr ``vcetne_zaverky`` (kde se vyskytuje):
+    - False (default pro Rozvaha/VZZ/Předvaha/Nedaňové/DPH/Pokladna):
+      VYNECHÁ zápisy z dokladů s ``je_zaverka=1`` (uzavírací Z1/Z2/Z3
+      i otevírací ID-{rok}-PS). Tj. čisté podklady pro výkaz roku
+      "tak jak proběhl", bez závěrkového mechanismu.
+    - True (default pro Hlavní kniha a Drilldown — audit):
+      ZAHRNE i závěrkové doklady — auditor vidí kompletní deník vč.
+      uzavíracích a otevíracích operací.
+
+    Tabulka ``pocatecni_stavy`` je zdrojem pravdy pro PS roku.
+    Otevírací doklad ID-{rok}-PS je AUDIT STOPA téhož v účetním deníku
+    (proto má je_zaverka=1 — VykazyQuery ho neduplikuje s tabulkou).
     """
 
     def __init__(self, uow_factory: Callable[[], SqliteUnitOfWork]) -> None:
@@ -396,13 +414,15 @@ class VykazyQuery:
     # ------------------------------------------------------------
 
     def get_rozvaha(
-        self, rok: int,
+        self, rok: int, vcetne_zaverky: bool = False,
     ) -> tuple[tuple[RozvahaRadek, ...], tuple[RozvahaRadek, ...]]:
         """Vrátí (aktiva, pasiva) jako tuple řádků rozvahy.
 
         Hodnoty jsou netto. A.V. (VH běžného období) se počítá z VZZ.
+        vcetne_zaverky: True = zahrne i uzavírací doklady (audit po
+        uzávěrce, vše bude 0); False (default) = stav před uzavřením.
         """
-        ucty = self._nacti_obraty_a_ps(rok)
+        ucty = self._nacti_obraty_a_ps(rok, vcetne_zaverky=vcetne_zaverky)
         vh_bezne = self._spocitej_vh(ucty)
 
         aktiva = self._sestav_rozvaha_stranu(
@@ -417,21 +437,25 @@ class VykazyQuery:
         )
         return aktiva, pasiva
 
-    def get_bilancni_kontrola(self, rok: int) -> tuple[Money, Money]:
+    def get_bilancni_kontrola(
+        self, rok: int, vcetne_zaverky: bool = False,
+    ) -> tuple[Money, Money]:
         """Vrátí (aktiva_celkem, pasiva_celkem) — musí být stejné."""
-        aktiva, pasiva = self.get_rozvaha(rok)
+        aktiva, pasiva = self.get_rozvaha(rok, vcetne_zaverky=vcetne_zaverky)
         a_celkem = next((r.hodnota for r in aktiva if r.kind == "sum_top"), Money.zero())
         p_celkem = next((r.hodnota for r in pasiva if r.kind == "sum_top"), Money.zero())
         return a_celkem, p_celkem
 
-    def get_zaverkove_saldo(self, rok: int) -> Money:
+    def get_zaverkove_saldo(
+        self, rok: int, vcetne_zaverky: bool = False,
+    ) -> Money:
         """Vrátí součet sald závěrkových účtů (typ Z, např. 701, 702, 710).
 
         Pro běžné období musí být 0 — závěrkové účty se používají jen
         při otevření / uzavření roku. Nenulové saldo = nesprávné zaúčtování,
         které způsobí, že rozvaha nebilancuje.
         """
-        ucty = self._nacti_obraty_a_ps(rok)
+        ucty = self._nacti_obraty_a_ps(rok, vcetne_zaverky=vcetne_zaverky)
         total = 0
         for cislo, data in ucty.items():
             if data["typ"] != "Z":
@@ -445,8 +469,10 @@ class VykazyQuery:
     # 2. VZZ
     # ------------------------------------------------------------
 
-    def get_vzz(self, rok: int) -> tuple[VzzRadek, ...]:
-        ucty = self._nacti_obraty_a_ps(rok)
+    def get_vzz(
+        self, rok: int, vcetne_zaverky: bool = False,
+    ) -> tuple[VzzRadek, ...]:
+        ucty = self._nacti_obraty_a_ps(rok, vcetne_zaverky=vcetne_zaverky)
         return self._sestav_vzz(ucty)
 
     # ------------------------------------------------------------
@@ -455,9 +481,10 @@ class VykazyQuery:
 
     def get_predvaha(
         self, rok: int, jen_s_pohybem: bool = True,
+        vcetne_zaverky: bool = False,
     ) -> tuple[PredvahaRadek, ...]:
         """Obratová předvaha — všechny účty s PS, obraty, KZ."""
-        ucty = self._nacti_obraty_a_ps(rok)
+        ucty = self._nacti_obraty_a_ps(rok, vcetne_zaverky=vcetne_zaverky)
         vsechny = self._nacti_vsechny_ucty()
 
         radky: list[PredvahaRadek] = []
@@ -487,14 +514,20 @@ class VykazyQuery:
     # 4. Hlavní kniha
     # ------------------------------------------------------------
 
-    def get_hlavni_kniha(self, ucet: str, rok: int) -> HlavniKnihaUctu:
+    def get_hlavni_kniha(
+        self, ucet: str, rok: int, vcetne_zaverky: bool = True,
+    ) -> HlavniKnihaUctu:
         """Hlavní kniha pro účet (syntetický nebo analytický).
 
         Pokud je `ucet` syntetický (např. '321' a v DB existují 321.001,
         321.002), zahrne pohyby na všech analytikách.
+
+        vcetne_zaverky: default True (audit) — hlavní kniha ukazuje
+        veškeré zápisy včetně uzavíracích. Lze vypnout pro běžný pohled.
         """
         od = date(rok, 1, 1)
         do = date(rok, 12, 31)
+        z_flag = 1 if vcetne_zaverky else 0
 
         uow = self._uow_factory()
         with uow:
@@ -533,6 +566,7 @@ class VykazyQuery:
             ps_signed = ps_md - ps_dal  # pozitivní = MD strana
 
             # Pohyby — vč. storno protizápisů, ať jsou v auditu vidět.
+            # Pokud vcetne_zaverky=False, vyloučí zápisy z uzavíracích dokladů.
             zaznamy = conn.execute(
                 """
                 SELECT uz.datum, uz.castka, uz.popis,
@@ -542,9 +576,11 @@ class VykazyQuery:
                 JOIN doklady d ON d.id = uz.doklad_id
                 WHERE uz.datum >= ? AND uz.datum <= ?
                   AND (uz.md_ucet LIKE ? OR uz.dal_ucet LIKE ?)
+                  AND (? = 1 OR COALESCE(d.je_zaverka, 0) = 0)
                 ORDER BY uz.datum, uz.id
                 """,
-                (od.isoformat(), do.isoformat(), match_pattern, match_pattern),
+                (od.isoformat(), do.isoformat(),
+                 match_pattern, match_pattern, z_flag),
             ).fetchall()
 
         zustatek = ps_signed
@@ -670,18 +706,23 @@ class VykazyQuery:
     # 5a0. Nedaňové náklady (DPPO řádek 40)
     # ------------------------------------------------------------
 
-    def get_nedanove_naklady(self, rok: int) -> "NedanoveNaklady":
+    def get_nedanove_naklady(
+        self, rok: int, vcetne_zaverky: bool = False,
+    ) -> "NedanoveNaklady":
         """Souhrn nedaňových nákladů za rok.
 
         Vrací účty s typem 'N' a je_danovy=0, které mají nenulový obrat
-        (MD − Dal) za daný rok. Storno zápisy se nezohledňují (filtr
-        je_storno = 0). Hodnota = obrat MD − obrat Dal (čistý náklad).
+        (MD − Dal) za daný rok. Storno protizápisy jsou zahrnuty (originál
+        a protizápis se ruší). Hodnota = obrat MD − obrat Dal (čistý náklad).
+
+        vcetne_zaverky: default False — vyloučí uzavírací doklady.
 
         Tento součet se použije pro daňové přiznání PO (formulář 25 5404),
         řádek 40 — Výdaje neuznané za výdaje vynaložené k dosažení příjmů.
         """
         od = date(rok, 1, 1).isoformat()
         do = date(rok, 12, 31).isoformat()
+        zclause = self._zaverka_filter_clause(vcetne_zaverky)
 
         uow = self._uow_factory()
         with uow:
@@ -715,43 +756,43 @@ class VykazyQuery:
                 # Obrat MD
                 if use_like:
                     md_row = conn.execute(
-                        """
+                        f"""
                         SELECT COALESCE(SUM(castka), 0) AS s
                         FROM ucetni_zaznamy
                         WHERE datum >= ? AND datum <= ?
-                          AND je_storno = 0
                           AND (md_ucet = ? OR md_ucet LIKE ?)
+                          {zclause}
                         """,
                         (od, do, cislo, md_pattern),
                     ).fetchone()
                     dal_row = conn.execute(
-                        """
+                        f"""
                         SELECT COALESCE(SUM(castka), 0) AS s
                         FROM ucetni_zaznamy
                         WHERE datum >= ? AND datum <= ?
-                          AND je_storno = 0
                           AND (dal_ucet = ? OR dal_ucet LIKE ?)
+                          {zclause}
                         """,
                         (od, do, cislo, md_pattern),
                     ).fetchone()
                 else:
                     md_row = conn.execute(
-                        """
+                        f"""
                         SELECT COALESCE(SUM(castka), 0) AS s
                         FROM ucetni_zaznamy
                         WHERE datum >= ? AND datum <= ?
-                          AND je_storno = 0
                           AND md_ucet = ?
+                          {zclause}
                         """,
                         (od, do, cislo),
                     ).fetchone()
                     dal_row = conn.execute(
-                        """
+                        f"""
                         SELECT COALESCE(SUM(castka), 0) AS s
                         FROM ucetni_zaznamy
                         WHERE datum >= ? AND datum <= ?
-                          AND je_storno = 0
                           AND dal_ucet = ?
+                          {zclause}
                         """,
                         (od, do, cislo),
                     ).fetchone()
@@ -781,22 +822,22 @@ class VykazyQuery:
                         # Syntetický má analytiky → použijeme jen analytiky,
                         # syntetické zápisy přímo na 'cislo' bez tečky.
                         md_only_synt = conn.execute(
-                            """
+                            f"""
                             SELECT COALESCE(SUM(castka), 0) AS s
                             FROM ucetni_zaznamy
                             WHERE datum >= ? AND datum <= ?
-                              AND je_storno = 0
                               AND md_ucet = ?
+                              {zclause}
                             """,
                             (od, do, cislo),
                         ).fetchone()
                         dal_only_synt = conn.execute(
-                            """
+                            f"""
                             SELECT COALESCE(SUM(castka), 0) AS s
                             FROM ucetni_zaznamy
                             WHERE datum >= ? AND datum <= ?
-                              AND je_storno = 0
                               AND dal_ucet = ?
+                              {zclause}
                             """,
                             (od, do, cislo),
                         ).fetchone()
@@ -1017,7 +1058,6 @@ class VykazyQuery:
                 SELECT md_ucet, SUM(castka) AS suma
                 FROM ucetni_zaznamy
                 WHERE datum >= ? AND datum <= ?
-                  AND je_storno = 0
                   AND (md_ucet = ? OR md_ucet LIKE ?)
                 GROUP BY md_ucet
                 """,
@@ -1036,7 +1076,6 @@ class VykazyQuery:
                 SELECT dal_ucet, SUM(castka) AS suma
                 FROM ucetni_zaznamy
                 WHERE datum >= ? AND datum <= ?
-                  AND je_storno = 0
                   AND (dal_ucet = ? OR dal_ucet LIKE ?)
                 GROUP BY dal_ucet
                 """,
@@ -1079,11 +1118,14 @@ class VykazyQuery:
 
     def get_dph_prehled(
         self, rok: int, mesic: int | None = None, ctvrtleti: int | None = None,
+        vcetne_zaverky: bool = False,
     ) -> DphPrehled:
         """DPH přehled za rok / měsíc / čtvrtletí.
 
         Pro identifikovanou osobu: vstup = 343.100 (MD), výstup = 343.200 (Dal).
         U RC: vstup = výstup → vzájemně se vynuluje.
+
+        vcetne_zaverky: default False — uzavírací doklady nejsou DPH plnění.
         """
         if mesic is not None:
             od = date(rok, mesic, 1)
@@ -1103,63 +1145,67 @@ class VykazyQuery:
             od = date(rok, 1, 1)
             do = date(rok, 12, 31)
 
+        zclause = self._zaverka_filter_clause(vcetne_zaverky)
+
         uow = self._uow_factory()
         with uow:
             conn = uow.connection
 
             # Vstup: záznamy s MD ucet LIKE '343.1%' nebo md_ucet = '343.100'
             vstup_total = conn.execute(
-                """
+                f"""
                 SELECT COALESCE(SUM(castka), 0) AS s
                 FROM ucetni_zaznamy
-                WHERE je_storno = 0
-                  AND datum >= ? AND datum <= ?
+                WHERE datum >= ? AND datum <= ?
                   AND md_ucet LIKE '343.1%'
+                  {zclause}
                 """,
                 (od.isoformat(), do.isoformat()),
             ).fetchone()["s"]
 
             vstup_rc = conn.execute(
-                """
+                f"""
                 SELECT COALESCE(SUM(uz.castka), 0) AS s
                 FROM ucetni_zaznamy uz
                 JOIN doklady d ON d.id = uz.doklad_id
-                WHERE uz.je_storno = 0
-                  AND uz.datum >= ? AND uz.datum <= ?
+                WHERE uz.datum >= ? AND uz.datum <= ?
                   AND uz.md_ucet LIKE '343.1%'
                   AND d.dph_rezim = 'REVERSE_CHARGE'
+                  AND (? = 1 OR COALESCE(d.je_zaverka, 0) = 0)
                 """,
-                (od.isoformat(), do.isoformat()),
+                (od.isoformat(), do.isoformat(),
+                 1 if vcetne_zaverky else 0),
             ).fetchone()["s"]
 
             # Výstup: záznamy s Dal ucet LIKE '343.2%'
             vystup_total = conn.execute(
-                """
+                f"""
                 SELECT COALESCE(SUM(castka), 0) AS s
                 FROM ucetni_zaznamy
-                WHERE je_storno = 0
-                  AND datum >= ? AND datum <= ?
+                WHERE datum >= ? AND datum <= ?
                   AND dal_ucet LIKE '343.2%'
+                  {zclause}
                 """,
                 (od.isoformat(), do.isoformat()),
             ).fetchone()["s"]
 
             vystup_rc = conn.execute(
-                """
+                f"""
                 SELECT COALESCE(SUM(uz.castka), 0) AS s
                 FROM ucetni_zaznamy uz
                 JOIN doklady d ON d.id = uz.doklad_id
-                WHERE uz.je_storno = 0
-                  AND uz.datum >= ? AND uz.datum <= ?
+                WHERE uz.datum >= ? AND uz.datum <= ?
                   AND uz.dal_ucet LIKE '343.2%'
                   AND d.dph_rezim = 'REVERSE_CHARGE'
+                  AND (? = 1 OR COALESCE(d.je_zaverka, 0) = 0)
                 """,
-                (od.isoformat(), do.isoformat()),
+                (od.isoformat(), do.isoformat(),
+                 1 if vcetne_zaverky else 0),
             ).fetchone()["s"]
 
             # Detail dokladů s DPH
             doklad_rows = conn.execute(
-                """
+                f"""
                 SELECT d.id, d.cislo, d.datum_vystaveni, d.castka_celkem,
                        COALESCE(d.dph_rezim, 'TUZEMSKO') AS rezim,
                        p.nazev AS partner_nazev
@@ -1167,9 +1213,9 @@ class VykazyQuery:
                 LEFT JOIN partneri p ON p.id = d.partner_id
                 WHERE d.id IN (
                     SELECT DISTINCT doklad_id FROM ucetni_zaznamy
-                    WHERE je_storno = 0
-                      AND datum >= ? AND datum <= ?
+                    WHERE datum >= ? AND datum <= ?
                       AND (md_ucet LIKE '343%' OR dal_ucet LIKE '343%')
+                      {zclause}
                 )
                 ORDER BY d.datum_vystaveni, d.cislo
                 """,
@@ -1184,7 +1230,7 @@ class VykazyQuery:
                     """
                     SELECT COALESCE(SUM(castka), 0) AS s
                     FROM ucetni_zaznamy
-                    WHERE doklad_id = ? AND je_storno = 0
+                    WHERE doklad_id = ?
                       AND md_ucet NOT LIKE '343%'
                       AND dal_ucet NOT LIKE '343%'
                     """,
@@ -1195,7 +1241,7 @@ class VykazyQuery:
                     """
                     SELECT COALESCE(SUM(castka), 0) AS s
                     FROM ucetni_zaznamy
-                    WHERE doklad_id = ? AND je_storno = 0
+                    WHERE doklad_id = ?
                       AND md_ucet LIKE '343.1%'
                     """,
                     (d_row["id"],),
@@ -1226,30 +1272,37 @@ class VykazyQuery:
 
     def get_vzz_drilldown(
         self, rok: int, oznaceni: str,
+        vcetne_zaverky: bool = True,
     ) -> tuple[DrilldownZapis, ...]:
         """Zápisy tvořící částku konkrétního řádku VZZ.
 
         Pro `sum_*` řádky agreguje prefixy všech podřízených leaf řádků.
+        vcetne_zaverky: default True — drilldown ukáže všechny zápisy
+        včetně uzavíracích pro úplnost auditu.
         """
         prefixy, druhy = self._najdi_prefixy_vzz(oznaceni)
         if not prefixy:
             return tuple()
         return self._nacti_zapisy_pro_prefixy(
             rok=rok, prefixy=prefixy, druhy=druhy, je_aktiva=None,
+            vcetne_zaverky=vcetne_zaverky,
         )
 
     def get_rozvaha_drilldown(
         self, rok: int, je_aktiva: bool, oznaceni: str,
+        vcetne_zaverky: bool = True,
     ) -> tuple[DrilldownZapis, ...]:
         """Zápisy tvořící částku konkrétního řádku rozvahy.
 
         Pro `sum_top` / `sum_group` agreguje prefixy podřízených.
+        vcetne_zaverky: default True (audit).
         """
         prefixy = self._najdi_prefixy_rozvaha(oznaceni, je_aktiva)
         if not prefixy:
             return tuple()
         return self._nacti_zapisy_pro_prefixy(
             rok=rok, prefixy=prefixy, druhy=None, je_aktiva=je_aktiva,
+            vcetne_zaverky=vcetne_zaverky,
         )
 
     def _najdi_prefixy_vzz(
@@ -1318,6 +1371,7 @@ class VykazyQuery:
         prefixy: tuple[str, ...],
         druhy: dict[str, str] | None,
         je_aktiva: bool | None,
+        vcetne_zaverky: bool = True,
     ) -> tuple[DrilldownZapis, ...]:
         """Načte zápisy z deníku, kde MD nebo Dal matchuje některý prefix.
 
@@ -1331,12 +1385,14 @@ class VykazyQuery:
         """
         od = date(rok, 1, 1)
         do = date(rok, 12, 31)
+        z_flag = 1 if vcetne_zaverky else 0
 
         uow = self._uow_factory()
         with uow:
             # Zahrnujeme i storno zápisy — originál + protizápis se ruší
             # (netto = 0), ale jejich součet musí souhlasit s celkovou
             # hodnotou ve výkazu (která taky storno započítává).
+            # Filtr je_zaverka: defaultně zahrne i uzavírací doklady.
             zaznamy = uow.connection.execute(
                 """
                 SELECT uz.id, uz.doklad_id, uz.datum, uz.md_ucet, uz.dal_ucet,
@@ -1345,9 +1401,10 @@ class VykazyQuery:
                 FROM ucetni_zaznamy uz
                 JOIN doklady d ON d.id = uz.doklad_id
                 WHERE uz.datum >= ? AND uz.datum <= ?
+                  AND (? = 1 OR COALESCE(d.je_zaverka, 0) = 0)
                 ORDER BY uz.datum, uz.id
                 """,
-                (od.isoformat(), do.isoformat()),
+                (od.isoformat(), do.isoformat(), z_flag),
             ).fetchall()
 
         result: list[DrilldownZapis] = []
@@ -1429,10 +1486,18 @@ class VykazyQuery:
     # 8. Pokladní kniha
     # ------------------------------------------------------------
 
-    def get_pokladni_kniha(self, rok: int) -> PokladniKniha:
-        """Pokladní kniha = hlavní kniha účtu 211."""
+    def get_pokladni_kniha(
+        self, rok: int, vcetne_zaverky: bool = False,
+    ) -> PokladniKniha:
+        """Pokladní kniha = hlavní kniha účtu 211.
+
+        vcetne_zaverky: default False — uzavírací zápisy na 211.x nejsou
+        provozní pokladní pohyby.
+        """
         try:
-            kniha = self.get_hlavni_kniha("211", rok)
+            kniha = self.get_hlavni_kniha(
+                "211", rok, vcetne_zaverky=vcetne_zaverky,
+            )
         except ValueError:
             return PokladniKniha(
                 rok=rok, pocatecni_stav=Money.zero(),
@@ -1449,6 +1514,21 @@ class VykazyQuery:
     # ────────────────────────────────────────────────────────
     # Interní helpers
     # ────────────────────────────────────────────────────────
+
+    def _zaverka_filter_clause(self, vcetne_zaverky: bool) -> str:
+        """Vrátí SQL fragment pro filtr je_zaverka v dotazech nad
+        ucetni_zaznamy bez explicitního JOIN doklady.
+
+        - vcetne_zaverky=True → prázdný string (vše)
+        - vcetne_zaverky=False → "AND doklad_id NOT IN (SELECT id FROM
+          doklady WHERE je_zaverka = 1)" (vyloučí uzavírací doklady)
+        """
+        if vcetne_zaverky:
+            return ""
+        return (
+            "AND doklad_id NOT IN "
+            "(SELECT id FROM doklady WHERE je_zaverka = 1)"
+        )
 
     def _matches(self, ucet: str, prefix: str) -> bool:
         """Účet matchuje prefix pokud == prefix nebo začíná prefix + '.'.
@@ -1469,13 +1549,21 @@ class VykazyQuery:
             ).fetchall()
         return {r["cislo"]: (r["nazev"], r["typ"]) for r in rows}
 
-    def _nacti_obraty_a_ps(self, rok: int) -> dict[str, dict]:
+    def _nacti_obraty_a_ps(
+        self, rok: int, vcetne_zaverky: bool = False,
+    ) -> dict[str, dict]:
         """Vrátí mapping cislo_uctu -> {ps_md, ps_dal, obrat_md, obrat_dal, typ, nazev}.
 
-        Hodnoty v haléřích (int). Storno zápisy ignorovány.
+        Hodnoty v haléřích (int). Storno protizápisy se zahrnují (originál +
+        protizápis se navzájem ruší).
+
+        Pokud vcetne_zaverky=False (default), zápisy z dokladů s je_zaverka=1
+        (uzavírací doklady Z1/Z2/Z3) se vynechávají — Rozvaha, VZZ, Předvaha
+        tedy ukážou stav PŘED uzavřením. Pro audit po uzavření použij True.
         """
         od = date(rok, 1, 1)
         do = date(rok, 12, 31)
+        z_flag = 1 if vcetne_zaverky else 0
 
         uow = self._uow_factory()
         with uow:
@@ -1517,14 +1605,17 @@ class VykazyQuery:
             # Obraty — vč. storno protizápisů (originál + protizápis se
             # navzájem ruší, netto = 0, ale obraty na obou stranách jsou
             # potřeba pro správný součet a bilancování rozvahy).
+            # Filtr je_zaverka: defaultně vyloučí uzavírací doklady.
             obraty_md = conn.execute(
                 """
-                SELECT md_ucet, SUM(castka) AS s
-                FROM ucetni_zaznamy
-                WHERE datum >= ? AND datum <= ?
-                GROUP BY md_ucet
+                SELECT uz.md_ucet, SUM(uz.castka) AS s
+                FROM ucetni_zaznamy uz
+                LEFT JOIN doklady d ON d.id = uz.doklad_id
+                WHERE uz.datum >= ? AND uz.datum <= ?
+                  AND (? = 1 OR COALESCE(d.je_zaverka, 0) = 0)
+                GROUP BY uz.md_ucet
                 """,
-                (od.isoformat(), do.isoformat()),
+                (od.isoformat(), do.isoformat(), z_flag),
             ).fetchall()
             for r in obraty_md:
                 if r["md_ucet"] not in data:
@@ -1533,12 +1624,14 @@ class VykazyQuery:
 
             obraty_dal = conn.execute(
                 """
-                SELECT dal_ucet, SUM(castka) AS s
-                FROM ucetni_zaznamy
-                WHERE datum >= ? AND datum <= ?
-                GROUP BY dal_ucet
+                SELECT uz.dal_ucet, SUM(uz.castka) AS s
+                FROM ucetni_zaznamy uz
+                LEFT JOIN doklady d ON d.id = uz.doklad_id
+                WHERE uz.datum >= ? AND uz.datum <= ?
+                  AND (? = 1 OR COALESCE(d.je_zaverka, 0) = 0)
+                GROUP BY uz.dal_ucet
                 """,
-                (od.isoformat(), do.isoformat()),
+                (od.isoformat(), do.isoformat(), z_flag),
             ).fetchall()
             for r in obraty_dal:
                 if r["dal_ucet"] not in data:
@@ -1754,7 +1847,6 @@ class VykazyQuery:
             FROM ucetni_zaznamy uz
             JOIN bankovni_transakce bt ON bt.ucetni_zapis_id = uz.id
             WHERE bt.sparovany_doklad_id = ?
-              AND uz.je_storno = 0
               AND uz.doklad_id != ?
               AND {md_dal_clause}
             UNION
@@ -1762,7 +1854,6 @@ class VykazyQuery:
             FROM ucetni_zaznamy uz
             JOIN doklady d ON d.id = uz.doklad_id
             WHERE uz.popis LIKE ?
-              AND uz.je_storno = 0
               AND uz.doklad_id != ?
               AND d.typ IN ('PD', 'ID')
               AND {md_dal_clause}

@@ -55,6 +55,7 @@ class Doklad:
         variabilni_symbol: str | None = None,
         dph_rezim: DphRezim = DphRezim.TUZEMSKO,
         je_vystavena: bool | None = None,
+        je_zaverka: bool = False,
         id: int | None = None,
     ) -> None:
         # Validace cislo
@@ -198,6 +199,13 @@ class Doklad:
         else:
             self._je_vystavena = None  # ignored pro non-ZF
 
+        # je_zaverka — true pro uzavírací doklady (Z1/Z2/Z3 na 702/710/431).
+        # Výkazy (Rozvaha, VZZ, Předvaha) je defaultně ignorují, lze zahrnout
+        # pro audit přes parametr vcetne_zaverky=True.
+        if not isinstance(je_zaverka, bool):
+            raise TypeError("je_zaverka musí být bool")
+        self._je_zaverka = je_zaverka
+
     # --- Properties ---
 
     @property
@@ -275,6 +283,21 @@ class Doklad:
         Pro non-ZF typy vrací None — směr je derivovatelný z typu.
         """
         return self._je_vystavena
+
+    @property
+    def je_zaverka(self) -> bool:
+        """Označuje doklad jako systémový/závěrkový — nevstupuje do běžných
+        výkazů (Rozvaha, VZZ, Předvaha default).
+
+        Zahrnuje:
+        - Uzavírací doklady (Z1/Z2/Z3 — vystavené UzaverkaRokuCommand)
+        - PS přenos (otevírací doklady — vystavené PocatecniStavyCommand)
+
+        Pro audit lze zahrnout přes parametr vcetne_zaverky=True
+        ve VykazyQuery metodách. Hlavní kniha a drilldown defaultně
+        závěrkové zahrnují.
+        """
+        return self._je_zaverka
 
     def nastav_dph_rezim(self, rezim: DphRezim) -> None:
         """Změní DPH režim dokladu.

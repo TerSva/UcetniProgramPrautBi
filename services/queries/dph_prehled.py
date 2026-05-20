@@ -201,7 +201,6 @@ class DphPrehledQuery:
                 WHERE uz.datum >= ? AND uz.datum <= ?
                   AND uz.md_ucet LIKE '343%'
                   AND uz.dal_ucet LIKE '343%'
-                  AND uz.je_storno = 0
                 ORDER BY mesic
                 """,
                 (f"{rok}-01-01", f"{rok}-12-31"),
@@ -219,7 +218,6 @@ class DphPrehledQuery:
                     FROM ucetni_zaznamy
                     WHERE doklad_id IN ({placeholders})
                       AND NOT (md_ucet LIKE '343%' AND dal_ucet LIKE '343%')
-                      AND je_storno = 0
                     GROUP BY doklad_id
                     """,
                     tuple(doklad_ids),
@@ -312,7 +310,6 @@ class DphMesicDetailQuery:
                 WHERE uz.datum >= ? AND uz.datum < ?
                   AND uz.md_ucet LIKE '343%'
                   AND uz.dal_ucet LIKE '343%'
-                  AND uz.je_storno = 0
                 ORDER BY uz.datum, uz.id
                 """,
                 (od, do),
@@ -329,7 +326,6 @@ class DphMesicDetailQuery:
                     FROM ucetni_zaznamy
                     WHERE doklad_id IN ({placeholders})
                       AND NOT (md_ucet LIKE '343%' AND dal_ucet LIKE '343%')
-                      AND je_storno = 0
                     GROUP BY doklad_id
                     """,
                     tuple(doklad_ids),

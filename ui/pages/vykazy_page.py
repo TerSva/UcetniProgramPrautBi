@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QBrush, QColor, QFont
@@ -140,6 +140,7 @@ class VykazyPage(QWidget):
         firma_nazev: str = "PRAUT s.r.o.",
         firma_ico: str = "22545107",
         export_pdf_fn: "Callable[[int, Path, date | None, date | None, bool], None] | None" = None,
+        uzaverka_command: "Any | None" = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -148,6 +149,7 @@ class VykazyPage(QWidget):
         self._firma_nazev = firma_nazev
         self._firma_ico = firma_ico
         self._export_pdf_fn = export_pdf_fn
+        self._uzaverka_command = uzaverka_command
 
         self.setProperty("class", "page")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -190,6 +192,13 @@ class VykazyPage(QWidget):
             self._rok_combo.setCurrentIndex(idx)
         self._rok_combo.currentIndexChanged.connect(self._on_rok_changed)
         controls.addWidget(self._rok_combo)
+
+        self._uzaverka_btn = QPushButton("Vystavit uzávěrku roku", self)
+        self._uzaverka_btn.setProperty("class", "danger")
+        self._uzaverka_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._uzaverka_btn.setVisible(self._uzaverka_command is not None)
+        self._uzaverka_btn.clicked.connect(self._on_uzaverka_clicked)
+        controls.addWidget(self._uzaverka_btn)
 
         controls.addStretch(1)
 
@@ -272,6 +281,19 @@ class VykazyPage(QWidget):
         layout.setContentsMargins(0, Spacing.S2, 0, 0)
         layout.setSpacing(Spacing.S2)
 
+        # Switch pro závěrkové zápisy
+        ctrl_row = QHBoxLayout()
+        self._rozvaha_zaverka_check = QCheckBox(
+            "Včetně závěrkových zápisů", w,
+        )
+        self._rozvaha_zaverka_check.setChecked(False)
+        self._rozvaha_zaverka_check.toggled.connect(
+            lambda _b: self._load_rozvaha()
+        )
+        ctrl_row.addWidget(self._rozvaha_zaverka_check)
+        ctrl_row.addStretch(1)
+        layout.addLayout(ctrl_row)
+
         cols = ("Označení", "Název", "Běžné období", "Minulé období")
         self._rozvaha_aktiva_table = _make_table(cols)
         self._rozvaha_pasiva_table = _make_table(cols)
@@ -307,8 +329,11 @@ class VykazyPage(QWidget):
         return w
 
     def _load_rozvaha(self) -> None:
+        vcetne_z = self._rozvaha_zaverka_check.isChecked()
         try:
-            aktiva, pasiva = self._query.get_rozvaha(self._rok)
+            aktiva, pasiva = self._query.get_rozvaha(
+                self._rok, vcetne_zaverky=vcetne_z,
+            )
         except Exception as e:
             self._show_warning(f"Chyba při načítání rozvahy: {e}")
             return
@@ -319,7 +344,9 @@ class VykazyPage(QWidget):
         a_total = next((r.hodnota for r in aktiva if r.kind == "sum_top"), Money.zero())
         p_total = next((r.hodnota for r in pasiva if r.kind == "sum_top"), Money.zero())
         if a_total != p_total:
-            zaverkove = self._query.get_zaverkove_saldo(self._rok)
+            zaverkove = self._query.get_zaverkove_saldo(
+                self._rok, vcetne_zaverky=vcetne_z,
+            )
             zaverkove_hint = ""
             if not zaverkove.is_zero:
                 zaverkove_hint = (
@@ -406,6 +433,19 @@ class VykazyPage(QWidget):
         w = QWidget(self)
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, Spacing.S2, 0, 0)
+
+        ctrl_row = QHBoxLayout()
+        self._vzz_zaverka_check = QCheckBox(
+            "Včetně závěrkových zápisů", w,
+        )
+        self._vzz_zaverka_check.setChecked(False)
+        self._vzz_zaverka_check.toggled.connect(
+            lambda _b: self._load_vzz()
+        )
+        ctrl_row.addWidget(self._vzz_zaverka_check)
+        ctrl_row.addStretch(1)
+        layout.addLayout(ctrl_row)
+
         cols = ("Označení", "Název", "Běžné období", "Minulé období")
         self._vzz_table = _make_table(cols)
         self._vzz_table.cellClicked.connect(self._on_vzz_clicked)
@@ -449,8 +489,9 @@ class VykazyPage(QWidget):
         dlg.exec()
 
     def _load_vzz(self) -> None:
+        vcetne_z = self._vzz_zaverka_check.isChecked()
         try:
-            radky = self._query.get_vzz(self._rok)
+            radky = self._query.get_vzz(self._rok, vcetne_zaverky=vcetne_z)
         except Exception as e:
             self._show_warning(f"Chyba při načítání VZZ: {e}")
             return
@@ -503,6 +544,15 @@ class VykazyPage(QWidget):
         self._predvaha_show_zero = QCheckBox("Zobrazit i nulové účty", w)
         self._predvaha_show_zero.toggled.connect(lambda _b: self._load_predvaha())
         ctrl_row.addWidget(self._predvaha_show_zero)
+
+        self._predvaha_zaverka_check = QCheckBox(
+            "Včetně závěrkových zápisů", w,
+        )
+        self._predvaha_zaverka_check.setChecked(False)
+        self._predvaha_zaverka_check.toggled.connect(
+            lambda _b: self._load_predvaha()
+        )
+        ctrl_row.addWidget(self._predvaha_zaverka_check)
         ctrl_row.addStretch(1)
 
         self._predvaha_balance_label = QLabel("", w)
@@ -517,7 +567,11 @@ class VykazyPage(QWidget):
     def _load_predvaha(self) -> None:
         try:
             jen_pohyb = not self._predvaha_show_zero.isChecked()
-            radky = self._query.get_predvaha(self._rok, jen_s_pohybem=jen_pohyb)
+            vcetne_z = self._predvaha_zaverka_check.isChecked()
+            radky = self._query.get_predvaha(
+                self._rok, jen_s_pohybem=jen_pohyb,
+                vcetne_zaverky=vcetne_z,
+            )
         except Exception as e:
             self._show_warning(f"Chyba při načítání předvahy: {e}")
             return
@@ -576,6 +630,15 @@ class VykazyPage(QWidget):
             lambda _i: self._load_kniha_detail()
         )
         ctrl_row.addWidget(self._kniha_combo)
+
+        self._kniha_zaverka_check = QCheckBox(
+            "Včetně závěrkových zápisů", w,
+        )
+        self._kniha_zaverka_check.setChecked(True)  # audit default
+        self._kniha_zaverka_check.toggled.connect(
+            lambda _b: self._load_kniha_detail()
+        )
+        ctrl_row.addWidget(self._kniha_zaverka_check)
         ctrl_row.addStretch(1)
 
         self._kniha_summary = QLabel("", w)
@@ -611,7 +674,10 @@ class VykazyPage(QWidget):
         if not ucet:
             return
         try:
-            kniha = self._query.get_hlavni_kniha(ucet, self._rok)
+            vcetne_z = self._kniha_zaverka_check.isChecked()
+            kniha = self._query.get_hlavni_kniha(
+                ucet, self._rok, vcetne_zaverky=vcetne_z,
+            )
         except Exception as e:
             self._show_warning(f"Chyba: {e}")
             return
@@ -1023,6 +1089,65 @@ class VykazyPage(QWidget):
 
     def _hide_warning(self) -> None:
         self._warning_label.setVisible(False)
+
+    # ──────────────────────────────────────────────
+    # Vystavení uzávěrky roku
+    # ──────────────────────────────────────────────
+
+    def _on_uzaverka_clicked(self) -> None:
+        if self._uzaverka_command is None:
+            return
+        rok = self._rok
+        # Confirm dialog
+        dlg = QMessageBox(self)
+        dlg.setWindowTitle(f"Vystavit uzávěrku roku {rok}?")
+        dlg.setIcon(QMessageBox.Icon.Warning)
+        dlg.setText(
+            f"Vystavíte uzavírací doklady k 31.12.{rok}:\n\n"
+            f"Z1 — uzavření výsledkových účtů (5xx, 6xx) → 710.100\n"
+            f"Z2 — převod hospodářského výsledku → 431.100\n"
+            f"Z3 — uzavření rozvahových účtů → 702.100\n\n"
+            f"⚠️ Tato operace je nevratná.\n"
+            f"Doklady lze odstranit jen ručním smazáním z účetního deníku.\n"
+            f"Pokračovat?"
+        )
+        cancel_btn = dlg.addButton("Zrušit", QMessageBox.ButtonRole.RejectRole)
+        confirm_btn = dlg.addButton(
+            "Vystavit uzávěrku", QMessageBox.ButtonRole.DestructiveRole,
+        )
+        dlg.setDefaultButton(cancel_btn)
+        dlg.exec()
+        if dlg.clickedButton() is not confirm_btn:
+            return
+
+        # Execute
+        from domain.shared.errors import ConflictError
+        try:
+            result = self._uzaverka_command.execute(rok)
+        except ConflictError:
+            QMessageBox.information(
+                self,
+                "Uzávěrka už existuje",
+                f"Uzávěrka roku {rok} byla již vystavena "
+                f"(doklad ID-{rok}-Z1). Pro nové vystavení nejprve "
+                f"smažte existující uzavírací doklady z účetního deníku.",
+            )
+            return
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                self, "Chyba uzávěrky",
+                f"Vystavení uzávěrky se nezdařilo: {exc}",
+            )
+            return
+
+        # Success
+        QMessageBox.information(
+            self, "Uzávěrka vystavena",
+            f"Uzávěrka {result.rok} vystavena "
+            f"(ID-{result.rok}-Z1, Z2, Z3).\n\n"
+            f"VH: {result.vh.format_cz()}",
+        )
+        self._reload_active_tab()
 
     # ──────────────────────────────────────────────
     # PDF Export
