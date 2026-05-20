@@ -8,6 +8,10 @@ from domain.firma.firma import Firma
 from domain.firma.pocatecni_stav import PocatecniStav
 from domain.shared.money import Money
 from services.commands.pocatecni_stavy import PocatecniStavyCommand
+from services.commands.prenos_zustatku import (
+    PrenosZustatkuCommand,
+    PrenosZustatkuVysledek,
+)
 from services.commands.vklad_zk import VkladZKCommand
 
 
@@ -19,15 +23,18 @@ class PocatecniStavyViewModel:
         pocatecni_cmd: PocatecniStavyCommand,
         vklad_zk_cmd: VkladZKCommand,
         firma_loader: Callable[[], Firma | None],
+        prenos_cmd: PrenosZustatkuCommand | None = None,
     ) -> None:
         self._ps_cmd = pocatecni_cmd
         self._vklad_cmd = vklad_zk_cmd
+        self._prenos_cmd = prenos_cmd
         self._firma_loader = firma_loader
 
         self._rok: int = 2025
         self._stavy: list[PocatecniStav] = []
         self._firma: Firma | None = None
         self._error: str | None = None
+        self._posledni_prenos: PrenosZustatkuVysledek | None = None
 
     @property
     def rok(self) -> int:
@@ -109,6 +116,30 @@ class PocatecniStavyViewModel:
             result = self._ps_cmd.generovat_id_doklad(self._rok)
             self._error = None
             return result
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None
+
+    @property
+    def posledni_prenos(self) -> PrenosZustatkuVysledek | None:
+        return self._posledni_prenos
+
+    def prenest_zustatky_z(self, rok_zdroj: int) -> PrenosZustatkuVysledek | None:
+        """Přenese KZ z rok_zdroj jako PS aktuálního self._rok.
+
+        Vyžaduje rok_zdroj == self._rok - 1.
+        """
+        if self._prenos_cmd is None:
+            self._error = "Přenos zůstatků není k dispozici."
+            return None
+        try:
+            vysledek = self._prenos_cmd.prenest(
+                z_roku=rok_zdroj, do_roku=self._rok,
+            )
+            self._posledni_prenos = vysledek
+            self._error = None
+            self.load()
+            return vysledek
         except Exception as exc:  # noqa: BLE001
             self._error = str(exc) or exc.__class__.__name__
             return None

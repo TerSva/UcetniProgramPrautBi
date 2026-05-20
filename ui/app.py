@@ -56,6 +56,7 @@ from infrastructure.database.repositories.priloha_repository import (
 )
 from infrastructure.storage.priloha_storage import PrilohaStorage
 from services.commands.pocatecni_stavy import PocatecniStavyCommand
+from services.commands.prenos_zustatku import PrenosZustatkuCommand
 from services.commands.vklad_zk import VkladZKCommand
 from services.queries.ocr_inbox import OcrInboxQuery
 from services.banka.auto_uctovani import AutoUctovaniBankyCommand
@@ -318,6 +319,7 @@ def _build_pocatecni_stavy_vm(
     uow_factory = lambda: SqliteUnitOfWork(factory)  # noqa: E731
     ps_cmd = PocatecniStavyCommand(uow_factory=uow_factory)
     vklad_cmd = VkladZKCommand(uow_factory=uow_factory)
+    prenos_cmd = PrenosZustatkuCommand(uow_factory=uow_factory)
 
     def firma_loader():
         nastaveni_vm.load()
@@ -327,6 +329,7 @@ def _build_pocatecni_stavy_vm(
         pocatecni_cmd=ps_cmd,
         vklad_zk_cmd=vklad_cmd,
         firma_loader=firma_loader,
+        prenos_cmd=prenos_cmd,
     )
 
 

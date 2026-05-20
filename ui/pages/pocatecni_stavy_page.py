@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -50,6 +51,7 @@ class PocatecniStavyPage(QWidget):
         self._poznamka_input: LabeledLineEdit
         self._pridat_button: QPushButton
         self._vklad_zk_button: QPushButton
+        self._prenest_button: QPushButton
         self._generovat_button: QPushButton
         self._bilance_label: QLabel
         self._error_label: QLabel
@@ -93,6 +95,12 @@ class PocatecniStavyPage(QWidget):
         self._vklad_zk_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self._vklad_zk_button.clicked.connect(self._on_vklad_zk)
         row_rok.addWidget(self._vklad_zk_button)
+
+        self._prenest_button = QPushButton("Přenést zůstatky z roku N-1", self)
+        self._prenest_button.setProperty("class", "secondary")
+        self._prenest_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._prenest_button.clicked.connect(self._on_prenest)
+        row_rok.addWidget(self._prenest_button)
 
         self._generovat_button = QPushButton("Generovat doklad 701", self)
         self._generovat_button.setProperty("class", "primary")
@@ -231,17 +239,69 @@ class PocatecniStavyPage(QWidget):
             self._vm.load()
             self._refresh_table()
 
+    def _on_prenest(self) -> None:
+        if self._vm is None:
+            return
+        rok_zdroj = self._vm.rok - 1
+        reply = QMessageBox.question(
+            self,
+            "Přenést zůstatky",
+            f"Přenést konečné zůstatky z roku {rok_zdroj} jako "
+            f"počáteční stavy roku {self._vm.rok}?\n\n"
+            f"• Rozvahové účty (třídy 0–4) se přenesou s KZ.\n"
+            f"• Výsledkové účty (5xx, 6xx) se nepřenášejí, "
+            f"VH se převede na účet 431.\n"
+            f"• Závěrkové účty (7xx) se nepřenášejí.\n\n"
+            f"Pro rok {self._vm.rok} nesmí být žádné PS — jinak smažte je nejdřív.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        vysledek = self._vm.prenest_zustatky_z(rok_zdroj)
+        if self._vm.error:
+            self._show_error(self._vm.error)
+            return
+        if vysledek is None:
+            self._show_error("Přenos se nezdařil.")
+            return
+        self._hide_error()
+        self._refresh_table()
+        vh_text = (
+            f"zisk {vysledek.vh.format_cz()}"
+            if vysledek.vh.is_positive
+            else f"ztráta {abs(vysledek.vh).format_cz()}"
+            if vysledek.vh.is_negative
+            else "0,00 Kč"
+        )
+        QMessageBox.information(
+            self,
+            "Přenos dokončen",
+            f"Přeneseno {vysledek.pocet_zaznamu} záznamů z roku "
+            f"{vysledek.rok_zdroj}.\n\n"
+            f"VH za {vysledek.rok_zdroj}: {vh_text}\n"
+            f"MD celkem: {vysledek.soucet_md.format_cz()}\n"
+            f"DAL celkem: {vysledek.soucet_dal.format_cz()}",
+        )
+
     def _on_generovat(self) -> None:
         if self._vm is None:
             return
         result = self._vm.generovat_doklad()
         if self._vm.error:
             self._show_error(self._vm.error)
-        elif result is not None:
-            self._hide_error()
-            self._show_error(f"Doklad 701 vytvořen (ID: {result}).")
-        else:
+            return
+        if result is None:
             self._show_error("Žádné počáteční stavy nebo doklad již existuje.")
+            return
+        self._hide_error()
+        QMessageBox.information(
+            self,
+            "Doklad 701 vytvořen",
+            f"Otevírací doklad ID-{self._vm.rok}-PS byl zaúčtován "
+            f"(interní ID dokladu: {result}).\n\n"
+            f"V účetním deníku najdeš počáteční zápisy přes účet 701.",
+        )
 
     def _refresh_table(self) -> None:
         if self._vm is None:
