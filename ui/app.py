@@ -425,12 +425,19 @@ def run(db_path: Path | None = None) -> int:
     _dph_podani = DphPodaniCommand(_dph_uow_factory)
     _dph_priznani = DphPriznaniQuery(_dph_detail)
     _dph_vies = ViesQuery(_dph_uow_factory)
+    from services.export.dph_export import DphExportService
+    _dph_export = DphExportService(
+        uow_factory=_dph_uow_factory,
+        prehled_query=_dph_prehled,
+        detail_query=_dph_detail,
+    )
     dph_vm = DphViewModel(
         prehled_query=_dph_prehled,
         detail_query=_dph_detail,
         podani_command=_dph_podani,
         priznani_query=_dph_priznani,
         vies_query=_dph_vies,
+        export_service=_dph_export,
     )
 
     def _export_pdf_fn(

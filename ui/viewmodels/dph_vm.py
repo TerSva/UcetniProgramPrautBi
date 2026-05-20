@@ -6,7 +6,13 @@ a souhrnné hlášení (VIES). Měsíční filter na hlavní tabulce.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from services.commands.dph_podani import DphPodaniCommand
+from services.export.dph_export import (
+    DphExportRozsah,
+    DphExportService,
+)
 from services.queries.dph_prehled import (
     DphMesicDetailQuery,
     DphMesicItem,
@@ -29,12 +35,14 @@ class DphViewModel:
         podani_command: DphPodaniCommand,
         priznani_query: DphPriznaniQuery | None = None,
         vies_query: ViesQuery | None = None,
+        export_service: DphExportService | None = None,
     ) -> None:
         self._prehled_query = prehled_query
         self._detail_query = detail_query
         self._podani_command = podani_command
         self._priznani_query = priznani_query or DphPriznaniQuery(detail_query)
         self._vies_query = vies_query
+        self._export_service = export_service
 
         self._rok: int = 2025
         self._mesic_filter: int | None = None  # None = všechny
@@ -115,6 +123,27 @@ class DphViewModel:
         except Exception as exc:  # noqa: BLE001
             self._vies = []
             self._error = str(exc) or exc.__class__.__name__
+
+    @property
+    def export_dostupny(self) -> bool:
+        return self._export_service is not None
+
+    def export_pdf(
+        self,
+        rozsah: DphExportRozsah,
+        output_path: Path,
+    ) -> tuple[Path, list[tuple[int, int]]] | None:
+        """Spustí export PDF. Vrátí (cesta, zahrnuté měsíce) nebo None při chybě."""
+        if self._export_service is None:
+            self._error = "Export není k dispozici."
+            return None
+        try:
+            result = self._export_service.export_pdf(rozsah, output_path)
+            self._error = None
+            return result
+        except Exception as exc:  # noqa: BLE001
+            self._error = str(exc) or exc.__class__.__name__
+            return None
 
     def oznac_podane(self, mesic: int, podano: bool) -> None:
         try:

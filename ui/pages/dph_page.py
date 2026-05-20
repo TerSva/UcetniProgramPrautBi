@@ -9,12 +9,17 @@ Tři záložky:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMessageBox,
+    QPushButton,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -96,6 +101,14 @@ class DphPage(QWidget):
         self._mesic_combo.set_value(0)
         period_row.addWidget(self._mesic_combo)
         period_row.addStretch(1)
+
+        self._export_button = QPushButton("Export PDF", self)
+        self._export_button.setProperty("class", "secondary")
+        self._export_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._export_button.clicked.connect(self._on_export)
+        self._export_button.setVisible(self._vm.export_dostupny)
+        period_row.addWidget(self._export_button)
+
         root.addLayout(period_row)
 
         # Tabs
@@ -247,6 +260,65 @@ class DphPage(QWidget):
         if index == 1:
             self._vm.load_vies()
             self._fill_vies()
+
+    def _on_export(self) -> None:
+        from ui.dialogs.export_dph_dialog import ExportDphDialog
+
+        dlg = ExportDphDialog(
+            default_rok=self._vm.rok,
+            default_mesic=self._vm.mesic_filter,
+            parent=self,
+        )
+        if not dlg.exec():
+            return
+        rozsah = dlg.rozsah
+        if rozsah is None:
+            return
+
+        # Default filename podle rozsahu
+        if rozsah.od_rok == rozsah.do_rok and rozsah.od_mesic == rozsah.do_mesic:
+            default_name = (
+                f"PRAUT_dph_{rozsah.od_rok}_{rozsah.od_mesic:02d}.pdf"
+            )
+        elif rozsah.od_mesic == 1 and rozsah.do_mesic == 12 \
+                and rozsah.od_rok == rozsah.do_rok:
+            default_name = f"PRAUT_dph_{rozsah.od_rok}.pdf"
+        else:
+            default_name = (
+                f"PRAUT_dph_{rozsah.od_rok}-{rozsah.od_mesic:02d}_"
+                f"{rozsah.do_rok}-{rozsah.do_mesic:02d}.pdf"
+            )
+
+        path_str, _ = QFileDialog.getSaveFileName(
+            self,
+            "Uložit PDF",
+            default_name,
+            "PDF (*.pdf)",
+        )
+        if not path_str:
+            return
+
+        result = self._vm.export_pdf(rozsah, Path(path_str))
+        if self._vm.error or result is None:
+            QMessageBox.warning(
+                self, "Export se nezdařil",
+                self._vm.error or "Neznámá chyba při exportu.",
+            )
+            return
+
+        path, zahrnute = result
+        if not zahrnute:
+            QMessageBox.information(
+                self, "Export dokončen",
+                "V zadaném rozsahu nebyly žádné měsíce s RC plněním.\n"
+                f"Prázdné PDF uloženo: {path.name}",
+            )
+        else:
+            QMessageBox.information(
+                self, "Export dokončen",
+                f"PDF uloženo: {path.name}\n"
+                f"Zahrnutých měsíců: {len(zahrnute)}",
+            )
 
     def _on_row_double_clicked(self, row: int, _col: int) -> None:
         rows = self._vm.mesice_filtered
